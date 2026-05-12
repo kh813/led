@@ -1,0 +1,44 @@
+[meta]
+name = "Go"
+extensions = ["go"]
+
+[[rule]]
+token = "keyword"
+pattern = "break|default|func|interface|select|case|defer|go|map|struct|chan|else|goto|package|switch|const|fallthrough|if|range|type|continue|for|import|return|var"
+word_boundary = true
+
+[[rule]]
+token = "type_name"
+pattern = "int|int8|int16|int32|int64|uint|uint8|uint16|uint32|uint64|uintptr|float32|float64|complex64|complex128|bool|byte|rune|string|error"
+word_boundary = true
+
+[[rule]]
+token = "constant"
+pattern = "nil|true|false|iota"
+word_boundary = true
+
+[[rule]]
+token = "string"
+pattern = "\".*?\""
+
+[[rule]]
+token = "string"
+pattern = "'.*?'"
+
+[[rule]]
+token = "string"
+pattern = "`.*?`"
+
+[[rule]]
+token = "comment"
+pattern = "//.*"
+
+[[rule]]
+token = "comment"
+start = "/\\*"
+end = "\\*/"
+
+[[rule]]
+token = "function"
+pattern = "[a-zA-Z_][a-zA-Z0-9_]*\\s*(?=\\()"
+word_boundary = true

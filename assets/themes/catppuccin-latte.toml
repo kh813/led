@@ -1,0 +1,42 @@
+[meta]
+name = "Catppuccin Latte"
+
+[editor]
+background = "#eff1f5"
+foreground = "#4c4f69"
+cursor = "#dc8a78"
+selection = "#acb0be"
+line_number = "#9ca0b0"
+
+[ui]
+menu_bar_bg = "#e6e9ef"
+menu_bar_fg = "#4c4f69"
+menu_item_active_bg = "#ccd0da"
+menu_item_active_fg = "#1e66f5"
+tab_bar_bg = "#e6e9ef"
+tab_active_bg = "#eff1f5"
+tab_active_fg = "#4c4f69"
+tab_inactive_bg = "#e6e9ef"
+tab_inactive_fg = "#9ca0b0"
+status_bar_bg = "#e6e9ef"
+status_bar_fg = "#4c4f69"
+panel_bg = "#dce0e8"
+panel_fg = "#4c4f69"
+panel_error_fg = "#d20f39"
+dialog_bg = "#e6e9ef"
+dialog_border = "#1e66f5"
+button_active_bg = "#ccd0da"
+button_active_fg = "#1e66f5"
+
+[syntax]
+keyword = "#8839ef"
+type_name = "#df8e1d"
+function = "#1e66f5"
+string = "#40a02b"
+number = "#fe640b"
+comment = "#9ca0b0"
+operator = "#179299"
+punctuation = "#4c4f69"
+constant = "#fe640b"
+attribute = "#04a5e5"
+error = "#d20f39"

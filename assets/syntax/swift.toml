@@ -1,0 +1,35 @@
+[meta]
+name = "Swift"
+extensions = ["swift"]
+
+[[rule]]
+token = "keyword"
+pattern = "associatedtype|class|deinit|enum|extension|fileprivate|func|import|init|inout|internal|let|open|operator|private|protocol|public|rethrows|static|struct|subscript|typealias|var|break|case|continue|default|defer|do|else|fallthrough|for|guard|if|in|repeat|return|switch|where|while|as|Any|catch|false|is|nil|rethrows|super|self|Self|throw|throws|true|try"
+word_boundary = true
+
+[[rule]]
+token = "type_name"
+pattern = "Int|UInt|Double|Float|Bool|String|Character|Array|Dictionary|Set|Optional"
+word_boundary = true
+
+[[rule]]
+token = "string"
+pattern = "\".*?\""
+
+[[rule]]
+token = "comment"
+pattern = "//.*"
+
+[[rule]]
+token = "comment"
+start = "/\\*"
+end = "\\*/"
+
+[[rule]]
+token = "attribute"
+pattern = "@[a-zA-Z_][a-zA-Z0-9_]*"
+
+[[rule]]
+token = "function"
+pattern = "[a-zA-Z_][a-zA-Z0-9_]*\\s*(?=\\()"
+word_boundary = true

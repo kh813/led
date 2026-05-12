@@ -1,0 +1,16 @@
+[package]
+name = "led-core"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+anyhow        = { workspace = true }
+serde         = { workspace = true }
+toml          = "0.8"
+toml-span     = { workspace = true }
+regex         = { workspace = true }
+aho-corasick  = { workspace = true }
+unicode-width = { workspace = true }
+encoding_rs   = { workspace = true }
+ropey         = { workspace = true }
+rayon         = { workspace = true }

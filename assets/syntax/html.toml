@@ -1,0 +1,28 @@
+[meta]
+name = "HTML"
+extensions = ["html", "htm"]
+
+[[rule]]
+token = "keyword"
+pattern = "<[^>!]*>"
+
+[[rule]]
+token = "type_name"
+pattern = "<[^>]*?\\s([a-zA-Z0-9_-]+)="
+
+[[rule]]
+token = "string"
+pattern = "\".*?\""
+
+[[rule]]
+token = "string"
+pattern = "'.*?'"
+
+[[rule]]
+token = "comment"
+start = "<!--"
+end = "-->"
+
+[[rule]]
+token = "constant"
+pattern = "&[a-zA-Z0-9#]+;"

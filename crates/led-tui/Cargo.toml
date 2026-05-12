@@ -1,0 +1,18 @@
+[package]
+name = "led-tui"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "led"
+path = "src/main.rs"
+
+[dependencies]
+led-core  = { path = "../led-core" }
+crossterm = "0.28"
+anyhow    = { workspace = true }
+base64    = "0.22"
+unicode-width = { workspace = true }
+chrono    = { workspace = true }
+humantime = { workspace = true }
+arboard = "3.6.1"

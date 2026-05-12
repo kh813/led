@@ -1,0 +1,33 @@
+[meta]
+name = "XML"
+extensions = ["xml", "svg", "plist"]
+
+[[rule]]
+token = "keyword"
+pattern = "<[^>!]*>"
+
+[[rule]]
+token = "type_name"
+pattern = "<[^>]*?\\s([a-zA-Z0-9_-]+)="
+
+[[rule]]
+token = "string"
+pattern = "\".*?\""
+
+[[rule]]
+token = "string"
+pattern = "'.*?'"
+
+[[rule]]
+token = "comment"
+start = "<!--"
+end = "-->"
+
+[[rule]]
+token = "string"
+start = "<!\\[CDATA\\["
+end = "\\]\\]>"
+
+[[rule]]
+token = "attribute"
+pattern = "<\\?.*?\\?>"

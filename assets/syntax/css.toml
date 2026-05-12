@@ -1,0 +1,33 @@
+[meta]
+name = "CSS"
+extensions = ["css"]
+
+[[rule]]
+token = "keyword"
+pattern = "[a-zA-Z-]+\\s*(?=:)"
+word_boundary = true
+
+[[rule]]
+token = "string"
+pattern = "(?<=:)\\s*[^;!]+(?=;|$)"
+
+[[rule]]
+token = "type_name"
+pattern = "\\.[a-zA-Z0-9_-]+"
+
+[[rule]]
+token = "type_name"
+pattern = "#[a-zA-Z0-9_-]+"
+
+[[rule]]
+token = "attribute"
+pattern = "@[a-zA-Z-]+"
+
+[[rule]]
+token = "comment"
+start = "/\\*"
+end = "\\*/"
+
+[[rule]]
+token = "constant"
+pattern = "![a-zA-Z]+"

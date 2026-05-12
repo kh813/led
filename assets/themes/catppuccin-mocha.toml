@@ -1,0 +1,42 @@
+[meta]
+name = "Catppuccin Mocha"
+
+[editor]
+background = "#1e1e2e"
+foreground = "#cdd6f4"
+cursor = "#f5e0dc"
+selection = "#585b70"
+line_number = "#6c7086"
+
+[ui]
+menu_bar_bg = "#181825"
+menu_bar_fg = "#cdd6f4"
+menu_item_active_bg = "#313244"
+menu_item_active_fg = "#89b4fa"
+tab_bar_bg = "#181825"
+tab_active_bg = "#1e1e2e"
+tab_active_fg = "#cdd6f4"
+tab_inactive_bg = "#181825"
+tab_inactive_fg = "#6c7086"
+status_bar_bg = "#181825"
+status_bar_fg = "#cdd6f4"
+panel_bg = "#11111b"
+panel_fg = "#cdd6f4"
+panel_error_fg = "#f38ba8"
+dialog_bg = "#181825"
+dialog_border = "#89b4fa"
+button_active_bg = "#313244"
+button_active_fg = "#89b4fa"
+
+[syntax]
+keyword = "#cba6f7"
+type_name = "#f9e2af"
+function = "#89b4fa"
+string = "#a6e3a1"
+number = "#fab387"
+comment = "#9399b2"
+operator = "#94e2d5"
+punctuation = "#cdd6f4"
+constant = "#fab387"
+attribute = "#89dceb"
+error = "#f38ba8"

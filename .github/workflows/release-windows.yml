@@ -1,0 +1,23 @@
+name: Release Windows
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust
+        run: rustup update stable
+      - name: Build
+        run: cargo build --release -p led-gui
+      - name: Rename binary
+        run: move target/release/led-gui.exe led.exe
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: led-windows
+          path: led.exe

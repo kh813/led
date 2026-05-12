@@ -1,0 +1,2909 @@
+use std::io::{self, Stdout, Write};
+use std::path::PathBuf;
+use std::time::{Duration, Instant};
+use crossterm::{
+    cursor,
+    event::{self, Event, KeyCode, KeyEvent, KeyModifiers, MouseEvent, MouseEventKind},
+    execute,
+    style::Color,
+    terminal::{self, EnterAlternateScreen, LeaveAlternateScreen},
+};
+use anyhow::Result;
+use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
+use crate::renderer::{Renderer, Cell};
+use crate::layout::Layout;
+use crate::clipboard;
+use crate::widgets::menu::{Menu, MenuItem};
+use crate::widgets::find_panel::PanelField;
+use crate::widgets::dialog::{self, Dialog, DialogResult};
+use led_core::{Action, Config, I18n, Encoding, LineEnding, buffer::Editor};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Focus {
+    Editor,
+    Menu,
+    Panel,
+    Dialog,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PendingOp {
+    None,
+    Open,
+    SaveAs,
+    Exit,
+    Close,
+}
+
+pub struct App {
+    pub focus: Focus,
+    pub running: bool,
+    pub width: u16,
+    pub height: u16,
+    pub renderer: Renderer,
+    pub layout: Layout,
+    pub last_click_time: Instant,
+    pub last_click_pos: (u16, u16),
+    pub click_count: u8,
+    
+    pub config: Config,
+    pub i18n: I18n,
+    pub menus: Vec<Menu>,
+    pub active_menu: Option<usize>,
+    pub selected_item: usize,
+    pub submenu_stack: Vec<(usize, usize)>, // (menu_idx, item_idx)
+    pub dropdown_rects: Vec<(u16, u16, u16, u16, usize)>, // x, y, w, h, item_idx
+    pub current_dialog: Option<Box<dyn Dialog>>,
+    pub pending_op: PendingOp,
+    pub target_encoding: Option<Encoding>,
+    #[allow(dead_code)]
+    pub target_line_ending: Option<LineEnding>,
+    pub target_path: Option<PathBuf>,
+    #[allow(dead_code)]
+    pub drag_start: Option<usize>,
+    
+    pub buffers: Vec<Editor>,
+    pub active_buffer: usize,
+
+    pub theme: led_core::theme::Theme,
+    pub themes: Vec<led_core::theme::Theme>,
+    pub syntax_defs: Vec<led_core::syntax::SyntaxDefinition>,
+
+    pub find_panel: crate::widgets::find_panel::FindPanel,
+    pub vi_cmd: String,
+    pub is_vi_cmd_mode: bool,
+    pub pending_g: bool,
+    pub pending_d: bool,
+    pub pending_y: bool,
+}
+
+impl App {
+    pub fn new(paths: Vec<PathBuf>) -> Result<Self> {
+        let (width, height) = terminal::size()?;
+        
+        let config = Config::load();
+        let i18n = I18n::load(&config.language);
+
+        let themes = led_core::theme::Theme::builtins();
+        let syntax_defs = led_core::syntax::SyntaxDefinition::builtins();
+        let theme = themes.iter()
+            .find(|t| t.meta.name.to_lowercase().replace(" ", "-") == config.theme.to_lowercase())
+            .cloned()
+            .unwrap_or_else(|| themes[0].clone());
+
+        let mut buffers = Vec::new();
+        let mut errors = Vec::new();
+
+        if paths.is_empty() {
+            buffers.push(Editor::new());
+        } else {
+            for path in paths {
+                if path.is_dir() {
+                    errors.push(i18n.get("error.cannot_open_dir").replace("{path}", &path.display().to_string()));
+                    continue;
+                }
+                match Editor::from_file(&path) {
+                    Ok(mut editor) => {
+                        // Detect syntax
+                        let ext = path.extension().and_then(|e| e.to_str());
+                        if let Some(ext) = ext {
+                            if let Some(def) = syntax_defs.iter().find(|s| s.meta.extensions.iter().any(|e| e == ext)) {
+                                if let Ok(highlighter) = led_core::syntax::SyntaxHighlighter::new(def.clone()) {
+                                    editor.update_syntax(Some(highlighter));
+                                }
+                            }
+                        }
+                        buffers.push(editor);
+                    }
+                    Err(e) => {
+                        errors.push(i18n.get("error.failed_to_open")
+                            .replace("{path}", &path.display().to_string())
+                            .replace("{error}", &e.to_string()));
+                    }
+                }
+            }
+        }
+
+        if buffers.is_empty() {
+            buffers.push(Editor::new());
+        }
+
+        let active_buffer = 0;
+        let menus = Self::build_menus(&i18n, &config, buffers.get(active_buffer), &themes, &syntax_defs);
+
+        let mut layout = Layout::new(width, height);
+        layout.recompute(&menus, &buffers, active_buffer, config.line_numbers);
+
+        let mut app = App {
+            focus: Focus::Editor,
+            running: true,
+            width,
+            height,
+            renderer: Renderer::new(width, height),
+            layout,
+            last_click_time: Instant::now(),
+            last_click_pos: (0, 0),
+            click_count: 0,
+            
+            config,
+            i18n,
+            menus,
+            active_menu: None,
+            selected_item: 0,
+            submenu_stack: Vec::new(),
+            dropdown_rects: Vec::new(),
+            current_dialog: None,
+            pending_op: PendingOp::None,
+            target_encoding: None,
+            target_line_ending: None,
+            target_path: None,
+            drag_start: None,
+            
+            buffers,
+            active_buffer,
+
+            theme,
+            themes,
+            syntax_defs,
+
+            find_panel: crate::widgets::find_panel::FindPanel::new(),
+            vi_cmd: String::new(),
+            is_vi_cmd_mode: false,
+            pending_g: false,
+            pending_d: false,
+            pending_y: false,
+        };
+
+        if !errors.is_empty() {
+            let message = errors.join("\n");
+            app.current_dialog = Some(Box::new(dialog::MessageDialog::new(
+                app.i18n.get("error").to_string(),
+                message,
+                vec![(app.i18n.get("dialog.ok").to_string(), dialog::Action::Confirm)],
+            )));
+            app.focus = Focus::Dialog;
+        }
+
+        Ok(app)
+    }
+
+    fn to_ct_color(&self, c: led_core::theme::Color) -> crossterm::style::Color {
+        if self.theme.meta.name == "Terminal Default" {
+            match c {
+                led_core::theme::Color::Rgb(0, 0, 0) | led_core::theme::Color::Rgb(255, 255, 255) => {
+                    return crossterm::style::Color::Reset;
+                }
+                led_core::theme::Color::Ansi(i) => {
+                    return crossterm::style::Color::AnsiValue(i);
+                }
+                _ => {}
+            }
+        }
+        match c {
+            led_core::theme::Color::Rgb(r, g, b) => crossterm::style::Color::Rgb { r, g, b },
+            led_core::theme::Color::Ansi(i) => crossterm::style::Color::AnsiValue(i),
+        }
+    }
+
+    fn get_token_color(&self, token: led_core::syntax::TokenType) -> Color {
+        let theme = &self.theme;
+        let color = match token {
+            led_core::syntax::TokenType::Keyword => theme.syntax.keyword,
+            led_core::syntax::TokenType::TypeName => theme.syntax.type_name,
+            led_core::syntax::TokenType::Function => theme.syntax.function,
+            led_core::syntax::TokenType::String => theme.syntax.string,
+            led_core::syntax::TokenType::Number => theme.syntax.number,
+            led_core::syntax::TokenType::Comment => theme.syntax.comment,
+            led_core::syntax::TokenType::Operator => theme.syntax.operator,
+            led_core::syntax::TokenType::Punctuation => theme.syntax.punctuation,
+            led_core::syntax::TokenType::Constant => theme.syntax.constant,
+            led_core::syntax::TokenType::Attribute => theme.syntax.attribute,
+            led_core::syntax::TokenType::Error => theme.syntax.error,
+        };
+        self.to_ct_color(color.unwrap_or(theme.editor.foreground))
+    }
+
+    fn detect_syntax(&self, path: &std::path::Path) -> Option<led_core::syntax::SyntaxHighlighter> {
+        let ext = path.extension()?.to_str()?;
+        let def = self.syntax_defs.iter().find(|s| s.meta.extensions.iter().any(|e| e == ext))?;
+        led_core::syntax::SyntaxHighlighter::new(def.clone()).ok()
+    }
+
+    fn build_menus(
+        i18n: &I18n,
+        config: &Config,
+        buffer: Option<&Editor>,
+        themes: &[led_core::theme::Theme],
+        syntax_defs: &[led_core::syntax::SyntaxDefinition],
+    ) -> Vec<Menu> {
+        let cur_enc = buffer.map(|b| b.encoding).unwrap_or(Encoding::Utf8);
+        let cur_le = buffer.map(|b| b.line_ending).unwrap_or(LineEnding::Lf);
+        let cur_syntax = buffer.and_then(|b| b.syntax_highlighter.as_ref().map(|h| h.def.meta.name.clone())).unwrap_or_else(|| "Plain Text".to_string());
+
+        let encodings = vec![
+            (Encoding::Utf8, "UTF-8"),
+            (Encoding::Utf8Bom, "UTF-8 with BOM"),
+            (Encoding::Utf16Le, "UTF-16 LE"),
+            (Encoding::Utf16Be, "UTF-16 BE"),
+            (Encoding::ShiftJis, "Shift-JIS"),
+            (Encoding::EucJp, "EUC-JP"),
+            (Encoding::Iso2022Jp, "ISO-2022-JP"),
+            (Encoding::Latin1, "Latin-1 (ISO-8859-1)"),
+        ];
+
+        let reopen_items = encodings.iter().map(|(enc, label)| {
+            MenuItem::Action { label: label.to_string(), action: Action::ReopenWithEncoding(*enc), shortcut: None }
+        }).collect();
+
+        let convert_items = encodings.iter().map(|(enc, label)| {
+            MenuItem::Toggle { label: label.to_string(), action: Action::ConvertToEncoding(*enc), checked: cur_enc == *enc, is_radio: true }
+        }).collect();
+
+        let line_ending_items = vec![
+            (LineEnding::Lf, "LF"),
+            (LineEnding::Crlf, "CRLF"),
+            (LineEnding::Cr, "CR"),
+        ].into_iter().map(|(le, label)| {
+            MenuItem::Toggle { label: label.to_string(), action: Action::SetLineEnding(le), checked: cur_le == le, is_radio: true }
+        }).collect();
+
+        let theme_items = themes.iter().map(|t| {
+            let id = t.meta.name.to_lowercase().replace(" ", "-");
+            MenuItem::Toggle {
+                label: t.meta.name.clone(),
+                action: Action::SetTheme(id.clone()),
+                checked: config.theme == id,
+                is_radio: true,
+            }
+        }).collect();
+
+        let syntax_items = syntax_defs.iter().map(|s| {
+            MenuItem::Toggle {
+                label: s.meta.name.clone(),
+                action: Action::SetSyntax(s.meta.name.clone()),
+                checked: cur_syntax == s.meta.name,
+                is_radio: true,
+            }
+        }).collect();
+
+        vec![
+            Menu::new(i18n.get("menu.file"), vec![
+                MenuItem::Action { label: i18n.get("menu.file.new").to_string(), action: Action::New, shortcut: Some("Ctrl+N".to_string()) },
+                MenuItem::Action { label: i18n.get("menu.file.open").to_string(), action: Action::Open, shortcut: Some("Ctrl+O".to_string()) },
+                MenuItem::Separator,
+                MenuItem::Action { label: i18n.get("menu.file.save").to_string(), action: Action::Save, shortcut: Some("Ctrl+S".to_string()) },
+                MenuItem::Action { label: i18n.get("menu.file.save_as").to_string(), action: Action::SaveAs, shortcut: Some("Ctrl+Shift+S".to_string()) },
+                MenuItem::Separator,
+                MenuItem::Action { label: i18n.get("menu.file.close").to_string(), action: Action::Close, shortcut: Some("Ctrl+W".to_string()) },
+                MenuItem::Separator,
+                MenuItem::Action { label: i18n.get("menu.file.exit").to_string(), action: Action::Exit, shortcut: Some("Ctrl+Q".to_string()) },
+            ]),
+            Menu::new(i18n.get("menu.edit"), vec![
+                MenuItem::Action { label: i18n.get("menu.edit.undo").to_string(), action: Action::Undo, shortcut: Some("Ctrl+Z".to_string()) },
+                MenuItem::Action { label: i18n.get("menu.edit.redo").to_string(), action: Action::Redo, shortcut: Some("Ctrl+Y".to_string()) },
+                MenuItem::Separator,
+                MenuItem::Action { label: i18n.get("menu.edit.cut").to_string(), action: Action::Cut, shortcut: Some("Ctrl+X".to_string()) },
+                MenuItem::Action { label: i18n.get("menu.edit.copy").to_string(), action: Action::Copy, shortcut: Some("Ctrl+C".to_string()) },
+                MenuItem::Action { label: i18n.get("menu.edit.paste").to_string(), action: Action::Paste, shortcut: Some("Ctrl+V".to_string()) },
+                MenuItem::Separator,
+                MenuItem::Action { label: i18n.get("menu.edit.find").to_string(), action: Action::Find, shortcut: Some("Ctrl+F".to_string()) },
+                MenuItem::Action { label: i18n.get("menu.edit.replace").to_string(), action: Action::Replace, shortcut: Some("Ctrl+H".to_string()) },
+                MenuItem::Separator,
+                MenuItem::Action { label: i18n.get("menu.edit.select_all").to_string(), action: Action::SelectAll, shortcut: Some("Ctrl+A".to_string()) },
+            ]),
+            Menu::new(i18n.get("menu.view"), vec![
+                MenuItem::Action { label: i18n.get("menu.view.go_to_line").to_string(), action: Action::GoToLine, shortcut: Some("Ctrl+G".to_string()) },
+                MenuItem::Separator,
+                MenuItem::Toggle { label: i18n.get("menu.view.line_numbers").to_string(), action: Action::ToggleLineNumbers, checked: config.line_numbers, is_radio: false },
+                MenuItem::Toggle { label: i18n.get("menu.view.word_wrap").to_string(), action: Action::ToggleWordWrap, checked: config.word_wrap, is_radio: false },
+                MenuItem::Toggle { label: i18n.get("menu.view.vi_mode").to_string(), action: Action::ToggleViMode, checked: config.vi_mode, is_radio: false },
+                MenuItem::Separator,
+                MenuItem::Submenu { label: "Encoding".to_string(), menu: Menu::new("Encoding", vec![
+                    MenuItem::Submenu { label: "Reopen with Encoding".to_string(), menu: Menu::new("Reopen", reopen_items)},
+                    MenuItem::Submenu { label: "Convert to Encoding".to_string(), menu: Menu::new("Convert", convert_items)},
+                ])},
+                MenuItem::Submenu { label: "Line Ending".to_string(), menu: Menu::new("Line Ending", line_ending_items)},
+                MenuItem::Separator,
+                MenuItem::Submenu { label: "Theme".to_string(), menu: Menu::new("Theme", theme_items)},
+                MenuItem::Submenu { label: "Syntax".to_string(), menu: Menu::new("Syntax", syntax_items)},
+            ]),
+            Menu::new(i18n.get("menu.help"), vec![
+                MenuItem::Action { label: i18n.get("menu.help.about").to_string(), action: Action::About, shortcut: None },
+            ]),
+        ]
+    }
+
+    pub fn run(&mut self) -> Result<()> {
+        let mut stdout = io::stdout();
+        self.init_terminal(&mut stdout)?;
+
+        while self.running {
+            if self.width < 40 || self.height < 24 {
+                self.render_too_small(&mut stdout)?;
+            } else {
+                self.render(&mut stdout)?;
+            }
+
+            if event::poll(std::time::Duration::from_millis(100))? {
+                match event::read()? {
+                    Event::Key(key) => self.handle_key(key),
+                    Event::Mouse(mouse) => self.handle_mouse(mouse),
+                    Event::Resize(w, h) => {
+                        self.width = w;
+                        self.height = h;
+                        self.renderer.resize(w, h);
+                        self.layout.width = w;
+                        self.layout.height = h;
+                        self.layout.recompute(&self.menus, &self.buffers, self.active_buffer, self.config.line_numbers);
+                    }
+                    _ => {}
+                }
+            }
+        }
+
+        self.cleanup_terminal(&mut stdout)?;
+        Ok(())
+    }
+
+    fn init_terminal(&self, stdout: &mut Stdout) -> Result<()> {
+        terminal::enable_raw_mode()?;
+        execute!(
+            stdout,
+            EnterAlternateScreen,
+            event::EnableMouseCapture,
+            cursor::Hide
+        )?;
+        
+        let original_hook = std::panic::take_hook();
+        std::panic::set_hook(Box::new(move |panic_info| {
+            let mut stdout = io::stdout();
+            let _ = terminal::disable_raw_mode();
+            let _ = execute!(
+                stdout,
+                LeaveAlternateScreen,
+                event::DisableMouseCapture,
+                cursor::Show
+            );
+            original_hook(panic_info);
+        }));
+
+        Ok(())
+    }
+
+    fn cleanup_terminal(&self, stdout: &mut Stdout) -> Result<()> {
+        terminal::disable_raw_mode()?;
+        execute!(
+            stdout,
+            LeaveAlternateScreen,
+            event::DisableMouseCapture,
+            cursor::Show
+        )?;
+        Ok(())
+    }
+
+    fn handle_key(&mut self, key: KeyEvent) {
+        // Global shortcuts (Ctrl+...) only if not in a dialog
+        if self.focus != Focus::Dialog && key.modifiers == KeyModifiers::CONTROL {
+            match key.code {
+                KeyCode::Char('q') => { self.perform_action(Action::Exit); return; }
+                KeyCode::Char('n') => { self.perform_action(Action::New); return; }
+                KeyCode::Char('o') => { self.perform_action(Action::Open); return; }
+                KeyCode::Char('s') => { self.perform_action(Action::Save); return; }
+                KeyCode::Char('w') => { self.perform_action(Action::Close); return; }
+                KeyCode::Char('z') => { self.perform_action(Action::Undo); return; }
+                KeyCode::Char('y') => { self.perform_action(Action::Redo); return; }
+                KeyCode::Char('f') => { self.perform_action(Action::Find); return; }
+                KeyCode::Char('h') => { self.perform_action(Action::Replace); return; }
+                KeyCode::Tab => {
+                    self.active_buffer = (self.active_buffer + 1) % self.buffers.len();
+                    self.menus = Self::build_menus(&self.i18n, &self.config, self.buffers.get(self.active_buffer), &self.themes, &self.syntax_defs);
+                    self.layout.recompute(&self.menus, &self.buffers, self.active_buffer, self.config.line_numbers);
+                    if self.layout.panel_height > 0 {
+                        self.run_search();
+                    }
+                    return;
+                }
+                _ => {}
+            }
+        }
+        if self.focus != Focus::Dialog && key.modifiers == (KeyModifiers::CONTROL | KeyModifiers::SHIFT) {
+            match key.code {
+                KeyCode::Char('S') | KeyCode::Char('s') => { self.perform_action(Action::SaveAs); return; }
+                KeyCode::Tab | KeyCode::BackTab => {
+                    self.active_buffer = if self.active_buffer == 0 { self.buffers.len() - 1 } else { self.active_buffer - 1 };
+                    self.menus = Self::build_menus(&self.i18n, &self.config, self.buffers.get(self.active_buffer), &self.themes, &self.syntax_defs);
+                    self.layout.recompute(&self.menus, &self.buffers, self.active_buffer, self.config.line_numbers);
+                    if self.layout.panel_height > 0 {
+                        self.run_search();
+                    }
+                    return;
+                }
+                _ => {}
+            }
+        }
+
+        // Handle Alt shortcuts for menus (only if not in a dialog)
+        if self.focus != Focus::Dialog && key.modifiers == KeyModifiers::ALT {
+            match key.code {
+                KeyCode::Char('f') => { self.open_menu(0); return; }
+                KeyCode::Char('e') => { self.open_menu(1); return; }
+                KeyCode::Char('v') => { self.open_menu(2); return; }
+                KeyCode::Char('h') => { self.open_menu(3); return; }
+                _ => {}
+            }
+        }
+        
+        // Dispatch based on focus
+        match self.focus {
+            Focus::Menu => self.handle_menu_key(key),
+            Focus::Dialog => self.handle_dialog_key(key),
+            Focus::Panel => self.handle_panel_key(key),
+            Focus::Editor => {
+                if self.config.vi_mode {
+                    self.handle_vi_key(key);
+                } else {
+                    self.handle_editor_key(key);
+                }
+            }
+        }
+    }
+
+    fn handle_vi_key(&mut self, key: KeyEvent) {
+        if self.is_vi_cmd_mode {
+            self.handle_vi_cmd_key(key);
+            return;
+        }
+
+        let buffer = if let Some(b) = self.buffers.get_mut(self.active_buffer) {
+            b
+        } else {
+            return;
+        };
+
+        match buffer.vi_mode {
+            led_core::ViMode::Normal => self.handle_vi_normal_key(key),
+            led_core::ViMode::Insert => {
+                if key.code == KeyCode::Esc {
+                    buffer.vi_mode = led_core::ViMode::Normal;
+                    buffer.selection = None;
+                    buffer.selection_anchor = None;
+                } else {
+                    self.handle_editor_key(key);
+                }
+            }
+            led_core::ViMode::Visual => self.handle_vi_visual_key(key),
+        }
+    }
+
+    fn handle_vi_normal_key(&mut self, key: KeyEvent) {
+        let code = key.code;
+        
+        match code {
+            KeyCode::Char('i') => {
+                if let Some(buffer) = self.buffers.get_mut(self.active_buffer) {
+                    buffer.vi_mode = led_core::ViMode::Insert;
+                }
+            }
+            KeyCode::Char('a') => {
+                if let Some(buffer) = self.buffers.get_mut(self.active_buffer) {
+                    buffer.move_cursor_right(false);
+                    buffer.vi_mode = led_core::ViMode::Insert;
+                }
+            }
+            KeyCode::Char('o') => {
+                if let Some(buffer) = self.buffers.get_mut(self.active_buffer) {
+                    buffer.move_cursor_end(false);
+                    buffer.insert(buffer.cursor, "\n");
+                    buffer.vi_mode = led_core::ViMode::Insert;
+                }
+            }
+            KeyCode::Char('v') => {
+                if let Some(buffer) = self.buffers.get_mut(self.active_buffer) {
+                    buffer.vi_mode = led_core::ViMode::Visual;
+                    buffer.ensure_selection();
+                }
+            }
+            KeyCode::Char('h') => {
+                if let Some(buffer) = self.buffers.get_mut(self.active_buffer) {
+                    buffer.move_cursor_left(false);
+                }
+            }
+            KeyCode::Char('j') => {
+                if self.config.word_wrap {
+                    self.move_cursor_vdown(false);
+                } else if let Some(buffer) = self.buffers.get_mut(self.active_buffer) {
+                    buffer.move_cursor_down(false);
+                }
+            }
+            KeyCode::Char('k') => {
+                if self.config.word_wrap {
+                    self.move_cursor_vup(false);
+                } else if let Some(buffer) = self.buffers.get_mut(self.active_buffer) {
+                    buffer.move_cursor_up(false);
+                }
+            }
+            KeyCode::Char('l') => {
+                if let Some(buffer) = self.buffers.get_mut(self.active_buffer) {
+                    buffer.move_cursor_right(false);
+                }
+            }
+            KeyCode::Char('w') => {
+                if let Some(buffer) = self.buffers.get_mut(self.active_buffer) {
+                    buffer.move_word_forward(false);
+                }
+            }
+            KeyCode::Char('b') => {
+                if let Some(buffer) = self.buffers.get_mut(self.active_buffer) {
+                    buffer.move_word_backward(false);
+                }
+            }
+            KeyCode::Char('e') => {
+                if let Some(buffer) = self.buffers.get_mut(self.active_buffer) {
+                    buffer.move_word_end(false);
+                }
+            }
+            KeyCode::Char('u') => self.perform_action(Action::Undo),
+            KeyCode::Char('x') => {
+                if let Some(buffer) = self.buffers.get_mut(self.active_buffer) {
+                    if buffer.cursor < buffer.rope.len_chars() {
+                        buffer.delete(buffer.cursor..buffer.cursor+1);
+                    }
+                }
+            }
+            KeyCode::Char('d') => {
+                if self.pending_d {
+                    if let Some(buffer) = self.buffers.get_mut(self.active_buffer) {
+                        let line = buffer.rope.char_to_line(buffer.cursor);
+                        buffer.select_line(line);
+                    }
+                    self.perform_action(Action::Cut);
+                    self.pending_d = false;
+                } else {
+                    self.pending_d = true;
+                }
+                return;
+            }
+            KeyCode::Char('y') => {
+                if self.pending_y {
+                    if let Some(buffer) = self.buffers.get_mut(self.active_buffer) {
+                        let line = buffer.rope.char_to_line(buffer.cursor);
+                        buffer.select_line(line);
+                    }
+                    self.perform_action(Action::Copy);
+                    if let Some(buffer) = self.buffers.get_mut(self.active_buffer) {
+                        buffer.selection = None;
+                        buffer.selection_anchor = None;
+                    }
+                    self.pending_y = false;
+                } else {
+                    self.pending_y = true;
+                }
+                return;
+            }
+            KeyCode::Char('p') => {
+                self.perform_action(Action::Paste);
+            }
+            KeyCode::Char('/') => self.perform_action(Action::Find),
+            KeyCode::Char(':') => {
+                self.is_vi_cmd_mode = true;
+                self.vi_cmd = ":".to_string();
+            }
+            KeyCode::Char('g') => {
+                if self.pending_g {
+                    if let Some(buffer) = self.buffers.get_mut(self.active_buffer) {
+                        buffer.cursor = 0;
+                    }
+                    self.pending_g = false;
+                } else {
+                    self.pending_g = true;
+                }
+                return;
+            }
+            KeyCode::Char('G') => {
+                if let Some(buffer) = self.buffers.get_mut(self.active_buffer) {
+                    buffer.cursor = buffer.rope.len_chars();
+                    let line = buffer.rope.len_lines().saturating_sub(1);
+                    let col = buffer.get_line_max_col(line);
+                    buffer.cursor = buffer.line_col_to_char(line, col);
+                }
+            }
+            KeyCode::Esc => {
+                if let Some(buffer) = self.buffers.get_mut(self.active_buffer) {
+                    buffer.selection = None;
+                    buffer.selection_anchor = None;
+                }
+                self.pending_d = false;
+                self.pending_y = false;
+                self.pending_g = false;
+            }
+            _ => {
+                self.pending_d = false;
+                self.pending_y = false;
+                self.pending_g = false;
+                // Allow arrows and some other keys even in normal mode
+                match code {
+                    KeyCode::Left | KeyCode::Right | KeyCode::Up | KeyCode::Down |
+                    KeyCode::Home | KeyCode::End | KeyCode::PageUp | KeyCode::PageDown => {
+                        self.handle_editor_key(key);
+                    }
+                    _ => {}
+                }
+            }
+        }
+        self.ensure_cursor_visible();
+    }
+
+    fn handle_vi_visual_key(&mut self, key: KeyEvent) {
+        let code = key.code;
+        
+        match code {
+            KeyCode::Esc | KeyCode::Char('v') => {
+                if let Some(buffer) = self.buffers.get_mut(self.active_buffer) {
+                    buffer.vi_mode = led_core::ViMode::Normal;
+                    buffer.selection = None;
+                    buffer.selection_anchor = None;
+                }
+            }
+            KeyCode::Char('h') => {
+                if let Some(buffer) = self.buffers.get_mut(self.active_buffer) {
+                    buffer.move_cursor_left(true);
+                }
+            }
+            KeyCode::Char('j') => {
+                if self.config.word_wrap {
+                    self.move_cursor_vdown(true);
+                } else if let Some(buffer) = self.buffers.get_mut(self.active_buffer) {
+                    buffer.move_cursor_down(true);
+                }
+            }
+            KeyCode::Char('k') => {
+                if self.config.word_wrap {
+                    self.move_cursor_vup(true);
+                } else if let Some(buffer) = self.buffers.get_mut(self.active_buffer) {
+                    buffer.move_cursor_up(true);
+                }
+            }
+            KeyCode::Char('l') => {
+                if let Some(buffer) = self.buffers.get_mut(self.active_buffer) {
+                    buffer.move_cursor_right(true);
+                }
+            }
+            KeyCode::Char('w') => {
+                if let Some(buffer) = self.buffers.get_mut(self.active_buffer) {
+                    buffer.move_word_forward(true);
+                }
+            }
+            KeyCode::Char('b') => {
+                if let Some(buffer) = self.buffers.get_mut(self.active_buffer) {
+                    buffer.move_word_backward(true);
+                }
+            }
+            KeyCode::Char('e') => {
+                if let Some(buffer) = self.buffers.get_mut(self.active_buffer) {
+                    buffer.move_word_end(true);
+                }
+            }
+            KeyCode::Char('d') | KeyCode::Char('x') => {
+                self.perform_action(Action::Cut);
+                if let Some(buffer) = self.buffers.get_mut(self.active_buffer) {
+                    buffer.vi_mode = led_core::ViMode::Normal;
+                }
+            }
+            KeyCode::Char('y') => {
+                self.perform_action(Action::Copy);
+                if let Some(buffer) = self.buffers.get_mut(self.active_buffer) {
+                    buffer.vi_mode = led_core::ViMode::Normal;
+                    buffer.selection = None;
+                    buffer.selection_anchor = None;
+                }
+            }
+            _ => {
+                 match code {
+                    KeyCode::Left | KeyCode::Right | KeyCode::Up | KeyCode::Down |
+                    KeyCode::Home | KeyCode::End | KeyCode::PageUp | KeyCode::PageDown => {
+                        self.handle_editor_key(key);
+                    }
+                    _ => {}
+                }
+            }
+        }
+        self.ensure_cursor_visible();
+    }
+
+    fn handle_vi_cmd_key(&mut self, key: KeyEvent) {
+        match key.code {
+            KeyCode::Esc => {
+                self.is_vi_cmd_mode = false;
+                self.vi_cmd.clear();
+            }
+            KeyCode::Enter => {
+                let cmd = self.vi_cmd.trim();
+                match cmd {
+                    ":w" => self.perform_action(Action::Save),
+                    ":q" => self.perform_action(Action::Exit), // Simple map for now
+                    ":wq" => {
+                        self.perform_action(Action::Save);
+                        self.perform_action(Action::Exit);
+                    }
+                    _ => {}
+                }
+                self.is_vi_cmd_mode = false;
+                self.vi_cmd.clear();
+            }
+            KeyCode::Char(c) => {
+                self.vi_cmd.push(c);
+            }
+            KeyCode::Backspace => {
+                if self.vi_cmd.len() > 1 {
+                    self.vi_cmd.pop();
+                } else {
+                    self.is_vi_cmd_mode = false;
+                    self.vi_cmd.clear();
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn handle_editor_key(&mut self, key: KeyEvent) {
+        let buffer = if let Some(b) = self.buffers.get_mut(self.active_buffer) {
+            b
+        } else {
+            return;
+        };
+
+        let extend_selection = key.modifiers.contains(KeyModifiers::SHIFT);
+
+        match key.code {
+            KeyCode::Left => buffer.move_cursor_left(extend_selection),
+            KeyCode::Right => buffer.move_cursor_right(extend_selection),
+            KeyCode::Up => {
+                if self.config.word_wrap {
+                    self.move_cursor_vup(extend_selection);
+                } else {
+                    buffer.move_cursor_up(extend_selection);
+                }
+            }
+            KeyCode::Down => {
+                if self.config.word_wrap {
+                    self.move_cursor_vdown(extend_selection);
+                } else {
+                    buffer.move_cursor_down(extend_selection);
+                }
+            }
+            KeyCode::Home => buffer.move_cursor_home(extend_selection),
+            KeyCode::End => buffer.move_cursor_end(extend_selection),
+            KeyCode::Char(c) => {
+                if key.modifiers == KeyModifiers::NONE || key.modifiers == KeyModifiers::SHIFT {
+                    if let Some(selection) = buffer.selection.take() {
+                        buffer.delete(selection);
+                    }
+                    buffer.insert(buffer.cursor, &c.to_string());
+                }
+            }
+            KeyCode::Backspace => {
+                if let Some(selection) = buffer.selection.take() {
+                    buffer.delete(selection);
+                } else if buffer.cursor > 0 {
+                    buffer.delete((buffer.cursor - 1)..buffer.cursor);
+                }
+            }
+            KeyCode::Delete => {
+                if let Some(selection) = buffer.selection.take() {
+                    buffer.delete(selection);
+                } else if buffer.cursor < buffer.rope.len_chars() {
+                    buffer.delete(buffer.cursor..(buffer.cursor + 1));
+                }
+            }
+            KeyCode::Enter => {
+                if let Some(selection) = buffer.selection.take() {
+                    buffer.delete(selection);
+                }
+                buffer.insert(buffer.cursor, "\n");
+            }
+            KeyCode::Tab => {
+                if let Some(selection) = buffer.selection.take() {
+                    buffer.delete(selection);
+                }
+                buffer.insert(buffer.cursor, "    ");
+            }
+            _ => {}
+        }
+        self.ensure_cursor_visible();
+    }
+
+    fn ensure_cursor_visible(&mut self) {
+        let (_ex, _ey, ew, eh) = self.layout.editor_bounds();
+        let buffer = if let Some(b) = self.buffers.get_mut(self.active_buffer) {
+            b
+        } else {
+            return;
+        };
+
+        let (line, col) = buffer.char_to_line_col(buffer.cursor);
+        let tab_size = self.config.tab_size as usize;
+        
+        if self.config.word_wrap {
+            // Find visual line of cursor
+            let wraps = buffer.wrap_line(line, ew as usize, tab_size);
+            let mut v_idx = 0;
+            for (i, range) in wraps.iter().enumerate() {
+                if col >= range.start && (col < range.end || (col == range.end && i == wraps.len() - 1)) {
+                    v_idx = i;
+                    break;
+                }
+            }
+
+            // Check if (line, v_idx) is BEFORE current scroll
+            if line < buffer.scroll_row || (line == buffer.scroll_row && v_idx < buffer.scroll_vrow) {
+                buffer.scroll_row = line;
+                buffer.scroll_vrow = v_idx;
+            } else {
+                // Check if (line, v_idx) is AFTER current scroll
+                let mut total_vrows = 0;
+                let mut current_l = buffer.scroll_row;
+                let mut current_v = buffer.scroll_vrow;
+                
+                while current_l < line {
+                    let w = buffer.wrap_line(current_l, ew as usize, tab_size);
+                    total_vrows += w.len() - current_v;
+                    current_l += 1;
+                    current_v = 0;
+                }
+                total_vrows += v_idx - current_v;
+                
+                if total_vrows >= eh as usize {
+                    // Scroll down
+                    let mut target_vrows = total_vrows - eh as usize + 1;
+                    while target_vrows > 0 {
+                        let w = buffer.wrap_line(buffer.scroll_row, ew as usize, tab_size);
+                        let remaining_in_line = w.len() - buffer.scroll_vrow;
+                        if target_vrows >= remaining_in_line {
+                            target_vrows -= remaining_in_line;
+                            buffer.scroll_row += 1;
+                            buffer.scroll_vrow = 0;
+                            if buffer.scroll_row >= buffer.line_count() {
+                                buffer.scroll_row = buffer.line_count() - 1;
+                                buffer.scroll_vrow = 0;
+                                break;
+                            }
+                        } else {
+                            buffer.scroll_vrow += target_vrows;
+                            target_vrows = 0;
+                        }
+                    }
+                }
+            }
+        } else {
+            // Vertical scroll
+            if line < buffer.scroll_row {
+                buffer.scroll_row = line;
+            } else if line >= buffer.scroll_row + eh as usize {
+                buffer.scroll_row = line - eh as usize + 1;
+            }
+
+            // Horizontal scroll
+            let mut visual_col = 0;
+            let line_content = buffer.line(line);
+            let cursor_in_line = buffer.cursor - buffer.rope.line_to_char(line);
+            for (i, c) in line_content.chars().enumerate() {
+                if i >= cursor_in_line { break; }
+                if c == '\t' {
+                    let tab_size = self.config.tab_size as usize;
+                    visual_col += tab_size - (visual_col % tab_size);
+                } else {
+                    visual_col += c.width().unwrap_or(0);
+                }
+            }
+
+            if visual_col < buffer.scroll_col {
+                buffer.scroll_col = visual_col;
+            } else if visual_col >= buffer.scroll_col + ew as usize {
+                buffer.scroll_col = visual_col - ew as usize + 1;
+            }
+        }
+    }
+
+    fn handle_dialog_key(&mut self, key: KeyEvent) {
+        if let Some(ref mut dialog) = self.current_dialog {
+            let result = dialog.handle_key(key);
+            self.handle_dialog_result(result);
+        }
+    }
+
+    fn handle_dialog_result(&mut self, result: DialogResult<dialog::Action>) {
+        match result {
+            DialogResult::Ok(action) => {
+                match action {
+                    dialog::Action::ConfirmPath(path) => {
+                        match self.pending_op {
+                            PendingOp::Open => {
+                                match Editor::from_file(&path) {
+                                    Ok(mut buffer) => {
+                                        let syntax = self.detect_syntax(&path);
+                                        buffer.update_syntax(syntax);
+                                        self.buffers.push(buffer);
+                                        self.active_buffer = self.buffers.len() - 1;
+                                        self.menus = Self::build_menus(&self.i18n, &self.config, self.buffers.get(self.active_buffer), &self.themes, &self.syntax_defs);
+                                        self.layout.recompute(&self.menus, &self.buffers, self.active_buffer, self.config.line_numbers);
+                                    }
+                                    Err(e) => {
+                                        if let Some(ref mut dialog) = self.current_dialog {
+                                            dialog.set_error(format!("Error: {}", e));
+                                        }
+                                        return; // Keep dialog open
+                                    }
+                                }
+                            }
+                            PendingOp::SaveAs => {
+                                if path.exists() {
+                                    self.focus = Focus::Dialog;
+                                    self.pending_op = PendingOp::SaveAs; // Keep op
+                                    self.target_path = Some(path.clone());
+                                    self.current_dialog = Some(Box::new(dialog::MessageDialog::new(
+                                        self.i18n.get("dialog.overwrite_prompt").to_string(),
+                                        self.i18n.get("dialog.overwrite_prompt").replace("{filename}", &path.file_name().unwrap_or_default().to_string_lossy()),
+                                        vec![
+                                            (self.i18n.get("dialog.yes").to_string(), dialog::Action::Save),
+                                            (self.i18n.get("dialog.no").to_string(), dialog::Action::Cancel),
+                                        ]
+                                    )));
+                                    return;
+                                }
+                                if let Some(buffer) = self.buffers.get_mut(self.active_buffer) {
+                                    if let Err(e) = buffer.save_as(&path) {
+                                        if let Some(ref mut dialog) = self.current_dialog {
+                                            dialog.set_error(format!("Error: {}", e));
+                                        }
+                                        return;
+                                    }
+                                }
+                            }
+                            _ => {}
+                        }
+                    }
+                    dialog::Action::ConfirmLine(line) => {
+                        if let Some(buffer) = self.buffers.get_mut(self.active_buffer) {
+                            buffer.cursor = buffer.rope.line_to_char(line.saturating_sub(1).min(buffer.line_count().saturating_sub(1)));
+                            buffer.selection = None;
+                            buffer.selection_anchor = None;
+                            self.ensure_cursor_visible();
+                        }
+                    }
+                    dialog::Action::Confirm => {}
+                    dialog::Action::Save => {
+                        let op = self.pending_op;
+                        self.pending_op = PendingOp::None;
+                        match op {
+                            PendingOp::Close | PendingOp::Exit => {
+                                if let Some(buffer) = self.buffers.get_mut(self.active_buffer) {
+                                    if let Ok(()) = buffer.save() {
+                                        if op == PendingOp::Exit {
+                                            self.perform_action(Action::Exit);
+                                        } else {
+                                            self.buffers.remove(self.active_buffer);
+                                            if self.buffers.is_empty() {
+                                                self.buffers.push(Editor::new());
+                                            }
+                                            self.active_buffer = self.active_buffer.min(self.buffers.len() - 1);
+                                            self.layout.recompute(&self.menus, &self.buffers, self.active_buffer, self.config.line_numbers);
+                                        }
+                                    }
+                                }
+                            }
+                            PendingOp::SaveAs => {
+                                if let Some(path) = self.target_path.take() {
+                                    if let Some(buffer) = self.buffers.get_mut(self.active_buffer) {
+                                        let _ = buffer.save_as(&path);
+                                        self.layout.recompute(&self.menus, &self.buffers, self.active_buffer, self.config.line_numbers);
+                                    }
+                                }
+                            }
+                            _ => {
+                                self.perform_action(Action::Save);
+                            }
+                        }
+                    }
+                    dialog::Action::DontSave | dialog::Action::Discard => {
+                        let op = self.pending_op;
+                        self.pending_op = PendingOp::None;
+                        match op {
+                            PendingOp::Exit => {
+                                self.buffers.remove(self.active_buffer);
+                                if self.buffers.is_empty() {
+                                    self.buffers.push(Editor::new());
+                                }
+                                self.active_buffer = self.active_buffer.min(self.buffers.len() - 1);
+                                self.perform_action(Action::Exit);
+                            }
+                            PendingOp::Close => {
+                                self.buffers.remove(self.active_buffer);
+                                if self.buffers.is_empty() {
+                                    self.buffers.push(Editor::new());
+                                }
+                                self.active_buffer = self.active_buffer.min(self.buffers.len() - 1);
+                                self.layout.recompute(&self.menus, &self.buffers, self.active_buffer, self.config.line_numbers);
+                            }
+                            PendingOp::None => {
+                                // Probably a Reopen or other immediate operation
+                                if let Some(enc) = self.target_encoding.take() {
+                                    if let Some(buffer) = self.buffers.get(self.active_buffer) {
+                                        if let Some(path) = buffer.path.clone() {
+                                            if let Ok(new_buffer) = Editor::from_file(&path) {
+                                                let mut b = new_buffer;
+                                                b.encoding = enc;
+                                                self.buffers[self.active_buffer] = b;
+                                                self.menus = Self::build_menus(&self.i18n, &self.config, self.buffers.get(self.active_buffer), &self.themes, &self.syntax_defs);
+                                                self.layout.recompute(&self.menus, &self.buffers, self.active_buffer, self.config.line_numbers);
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            _ => {}
+                        }
+                    }
+                    dialog::Action::Cancel => {}
+                }
+                self.current_dialog = None;
+                self.pending_op = PendingOp::None;
+                self.focus = Focus::Editor;
+            }
+            DialogResult::Cancel => {
+                self.current_dialog = None;
+                self.pending_op = PendingOp::None;
+                self.focus = Focus::Editor;
+            }
+            _ => {}
+        }
+    }
+
+    fn handle_panel_key(&mut self, key: KeyEvent) {
+        use crate::widgets::find_panel::PanelField;
+
+        match key.code {
+            KeyCode::Esc => {
+                self.layout.panel_height = 0;
+                self.focus = Focus::Editor;
+                self.layout.recompute(&self.menus, &self.buffers, self.active_buffer, self.config.line_numbers);
+                if let Some(buffer) = self.buffers.get_mut(self.active_buffer) {
+                    buffer.search_status = None;
+                }
+            }
+            KeyCode::Tab => self.find_panel.next_field(),
+            KeyCode::BackTab => self.find_panel.prev_field(),
+            KeyCode::Enter => {
+                match self.find_panel.focused_field {
+                    PanelField::FindInput => {
+                        if key.modifiers.contains(KeyModifiers::SHIFT) {
+                            self.find_prev();
+                        } else {
+                            self.find_next();
+                        }
+                    }
+                    PanelField::ReplaceInput => {
+                        self.replace_current();
+                    }
+                    PanelField::MatchCase => {
+                        self.find_panel.flags.match_case = !self.find_panel.flags.match_case;
+                        self.run_search();
+                    }
+                    PanelField::WholeWord => {
+                        self.find_panel.flags.whole_word = !self.find_panel.flags.whole_word;
+                        self.run_search();
+                    }
+                    PanelField::Regex => {
+                        self.find_panel.flags.use_regex = !self.find_panel.flags.use_regex;
+                        self.run_search();
+                    }
+                    PanelField::Prev => self.find_prev(),
+                    PanelField::Next => self.find_next(),
+                    PanelField::Close => {
+                        self.layout.panel_height = 0;
+                        self.focus = Focus::Editor;
+                        self.layout.recompute(&self.menus, &self.buffers, self.active_buffer, self.config.line_numbers);
+                        if let Some(buffer) = self.buffers.get_mut(self.active_buffer) {
+                            buffer.search_status = None;
+                            if self.config.vi_mode {
+                                buffer.vi_mode = led_core::ViMode::Normal;
+                            }
+                        }
+                    }
+                    PanelField::ReplaceBtn => self.replace_current(),
+                    PanelField::ReplaceAllBtn => self.replace_all(),
+                }
+            }
+            KeyCode::F(3) => {
+                if key.modifiers.contains(KeyModifiers::SHIFT) {
+                    self.find_prev();
+                } else {
+                    self.find_next();
+                }
+            }
+            KeyCode::Char(c) => {
+                match self.find_panel.focused_field {
+                    PanelField::FindInput => {
+                        self.find_panel.find_text.push(c);
+                        self.run_search();
+                    }
+                    PanelField::ReplaceInput => {
+                        self.find_panel.replace_text.push(c);
+                    }
+                    _ => {
+                        // Handle space for toggles
+                        if c == ' ' {
+                            match self.find_panel.focused_field {
+                                PanelField::MatchCase => {
+                                    self.find_panel.flags.match_case = !self.find_panel.flags.match_case;
+                                    self.run_search();
+                                }
+                                PanelField::WholeWord => {
+                                    self.find_panel.flags.whole_word = !self.find_panel.flags.whole_word;
+                                    self.run_search();
+                                }
+                                PanelField::Regex => {
+                                    self.find_panel.flags.use_regex = !self.find_panel.flags.use_regex;
+                                    self.run_search();
+                                }
+                                _ => {}
+                            }
+                        }
+                    }
+                }
+            }
+            KeyCode::Backspace => {
+                match self.find_panel.focused_field {
+                    PanelField::FindInput => {
+                        self.find_panel.find_text.pop();
+                        self.run_search();
+                    }
+                    PanelField::ReplaceInput => {
+                        self.find_panel.replace_text.pop();
+                    }
+                    _ => {}
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn run_search(&mut self) {
+        if let Some(buffer) = self.buffers.get_mut(self.active_buffer) {
+            let query = led_core::search::SearchQuery {
+                pattern: self.find_panel.find_text.clone(),
+                flags: self.find_panel.flags.clone(),
+            };
+            buffer.find_results = buffer.search(&query);
+            buffer.search_status = None;
+
+            if !buffer.find_results.is_empty() {
+                // Find first match at or after cursor
+                let cursor = buffer.cursor;
+                buffer.current_match_idx = buffer.find_results.iter().position(|m| m.char_range.start >= cursor);
+                if buffer.current_match_idx.is_none() {
+                    buffer.current_match_idx = Some(0); // Wrap to top
+                }
+
+                // Scroll to current match
+                if let Some(idx) = buffer.current_match_idx {
+                    let m = &buffer.find_results[idx];
+                    buffer.cursor = m.char_range.start;
+                    self.ensure_cursor_visible();
+                }
+            } else {
+                buffer.current_match_idx = None;
+                if !self.find_panel.find_text.is_empty() {
+                    buffer.search_status = Some("No matches".to_string());
+                }
+            }
+        }
+    }
+
+    fn find_next(&mut self) {
+        let (next_idx, wrapped) = if let Some(buffer) = self.buffers.get(self.active_buffer) {
+            if buffer.find_results.is_empty() { (None, false) }
+            else if let Some(idx) = buffer.current_match_idx {
+                let next_idx = (idx + 1) % buffer.find_results.len();
+                (Some(next_idx), next_idx == 0 && idx != 0)
+            } else {
+                (Some(0), false)
+            }
+        } else {
+            (None, false)
+        };
+
+        if let Some(next_idx) = next_idx {
+            let buffer = &mut self.buffers[self.active_buffer];
+            buffer.current_match_idx = Some(next_idx);
+            let m = &buffer.find_results[next_idx];
+            buffer.cursor = m.char_range.start;
+            self.ensure_cursor_visible();
+            if wrapped {
+                self.buffers[self.active_buffer].search_status = Some("Search wrapped to top".to_string());
+            } else {
+                self.buffers[self.active_buffer].search_status = None;
+            }
+        }
+    }
+
+    fn find_prev(&mut self) {
+        let (prev_idx, wrapped) = if let Some(buffer) = self.buffers.get(self.active_buffer) {
+            if buffer.find_results.is_empty() { (None, false) }
+            else if let Some(idx) = buffer.current_match_idx {
+                let prev_idx = if idx == 0 { buffer.find_results.len() - 1 } else { idx - 1 };
+                (Some(prev_idx), prev_idx == buffer.find_results.len() - 1 && idx != buffer.find_results.len() - 1)
+            } else {
+                (Some(buffer.find_results.len() - 1), false)
+            }
+        } else {
+            (None, false)
+        };
+
+        if let Some(prev_idx) = prev_idx {
+            let buffer = &mut self.buffers[self.active_buffer];
+            buffer.current_match_idx = Some(prev_idx);
+            let m = &buffer.find_results[prev_idx];
+            buffer.cursor = m.char_range.start;
+            self.ensure_cursor_visible();
+            if wrapped {
+                self.buffers[self.active_buffer].search_status = Some("Search wrapped to bottom".to_string());
+            } else {
+                self.buffers[self.active_buffer].search_status = None;
+            }
+        }
+    }
+
+    fn replace_current(&mut self) {
+        if let Some(buffer) = self.buffers.get_mut(self.active_buffer) {
+            if let Some(idx) = buffer.current_match_idx {
+                let m = buffer.find_results[idx].clone();
+                buffer.delete(m.char_range.clone());
+                buffer.insert(m.char_range.start, &self.find_panel.replace_text);
+            }
+        }
+        self.run_search();
+    }
+
+    fn replace_all(&mut self) {
+        let (pattern, flags, replace_text) = (self.find_panel.find_text.clone(), self.find_panel.flags.clone(), self.find_panel.replace_text.clone());
+        let mut count = 0;
+        
+        if let Some(buffer) = self.buffers.get_mut(self.active_buffer) {
+            let query = led_core::search::SearchQuery {
+                pattern,
+                flags,
+            };
+            let results = buffer.search(&query);
+            if results.is_empty() {
+                buffer.search_status = Some("No matches".to_string());
+                return;
+            }
+
+            for m in results.into_iter().rev() {
+                buffer.delete(m.char_range.clone());
+                buffer.insert(m.char_range.start, &replace_text);
+                count += 1;
+            }
+            buffer.search_status = Some(format!("Replaced {} occurrences", count));
+        }
+        self.run_search();
+    }
+
+
+    fn open_menu(&mut self, idx: usize) {
+        self.focus = Focus::Menu;
+        self.active_menu = Some(idx);
+        self.selected_item = 0;
+        self.submenu_stack.clear();
+    }
+
+    fn handle_menu_key(&mut self, key: KeyEvent) {
+        match key.code {
+            KeyCode::Esc => {
+                if !self.submenu_stack.is_empty() {
+                    self.submenu_stack.pop();
+                } else {
+                    self.focus = Focus::Editor;
+                    self.active_menu = None;
+                }
+            }
+            KeyCode::Left => {
+                if self.submenu_stack.is_empty() {
+                    if let Some(idx) = self.active_menu {
+                        let next_idx = if idx == 0 { self.menus.len() - 1 } else { idx - 1 };
+                        self.open_menu(next_idx);
+                    }
+                } else {
+                    self.submenu_stack.pop();
+                }
+            }
+            KeyCode::Right => {
+                if self.submenu_stack.is_empty() {
+                    if let Some(idx) = self.active_menu {
+                        let next_idx = (idx + 1) % self.menus.len();
+                        self.open_menu(next_idx);
+                    }
+                } else {
+                    // Check if current item has a submenu
+                    let is_submenu = {
+                        let menu = self.get_current_active_menu();
+                        matches!(menu.items.get(self.selected_item), Some(MenuItem::Submenu { .. }))
+                    };
+                    if is_submenu {
+                        self.submenu_stack.push((self.active_menu.unwrap(), self.selected_item));
+                        self.selected_item = 0;
+                    } else {
+                        if let Some(idx) = self.active_menu {
+                            let next_idx = (idx + 1) % self.menus.len();
+                            self.open_menu(next_idx);
+                        }
+                    }
+                }
+            }
+            KeyCode::Up => {
+                let items_len = self.get_current_active_menu().items.len();
+                loop {
+                    self.selected_item = if self.selected_item == 0 {
+                        items_len - 1
+                    } else {
+                        self.selected_item - 1
+                    };
+                    let is_separator = {
+                        let menu = self.get_current_active_menu();
+                        matches!(menu.items[self.selected_item], MenuItem::Separator)
+                    };
+                    if !is_separator {
+                        break;
+                    }
+                }
+            }
+            KeyCode::Down => {
+                let items_len = self.get_current_active_menu().items.len();
+                loop {
+                    self.selected_item = (self.selected_item + 1) % items_len;
+                    let is_separator = {
+                        let menu = self.get_current_active_menu();
+                        matches!(menu.items[self.selected_item], MenuItem::Separator)
+                    };
+                    if !is_separator {
+                        break;
+                    }
+                }
+            }
+            KeyCode::Enter => {
+                let item = self.get_current_active_menu().items[self.selected_item].clone();
+                match item {
+                    MenuItem::Action { action, .. } | MenuItem::Toggle { action, .. } => {
+                        self.perform_action(action);
+                        self.focus = Focus::Editor;
+                        self.active_menu = None;
+                    }
+                    MenuItem::Submenu { .. } => {
+                        self.submenu_stack.push((self.active_menu.unwrap(), self.selected_item));
+                        self.selected_item = 0;
+                    }
+                    MenuItem::Separator => {}
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn get_current_active_menu(&self) -> &Menu {
+        let mut menu = &self.menus[self.active_menu.unwrap_or(0)];
+        for (_m_idx, i_idx) in &self.submenu_stack {
+            if let MenuItem::Submenu { menu: ref sub, .. } = menu.items[*i_idx] {
+                menu = sub;
+            }
+        }
+        menu
+    }
+
+    fn move_cursor_vup(&mut self, extend_selection: bool) {
+        let (_ex, _ey, ew, _eh) = self.layout.editor_bounds();
+        let tab_size = self.config.tab_size as usize;
+        let buffer = &mut self.buffers[self.active_buffer];
+        let (line, col) = buffer.char_to_line_col(buffer.cursor);
+        let wraps = buffer.wrap_line(line, ew as usize, tab_size);
+        
+        let mut v_idx = 0;
+        for (i, range) in wraps.iter().enumerate() {
+            if col >= range.start && (col < range.end || (col == range.end && i == wraps.len() - 1)) {
+                v_idx = i;
+                break;
+            }
+        }
+
+        let current_vcol = buffer.get_visual_col(line, col, &wraps[v_idx], tab_size);
+
+        if v_idx > 0 {
+            let target_range = &wraps[v_idx - 1];
+            buffer.cursor = buffer.get_char_at_vcol(line, target_range.clone(), current_vcol, tab_size);
+        } else if line > 0 {
+            let prev_line = line - 1;
+            let prev_wraps = buffer.wrap_line(prev_line, ew as usize, tab_size);
+            let target_range = prev_wraps.last().unwrap();
+            buffer.cursor = buffer.get_char_at_vcol(prev_line, target_range.clone(), current_vcol, tab_size);
+        }
+
+        if extend_selection {
+            buffer.update_selection();
+        } else {
+            buffer.selection = None;
+        }
+    }
+
+    fn move_cursor_vdown(&mut self, extend_selection: bool) {
+        let (_ex, _ey, ew, _eh) = self.layout.editor_bounds();
+        let tab_size = self.config.tab_size as usize;
+        let buffer = &mut self.buffers[self.active_buffer];
+        let (line, col) = buffer.char_to_line_col(buffer.cursor);
+        let wraps = buffer.wrap_line(line, ew as usize, tab_size);
+        
+        let mut v_idx = 0;
+        for (i, range) in wraps.iter().enumerate() {
+            if col >= range.start && (col < range.end || (col == range.end && i == wraps.len() - 1)) {
+                v_idx = i;
+                break;
+            }
+        }
+
+        let current_vcol = buffer.get_visual_col(line, col, &wraps[v_idx], tab_size);
+
+        if v_idx < wraps.len() - 1 {
+            let target_range = &wraps[v_idx + 1];
+            buffer.cursor = buffer.get_char_at_vcol(line, target_range.clone(), current_vcol, tab_size);
+        } else if line < buffer.line_count() - 1 {
+            let next_line = line + 1;
+            let next_wraps = buffer.wrap_line(next_line, ew as usize, tab_size);
+            let target_range = &next_wraps[0];
+            buffer.cursor = buffer.get_char_at_vcol(next_line, target_range.clone(), current_vcol, tab_size);
+        }
+
+        if extend_selection {
+            buffer.update_selection();
+        } else {
+            buffer.selection = None;
+        }
+    }
+
+    fn perform_action(&mut self, action: Action) {
+        match action {
+            Action::New => {
+                self.buffers.push(Editor::new());
+                self.active_buffer = self.buffers.len() - 1;
+                self.layout.recompute(&self.menus, &self.buffers, self.active_buffer, self.config.line_numbers);
+            }
+            Action::Open => {
+                self.focus = Focus::Dialog;
+                self.pending_op = PendingOp::Open;
+                self.current_dialog = Some(Box::new(dialog::OpenDialog::new(&self.i18n)));
+            }
+            Action::Save => {
+                let needs_save_as = if let Some(buffer) = self.buffers.get_mut(self.active_buffer) {
+                    if buffer.path.is_some() {
+                        let _ = buffer.save();
+                        false
+                    } else {
+                        true
+                    }
+                } else {
+                    false
+                };
+                if needs_save_as {
+                    self.perform_action(Action::SaveAs);
+                }
+            }
+            Action::SaveAs => {
+                self.focus = Focus::Dialog;
+                self.pending_op = PendingOp::SaveAs;
+                let current_path = self.buffers.get(self.active_buffer).and_then(|b| b.path.as_ref());
+                self.current_dialog = Some(Box::new(dialog::SaveAsDialog::new(current_path, &self.i18n)));
+            }
+            Action::Close => {
+                if let Some(buffer) = self.buffers.get(self.active_buffer) {
+                    if buffer.is_modified() {
+                        self.focus = Focus::Dialog;
+                        self.pending_op = PendingOp::Close;
+                        let filename = buffer.path.as_ref().and_then(|p| p.file_name()).map(|f| f.to_string_lossy()).unwrap_or_else(|| std::borrow::Cow::Borrowed(self.i18n.get("status.no_name")));
+                        self.current_dialog = Some(Box::new(dialog::MessageDialog::new(
+                            self.i18n.get("dialog.unsaved_changes_title").to_string(),
+                            self.i18n.get("dialog.unsaved_changes").replace("{filename}", &filename),
+                            vec![
+                                (self.i18n.get("dialog.save").to_string(), dialog::Action::Save),
+                                (self.i18n.get("dialog.dont_save").to_string(), dialog::Action::DontSave),
+                                (self.i18n.get("dialog.cancel").to_string(), dialog::Action::Cancel),
+                            ]
+                        )));
+                        return;
+                    }
+                }
+                self.buffers.remove(self.active_buffer);
+                if self.buffers.is_empty() {
+                    self.buffers.push(Editor::new());
+                }
+                self.active_buffer = self.active_buffer.min(self.buffers.len() - 1);
+                self.layout.recompute(&self.menus, &self.buffers, self.active_buffer, self.config.line_numbers);
+            }
+            Action::Find => {
+                self.find_panel.is_replace_mode = false;
+                self.layout.panel_height = 2;
+                self.focus = Focus::Panel;
+                self.find_panel.focused_field = crate::widgets::find_panel::PanelField::FindInput;
+                self.layout.recompute(&self.menus, &self.buffers, self.active_buffer, self.config.line_numbers);
+                self.run_search();
+            }
+            Action::Replace => {
+                self.find_panel.is_replace_mode = true;
+                self.layout.panel_height = 3;
+                self.focus = Focus::Panel;
+                self.find_panel.focused_field = crate::widgets::find_panel::PanelField::FindInput;
+                self.layout.recompute(&self.menus, &self.buffers, self.active_buffer, self.config.line_numbers);
+                self.run_search();
+            }
+            Action::GoToLine => {
+                self.focus = Focus::Dialog;
+                self.pending_op = PendingOp::None;
+                self.current_dialog = Some(Box::new(dialog::GoToLineDialog::new(&self.i18n)));
+            }
+            Action::Exit => {
+                if let Some((idx, buffer)) = self.buffers.iter().enumerate().find(|(_, b)| b.is_modified()) {
+                    self.active_buffer = idx; // Switch to the modified buffer to show it
+                    self.focus = Focus::Dialog;
+                    self.pending_op = PendingOp::Exit;
+                    let filename = buffer.path.as_ref().and_then(|p| p.file_name()).map(|f| f.to_string_lossy()).unwrap_or_else(|| std::borrow::Cow::Borrowed(self.i18n.get("status.no_name")));
+                    self.current_dialog = Some(Box::new(dialog::MessageDialog::new(
+                        self.i18n.get("dialog.unsaved_changes_title").to_string(),
+                        self.i18n.get("dialog.unsaved_changes").replace("{filename}", &filename),
+                        vec![
+                            (self.i18n.get("dialog.save").to_string(), dialog::Action::Save),
+                            (self.i18n.get("dialog.dont_save").to_string(), dialog::Action::DontSave),
+                            (self.i18n.get("dialog.cancel").to_string(), dialog::Action::Cancel),
+                        ]
+                    )));
+                    self.layout.recompute(&self.menus, &self.buffers, self.active_buffer, self.config.line_numbers);
+                    return;
+                }
+                self.running = false;
+            }
+
+            Action::Undo => {
+                if let Some(buffer) = self.buffers.get_mut(self.active_buffer) {
+                    buffer.undo();
+                }
+                self.ensure_cursor_visible();
+            }
+            Action::Redo => {
+                if let Some(buffer) = self.buffers.get_mut(self.active_buffer) {
+                    buffer.redo();
+                }
+                self.ensure_cursor_visible();
+            }
+            Action::SelectAll => {
+                if let Some(buffer) = self.buffers.get_mut(self.active_buffer) {
+                    buffer.select_all();
+                }
+            }
+            Action::Copy => {
+                if let Some(buffer) = self.buffers.get(self.active_buffer) {
+                    if let Some(range) = buffer.selection.clone() {
+                        let text = buffer.rope.slice(range).to_string();
+                        let _ = clipboard::set_clipboard(&text);
+                    }
+                }
+            }
+            Action::Cut => {
+                if let Some(buffer) = self.buffers.get_mut(self.active_buffer) {
+                    if let Some(range) = buffer.selection.clone() {
+                        let text = buffer.rope.slice(range.clone()).to_string();
+                        let _ = clipboard::set_clipboard(&text);
+                        buffer.delete(range);
+                        buffer.selection = None;
+                        buffer.selection_anchor = None;
+                    }
+                }
+                self.ensure_cursor_visible();
+            }
+            Action::Paste => {
+                if let Some(text) = clipboard::get_clipboard() {
+                    if let Some(buffer) = self.buffers.get_mut(self.active_buffer) {
+                        if let Some(range) = buffer.selection.clone() {
+                            buffer.delete(range);
+                        }
+                        buffer.insert(buffer.cursor, &text);
+                        buffer.selection = None;
+                        buffer.selection_anchor = None;
+                    }
+                }
+                self.ensure_cursor_visible();
+            }
+            Action::ToggleLineNumbers => {
+                self.config.line_numbers = !self.config.line_numbers;
+                let _ = Config::write_key("line_numbers", &self.config.line_numbers.to_string());
+                self.menus = Self::build_menus(&self.i18n, &self.config, self.buffers.get(self.active_buffer), &self.themes, &self.syntax_defs);
+                self.layout.recompute(&self.menus, &self.buffers, self.active_buffer, self.config.line_numbers);
+            }
+            Action::ToggleWordWrap => {
+                self.config.word_wrap = !self.config.word_wrap;
+                let _ = Config::write_key("word_wrap", &self.config.word_wrap.to_string());
+                self.menus = Self::build_menus(&self.i18n, &self.config, self.buffers.get(self.active_buffer), &self.themes, &self.syntax_defs);
+            }
+            Action::ToggleViMode => {
+                self.config.vi_mode = !self.config.vi_mode;
+                let _ = Config::write_key("vi_mode", &self.config.vi_mode.to_string());
+                self.menus = Self::build_menus(&self.i18n, &self.config, self.buffers.get(self.active_buffer), &self.themes, &self.syntax_defs);
+                
+                // Reset all buffers to Normal mode when Vi mode is toggled
+                for b in self.buffers.iter_mut() {
+                    b.vi_mode = led_core::ViMode::Normal;
+                    b.selection = None;
+                    b.selection_anchor = None;
+                }
+                self.is_vi_cmd_mode = false;
+                self.vi_cmd.clear();
+            }
+            Action::About => {
+                self.focus = Focus::Dialog;
+                self.current_dialog = Some(Box::new(dialog::AboutDialog::new(&self.i18n)));
+            }
+            Action::ReopenWithEncoding(enc) => {
+                if let Some(buffer) = self.buffers.get(self.active_buffer) {
+                    self.target_encoding = Some(enc);
+                    if buffer.is_modified() {
+                        self.focus = Focus::Dialog;
+                        self.pending_op = PendingOp::None;
+                        self.current_dialog = Some(Box::new(dialog::ReopenConfirmationDialog::new(&self.i18n)));
+                    } else {
+                        // Reload immediately
+                        if let Some(path) = buffer.path.clone() {
+                            if let Ok(new_buffer) = Editor::from_file(&path) {
+                                let mut b = new_buffer;
+                                b.encoding = enc;
+                                self.buffers[self.active_buffer] = b;
+                                self.menus = Self::build_menus(&self.i18n, &self.config, self.buffers.get(self.active_buffer), &self.themes, &self.syntax_defs);
+                                self.layout.recompute(&self.menus, &self.buffers, self.active_buffer, self.config.line_numbers);
+                            }
+                        }
+                    }
+                }
+            }
+            Action::ConvertToEncoding(enc) => {
+                if let Some(buffer) = self.buffers.get_mut(self.active_buffer) {
+                    buffer.encoding = enc;
+                    buffer.modified_since_save = true;
+                    self.menus = Self::build_menus(&self.i18n, &self.config, Some(buffer), &self.themes, &self.syntax_defs);
+                }
+            }
+            Action::SetLineEnding(le) => {
+                if let Some(buffer) = self.buffers.get_mut(self.active_buffer) {
+                    buffer.line_ending = le;
+                    buffer.modified_since_save = true;
+                    self.menus = Self::build_menus(&self.i18n, &self.config, Some(buffer), &self.themes, &self.syntax_defs);
+                }
+            }
+            Action::SetTheme(theme_id) => {
+                if let Some(theme) = self.themes.iter().find(|t| t.meta.name.to_lowercase().replace(" ", "-") == theme_id) {
+                    self.theme = theme.clone();
+                    self.config.theme = theme_id;
+                    let _ = Config::write_key("theme", &self.config.theme);
+                    self.menus = Self::build_menus(&self.i18n, &self.config, self.buffers.get(self.active_buffer), &self.themes, &self.syntax_defs);
+                }
+            }
+            Action::SetSyntax(syntax_name) => {
+                if let Some(syntax_def) = self.syntax_defs.iter().find(|s| s.meta.name == syntax_name) {
+                    if let Ok(highlighter) = led_core::syntax::SyntaxHighlighter::new(syntax_def.clone()) {
+                        if let Some(buffer) = self.buffers.get_mut(self.active_buffer) {
+                            buffer.update_syntax(Some(highlighter));
+                        }
+                    }
+                } else if syntax_name == "Plain Text" {
+                    if let Some(buffer) = self.buffers.get_mut(self.active_buffer) {
+                        buffer.update_syntax(None);
+                    }
+                }
+                self.menus = Self::build_menus(&self.i18n, &self.config, self.buffers.get(self.active_buffer), &self.themes, &self.syntax_defs);
+            }
+            _ => {} // TODO: other actions
+        }
+    }
+
+    fn mouse_to_buffer_pos(&self, x: u16, y: u16) -> Option<usize> {
+        let (ex, ey, ew, eh) = self.layout.editor_bounds();
+        if x < ex || x >= ex + ew || y < ey || y >= ey + eh {
+            return None;
+        }
+
+        let buffer = &self.buffers[self.active_buffer];
+        let tab_size = self.config.tab_size as usize;
+
+        if self.config.word_wrap {
+            let mut current_row = 0;
+            let target_row = (y - ey) as usize;
+            let mut logical_line_idx = buffer.scroll_row;
+            let mut vrow_offset = buffer.scroll_vrow;
+
+            while logical_line_idx < buffer.line_count() {
+                let wraps = buffer.wrap_line(logical_line_idx, ew as usize, tab_size);
+                for (_v_idx, range) in wraps.iter().enumerate().skip(vrow_offset) {
+                    if current_row == target_row {
+                        // Found the visual line!
+                        let target_vcol = (x - ex) as usize;
+                        return Some(buffer.get_char_at_vcol(logical_line_idx, range.clone(), target_vcol, tab_size));
+                    }
+                    current_row += 1;
+                    if current_row > target_row { break; }
+                }
+                if current_row > target_row { break; }
+                logical_line_idx += 1;
+                vrow_offset = 0;
+            }
+            return Some(buffer.rope.len_chars());
+        } else {
+            let line_idx = buffer.scroll_row + (y - ey) as usize;
+            if line_idx >= buffer.line_count() {
+                return Some(buffer.rope.len_chars());
+            }
+
+            let line = buffer.line(line_idx);
+            let mut visual_x = 0;
+            let mut char_idx = buffer.rope.line_to_char(line_idx);
+            let target_visual_x = buffer.scroll_col + (x - ex) as usize;
+
+            for c in line.chars() {
+                let char_w = if c == '\t' {
+                    tab_size - (visual_x % tab_size)
+                } else {
+                    c.width().unwrap_or(0)
+                };
+
+                if visual_x + char_w > target_visual_x {
+                    return Some(char_idx);
+                }
+                
+                visual_x += char_w;
+                char_idx += 1;
+                
+                if c == '\n' || c == '\r' {
+                    return Some(char_idx.saturating_sub(1));
+                }
+            }
+            
+            Some(char_idx)
+        }
+    }
+
+    fn handle_mouse(&mut self, mouse: MouseEvent) {
+        let now = Instant::now();
+        let (x, y) = (mouse.column, mouse.row);
+
+        if self.focus == Focus::Dialog {
+            if let Some(ref mut dialog) = self.current_dialog {
+                let (dw, dh) = dialog.dimensions();
+                let dx = (self.width.saturating_sub(dw)) / 2;
+                let dy = (self.height.saturating_sub(dh)) / 2;
+                let result = dialog.handle_mouse(mouse, dx, dy, dw, dh);
+                self.handle_dialog_result(result);
+            }
+            return;
+        }
+
+        match mouse.kind {
+            MouseEventKind::Down(event::MouseButton::Left) | MouseEventKind::Down(event::MouseButton::Middle) => {
+                if now.duration_since(self.last_click_time) < Duration::from_millis(300)
+                    && self.last_click_pos == (x, y)
+                {
+                    self.click_count = (self.click_count % 3) + 1;
+                } else {
+                    self.click_count = 1;
+                }
+                self.last_click_time = now;
+                self.last_click_pos = (x, y);
+
+                let is_middle = mouse.kind == MouseEventKind::Down(event::MouseButton::Middle);
+                let is_shift = mouse.modifiers.contains(KeyModifiers::SHIFT);
+
+                // Handle Menu interaction (Left click only)
+                if !is_middle && self.focus == Focus::Menu {
+                    for (rx, ry, rw, rh, item_idx) in &self.dropdown_rects {
+                        if x >= *rx && x < *rx + *rw && y >= *ry && y < *ry + *rh {
+                            self.selected_item = *item_idx;
+                            let menu = self.get_current_active_menu();
+                            let item = menu.items[self.selected_item].clone();
+                            match item {
+                                MenuItem::Action { action, .. } | MenuItem::Toggle { action, .. } => {
+                                    self.perform_action(action);
+                                    self.focus = Focus::Editor;
+                                    self.active_menu = None;
+                                }
+                                MenuItem::Submenu { .. } => {
+                                    self.submenu_stack.push((self.active_menu.unwrap(), self.selected_item));
+                                    self.selected_item = 0;
+                                }
+                                MenuItem::Separator => {}
+                            }
+                            return;
+                        }
+                    }
+                }
+
+                if y == 0 {
+                    // Menu Bar
+                    if !is_middle {
+                        for (idx, (_label, start, end)) in self.layout.menu_bar_items.iter().enumerate() {
+                            if x >= *start && x < *end {
+                                self.open_menu(idx);
+                                return;
+                            }
+                        }
+                    }
+                    if self.focus == Focus::Menu {
+                        self.focus = Focus::Editor;
+                        self.active_menu = None;
+                    }
+                } else if y == 1 {
+                    // Tab Bar
+                    for (idx, start, end) in &self.layout.tab_rects {
+                        if x >= *start && x < *end {
+                            if is_middle {
+                                self.active_buffer = *idx;
+                                self.perform_action(Action::Close);
+                            } else {
+                                if x >= *end - 3 && x < *end - 1 {
+                                    self.active_buffer = *idx;
+                                    self.perform_action(Action::Close);
+                                } else {
+                                    self.active_buffer = *idx;
+                                    self.menus = Self::build_menus(&self.i18n, &self.config, self.buffers.get(self.active_buffer), &self.themes, &self.syntax_defs);
+                                    self.layout.recompute(&self.menus, &self.buffers, self.active_buffer, self.config.line_numbers);
+                                    if self.layout.panel_height > 0 {
+                                        self.run_search();
+                                    }
+                                }
+                            }
+                            return;
+                        }
+                    }
+                } else if y == self.height - 1 {
+                    // Status Bar
+                } else {
+                    // Editor or Panel
+                    if self.focus == Focus::Menu {
+                        self.focus = Focus::Editor;
+                        self.active_menu = None;
+                    } else {
+                        let (_gx, gy, gw, gh) = self.layout.gutter_bounds();
+                        if x < gw && y >= gy && y < gy + gh {
+                            // Gutter click
+                            let buffer = &mut self.buffers[self.active_buffer];
+                            let line_idx = buffer.scroll_row + (y - gy) as usize;
+                            buffer.select_line(line_idx);
+                            self.focus = Focus::Editor;
+                            return;
+                        }
+
+                        if let Some(pos) = self.mouse_to_buffer_pos(x, y) {
+                            self.focus = Focus::Editor;
+                            let buffer = &mut self.buffers[self.active_buffer];
+                            if is_shift {
+                                buffer.ensure_selection();
+                                buffer.cursor = pos;
+                                buffer.update_selection();
+                            } else {
+                                match self.click_count {
+                                    1 => {
+                                        buffer.cursor = pos;
+                                        buffer.selection = None;
+                                        buffer.selection_anchor = Some(pos);
+                                    }
+                                    2 => buffer.select_word(pos),
+                                    3 => {
+                                        let line = buffer.rope.char_to_line(pos);
+                                        buffer.select_line(line);
+                                    }
+                                    _ => {}
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            MouseEventKind::Drag(event::MouseButton::Left) => {
+                if let Some(pos) = self.mouse_to_buffer_pos(x, y) {
+                    let buffer = &mut self.buffers[self.active_buffer];
+                    buffer.ensure_selection();
+                    buffer.cursor = pos;
+                    buffer.update_selection();
+                }
+            }
+            MouseEventKind::ScrollUp => {
+                let is_shift = mouse.modifiers.contains(KeyModifiers::SHIFT);
+                let buffer = &mut self.buffers[self.active_buffer];
+                if is_shift {
+                    if !self.config.word_wrap && buffer.scroll_col > 0 {
+                        buffer.scroll_col = buffer.scroll_col.saturating_sub(4);
+                    }
+                } else {
+                    if buffer.scroll_row > 0 {
+                        buffer.scroll_row -= 1;
+                    }
+                }
+            }
+            MouseEventKind::ScrollDown => {
+                let is_shift = mouse.modifiers.contains(KeyModifiers::SHIFT);
+                let (_ex, _ey, _ew, eh) = self.layout.editor_bounds();
+                let buffer = &mut self.buffers[self.active_buffer];
+                if is_shift {
+                    if !self.config.word_wrap {
+                        buffer.scroll_col += 4;
+                    }
+                } else {
+                    if buffer.scroll_row + (eh as usize) < buffer.line_count() {
+                        buffer.scroll_row += 1;
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn render(&mut self, stdout: &mut Stdout) -> Result<()> {
+        self.renderer.clear();
+        
+        // Render regions
+        self.render_menu();
+        self.render_tabs();
+        if self.layout.panel_height > 0 {
+            self.render_panel();
+        }
+        self.render_editor();
+
+        self.render_status();
+
+        // Render open dropdowns
+        self.dropdown_rects.clear();
+        if let Some(idx) = self.active_menu {
+            let start_x = self.layout.menu_bar_items[idx].1;
+            let menu = self.menus[idx].clone();
+            self.render_dropdown(start_x, 1, &menu, 0);
+        }
+
+        // Render dialog if active
+        if let Some(ref dialog) = self.current_dialog {
+            let (dw, dh) = dialog.dimensions();
+            let x = (self.width.saturating_sub(dw)) / 2;
+            let y = (self.height.saturating_sub(dh)) / 2;
+            dialog.render(&mut self.renderer, &self.theme, x, y, dw, dh);
+        }
+
+        self.renderer.present(stdout)?;
+
+        // Move terminal cursor to the logical cursor position for IME
+        if self.current_dialog.is_none() && self.active_menu.is_none() {
+            // Hardware cursor for focused editor
+            if self.focus == Focus::Editor {
+                let (ex, ey, ew, eh) = self.layout.editor_bounds();
+                let buffer = &self.buffers[self.active_buffer];
+                let (line, col) = buffer.char_to_line_col(buffer.cursor);
+                
+                if line >= buffer.scroll_row {
+                    let mut visual_x = 0;
+                    let line_slice = buffer.rope.line(line);
+                    let tab_size = self.config.tab_size as usize;
+                    for (i, c) in line_slice.chars().enumerate() {
+                        if i >= col { break; }
+                        if c == '\t' {
+                            visual_x += tab_size - (visual_x % tab_size);
+                        } else {
+                            visual_x += c.width().unwrap_or(0);
+                        }
+                    }
+
+                    if visual_x >= buffer.scroll_col && visual_x < buffer.scroll_col + ew as usize {
+                        let rx = ex + (visual_x - buffer.scroll_col) as u16;
+                        let ry = ey + (line - buffer.scroll_row) as u16;
+                        if ry < ey + eh {
+                            execute!(stdout, cursor::Show, cursor::MoveTo(rx, ry))?;
+                        } else {
+                            execute!(stdout, cursor::Hide)?;
+                        }
+                    } else {
+                        execute!(stdout, cursor::Hide)?;
+                    }
+                } else {
+                    execute!(stdout, cursor::Hide)?;
+                }
+            } else if self.focus == Focus::Panel {
+                // Focus hardware cursor on find panel input
+                let (px, py, _pw, _ph) = self.layout.panel_bounds();
+                let cursor_x = match self.find_panel.focused_field {
+                    PanelField::FindInput => px + 9 + self.find_panel.find_text.chars().count() as u16,
+                    PanelField::ReplaceInput => px + 9 + self.find_panel.replace_text.chars().count() as u16,
+                    _ => 0,
+                };
+                if cursor_x > 0 {
+                    execute!(stdout, cursor::Show, cursor::MoveTo(cursor_x, py))?;
+                } else {
+                    execute!(stdout, cursor::Hide)?;
+                }
+            } else if self.focus == Focus::Dialog {
+                if let Some(ref dialog) = self.current_dialog {
+                    if let Some((dx, dy)) = dialog.cursor_pos() {
+                        let (x, y, _w, _h) = self.layout.dialog_bounds(dialog.dimensions());
+                        execute!(stdout, cursor::Show, cursor::MoveTo(x + dx, y + dy))?;
+                    } else {
+                        execute!(stdout, cursor::Hide)?;
+                    }
+                } else {
+                    execute!(stdout, cursor::Hide)?;
+                }
+            } else {
+                execute!(stdout, cursor::Hide)?;
+            }
+        }
+        stdout.flush()?;
+        Ok(())
+    }
+
+    fn render_menu(&mut self) {
+        let (x, y, w, _h) = self.layout.menu_bounds();
+        let bg = self.to_ct_color(self.theme.ui.menu_bar_bg);
+        let fg = self.to_ct_color(self.theme.ui.menu_bar_fg);
+        let active_bg = self.to_ct_color(self.theme.ui.menu_item_active_bg);
+        let active_fg = self.to_ct_color(self.theme.ui.menu_item_active_fg);
+        
+        // Background
+        for dx in 0..w {
+            self.renderer.set_cell(x + dx, y, Cell {
+                ch: ' ',
+                bg,
+                ..Default::default()
+            });
+        }
+
+        // Menu items
+        for (idx, (label, start, end)) in self.layout.menu_bar_items.iter().enumerate() {
+            let is_active = self.active_menu == Some(idx);
+            let item_bg = if is_active { active_bg } else { bg };
+            let item_fg = if is_active { active_fg } else { fg };
+
+            for (i, c) in label.chars().enumerate() {
+                self.renderer.set_cell(start + i as u16 + 1, y, Cell {
+                    ch: c,
+                    bg: item_bg,
+                    fg: item_fg,
+                    ..Default::default()
+                });
+            }
+            // Fill padding
+            self.renderer.set_cell(*start, y, Cell { ch: ' ', bg: item_bg, ..Default::default() });
+            self.renderer.set_cell(*end - 1, y, Cell { ch: ' ', bg: item_bg, ..Default::default() });
+        }
+    }
+
+    fn render_dropdown(&mut self, x: u16, y: u16, menu: &Menu, depth: usize) {
+        let items = &menu.items;
+        let mut max_width = items.iter().map(|item| match item {
+            MenuItem::Action { label, shortcut, .. } => {
+                label.chars().count() + shortcut.as_ref().map(|s| s.len() + 2).unwrap_or(0)
+            }
+            MenuItem::Toggle { label, .. } => label.chars().count() + 4,
+            MenuItem::Submenu { label, .. } => label.chars().count() + 4,
+            MenuItem::Separator => 5,
+        }).max().unwrap_or(10) as u16;
+        max_width += 2; // Padding
+
+        let bg = self.to_ct_color(self.theme.ui.menu_bar_bg);
+        let fg = self.to_ct_color(self.theme.ui.menu_bar_fg);
+        let active_bg = self.to_ct_color(self.theme.ui.menu_item_active_bg);
+        let active_fg = self.to_ct_color(self.theme.ui.menu_item_active_fg);
+
+        let is_current_level = depth == self.submenu_stack.len();
+        let selected_at_this_level = if depth < self.submenu_stack.len() {
+            Some(self.submenu_stack[depth].1)
+        } else if is_current_level {
+            Some(self.selected_item)
+        } else {
+            None
+        };
+
+        for (i, item) in items.iter().enumerate() {
+            let iy = y + i as u16;
+            let is_selected = selected_at_this_level == Some(i);
+            let item_bg = if is_selected { active_bg } else { bg };
+            let item_fg = if is_selected { active_fg } else { fg };
+
+            // Fill background
+            for dx in 0..max_width {
+                self.renderer.set_cell(x + dx, iy, Cell {
+                    ch: ' ',
+                    bg: item_bg,
+                    ..Default::default()
+                });
+            }
+
+            if is_current_level {
+                self.dropdown_rects.push((x, iy, max_width, 1, i));
+            }
+
+            match item {
+                MenuItem::Separator => {
+                    for dx in 0..max_width {
+                        self.renderer.set_cell(x + dx, iy, Cell {
+                            ch: '─',
+                            bg: item_bg,
+                            fg: item_fg,
+                            ..Default::default()
+                        });
+                    }
+                }
+                MenuItem::Action { label, shortcut, .. } => {
+                    let mut cur_ix = x + 1;
+                    for c in label.chars() {
+                        self.renderer.set_cell(cur_ix, iy, Cell { ch: c, bg: item_bg, fg: item_fg, ..Default::default() });
+                        cur_ix += 1;
+                    }
+                    if let Some(s) = shortcut {
+                        let sx = x + max_width - s.len() as u16 - 1;
+                        for (j, c) in s.chars().enumerate() {
+                            self.renderer.set_cell(sx + j as u16, iy, Cell { ch: c, bg: item_bg, fg: item_fg, ..Default::default() });
+                        }
+                    }
+                }
+                MenuItem::Toggle { label, checked, is_radio, .. } => {
+                    let prefix = if *is_radio {
+                        if *checked { "✓ " } else { "  " }
+                    } else {
+                        if *checked { "[x] " } else { "[ ] " }
+                    };
+                    let mut cur_ix = x + 1;
+                    for c in prefix.chars().chain(label.chars()) {
+                        self.renderer.set_cell(cur_ix, iy, Cell { ch: c, bg: item_bg, fg: item_fg, ..Default::default() });
+                        cur_ix += 1;
+                    }
+                }
+                MenuItem::Submenu { label, menu: sub } => {
+                    let mut cur_ix = x + 1;
+                    for c in label.chars() {
+                        self.renderer.set_cell(cur_ix, iy, Cell { ch: c, bg: item_bg, fg: item_fg, ..Default::default() });
+                        cur_ix += 1;
+                    }
+                    self.renderer.set_cell(x + max_width - 2, iy, Cell { ch: '▶', bg: item_bg, fg: item_fg, ..Default::default() });
+
+                    if selected_at_this_level == Some(i) && depth < self.submenu_stack.len() {
+                        let sub_clone = sub.clone();
+                        self.render_dropdown(x + max_width, iy, &sub_clone, depth + 1);
+                    }
+                }
+            }
+        }
+    }
+
+    fn render_tabs(&mut self) {
+        let (x, y, w, _h) = self.layout.tab_bounds();
+        let bg = self.to_ct_color(self.theme.ui.tab_bar_bg);
+        let active_bg = self.to_ct_color(self.theme.ui.tab_active_bg);
+        let active_fg = self.to_ct_color(self.theme.ui.tab_active_fg);
+        let inactive_bg = self.to_ct_color(self.theme.ui.tab_inactive_bg);
+        let inactive_fg = self.to_ct_color(self.theme.ui.tab_inactive_fg);
+        
+        // Background
+        for dx in 0..w {
+            self.renderer.set_cell(x + dx, y, Cell {
+                ch: ' ',
+                bg,
+                ..Default::default()
+            });
+        }
+
+        let total_tabs_width: u16 = self.layout.tab_rects.iter().map(|(_, s, e)| e - s + 1).sum();
+        let needs_scroll = total_tabs_width > w;
+
+        let display_w = if needs_scroll { w.saturating_sub(4) } else { w };
+        let offset_x = if needs_scroll { 2 } else { 0 };
+
+        if needs_scroll {
+            // Render arrows
+            self.renderer.set_cell(x, y, Cell { ch: '<', bg: inactive_bg, fg: inactive_fg, ..Default::default() });
+            self.renderer.set_cell(x + 1, y, Cell { ch: ' ', bg: inactive_bg, ..Default::default() });
+            self.renderer.set_cell(x + w - 2, y, Cell { ch: ' ', bg: inactive_bg, ..Default::default() });
+            self.renderer.set_cell(x + w - 1, y, Cell { ch: '>', bg: inactive_bg, fg: inactive_fg, ..Default::default() });
+        }
+
+        let mut current_tab_x = x + offset_x;
+        for (i, buffer) in self.buffers.iter().enumerate() {
+            let is_active = i == self.active_buffer;
+            let tab_bg = if is_active { active_bg } else { inactive_bg };
+            let tab_fg = if is_active { active_fg } else { inactive_fg };
+            
+            let name = buffer.path.as_ref()
+                .and_then(|p| p.file_name())
+                .map(|n| n.to_string_lossy().to_string())
+                .unwrap_or_else(|| self.i18n.get("status.no_name").to_string());
+            let modified = if buffer.is_modified() { "[+] " } else { "" };
+            let ro = if buffer.read_only { "[RO] " } else { "" };
+            let label = format!(" {}{}{} × ", ro, modified, name);
+            let tab_width = label.chars().count() as u16;
+
+            // Basic scrolling: just hide tabs that don't fit for now
+            // In a real app we'd use self.layout.tab_scroll
+            if current_tab_x + tab_width > x + offset_x + display_w {
+                break;
+            }
+
+            for (j, c) in label.chars().enumerate() {
+                self.renderer.set_cell(current_tab_x + j as u16, y, Cell {
+                    ch: c,
+                    bg: tab_bg,
+                    fg: tab_fg,
+                    bold: is_active,
+                    ..Default::default()
+                });
+            }
+            current_tab_x += tab_width + 1;
+        }
+    }
+
+    fn render_panel(&mut self) {
+        let (x, y, w, h) = self.layout.panel_bounds();
+        if h == 0 { return; }
+
+        use crate::widgets::find_panel::PanelField;
+
+        let normal_bg = self.to_ct_color(self.theme.ui.panel_bg);
+        let normal_fg = self.to_ct_color(self.theme.ui.panel_fg);
+        let focused_bg = self.to_ct_color(self.theme.ui.button_active_bg);
+        let focused_fg = self.to_ct_color(self.theme.ui.button_active_fg);
+        let error_fg = self.to_ct_color(self.theme.ui.panel_error_fg);
+
+        // Background
+        for dy in 0..h {
+            for dx in 0..w {
+                self.renderer.set_cell(x + dx, y + dy, Cell { ch: ' ', bg: normal_bg, ..Default::default() });
+            }
+        }
+
+        // Row 1: Find input
+        let find_label = format!("{}    ", self.i18n.get("panel.find"));
+        for (i, c) in find_label.chars().enumerate() {
+            self.renderer.set_cell(x + i as u16 + 1, y, Cell { ch: c, bg: normal_bg, fg: normal_fg, ..Default::default() });
+        }
+        
+        let input_x = x + find_label.chars().count() as u16 + 1;
+        let input_w = 30;
+        let is_find_focused = self.find_panel.focused_field == PanelField::FindInput;
+        let input_bg = if is_find_focused { focused_bg } else { normal_bg };
+        let input_fg = if is_find_focused { focused_fg } else { normal_fg };
+        
+        // Error color if no matches
+        let buffer = &self.buffers[self.active_buffer];
+        let input_fg = if !self.find_panel.find_text.is_empty() && buffer.find_results.is_empty() {
+            error_fg
+        } else {
+            input_fg
+        };
+
+        for dx in 0..input_w {
+            let ch = self.find_panel.find_text.chars().nth(dx as usize).unwrap_or(' ');
+            self.renderer.set_cell(input_x + dx, y, Cell { ch, bg: input_bg, fg: input_fg, ..Default::default() });
+        }
+
+        // Buttons
+        let mut cur_x = input_x + input_w + 2;
+        
+        let prev_btn = format!(" {} ", self.i18n.get("panel.prev"));
+        let is_prev_focused = self.find_panel.focused_field == PanelField::Prev;
+        for (i, c) in prev_btn.chars().enumerate() {
+            self.renderer.set_cell(cur_x + i as u16, y, Cell {
+                ch: c,
+                bg: if is_prev_focused { focused_bg } else { normal_bg },
+                fg: if is_prev_focused { focused_fg } else { normal_fg },
+                ..Default::default()
+            });
+        }
+        cur_x += prev_btn.chars().count() as u16 + 1;
+
+        let next_btn = format!(" {} ", self.i18n.get("panel.next"));
+        let is_next_focused = self.find_panel.focused_field == PanelField::Next;
+        for (i, c) in next_btn.chars().enumerate() {
+            self.renderer.set_cell(cur_x + i as u16, y, Cell {
+                ch: c,
+                bg: if is_next_focused { focused_bg } else { normal_bg },
+                fg: if is_next_focused { focused_fg } else { normal_fg },
+                ..Default::default()
+            });
+        }
+        cur_x += next_btn.chars().count() as u16 + 1;
+
+        let close_btn = format!(" {} ", self.i18n.get("panel.close"));
+        let is_close_focused = self.find_panel.focused_field == PanelField::Close;
+        for (i, c) in close_btn.chars().enumerate() {
+            self.renderer.set_cell(cur_x + i as u16, y, Cell {
+                ch: c,
+                bg: if is_close_focused { focused_bg } else { normal_bg },
+                fg: if is_close_focused { focused_fg } else { normal_fg },
+                ..Default::default()
+            });
+        }
+
+        // Row 2: Replace or Toggles
+        if self.find_panel.is_replace_mode {
+            // Row 2: Replace input
+            let replace_label = format!("{} ", self.i18n.get("panel.replace"));
+            for (i, c) in replace_label.chars().enumerate() {
+                self.renderer.set_cell(x + i as u16 + 1, y + 1, Cell { ch: c, bg: normal_bg, fg: normal_fg, ..Default::default() });
+            }
+            
+            let is_replace_focused = self.find_panel.focused_field == PanelField::ReplaceInput;
+            let replace_bg = if is_replace_focused { focused_bg } else { normal_bg };
+            let replace_fg = if is_replace_focused { focused_fg } else { normal_fg };
+            
+            for dx in 0..input_w {
+                let ch = self.find_panel.replace_text.chars().nth(dx as usize).unwrap_or(' ');
+                self.renderer.set_cell(input_x + dx, y + 1, Cell { ch, bg: replace_bg, fg: replace_fg, ..Default::default() });
+            }
+
+            let mut btn_x = input_x + input_w + 2;
+            let replace_btn = format!(" {} ", self.i18n.get("panel.replace_one"));
+            let is_rep_focused = self.find_panel.focused_field == PanelField::ReplaceBtn;
+            for (i, c) in replace_btn.chars().enumerate() {
+                self.renderer.set_cell(btn_x + i as u16, y + 1, Cell {
+                    ch: c,
+                    bg: if is_rep_focused { focused_bg } else { normal_bg },
+                    fg: if is_rep_focused { focused_fg } else { normal_fg },
+                    ..Default::default()
+                });
+            }
+            btn_x += replace_btn.chars().count() as u16 + 1;
+
+            let replace_all_btn = format!(" {} ", self.i18n.get("panel.replace_all"));
+            let is_rep_all_focused = self.find_panel.focused_field == PanelField::ReplaceAllBtn;
+            for (i, c) in replace_all_btn.chars().enumerate() {
+                self.renderer.set_cell(btn_x + i as u16, y + 1, Cell {
+                    ch: c,
+                    bg: if is_rep_all_focused { focused_bg } else { normal_bg },
+                    fg: if is_rep_all_focused { focused_fg } else { normal_fg },
+                    ..Default::default()
+                });
+            }
+
+            // Row 3: Toggles
+            self.render_toggles(x, y + 2);
+        } else {
+            // Row 2: Toggles
+            self.render_toggles(x, y + 1);
+        }
+    }
+
+    fn render_toggles(&mut self, x: u16, y: u16) {
+        use crate::widgets::find_panel::PanelField;
+        let normal_bg = self.to_ct_color(self.theme.ui.panel_bg);
+        let normal_fg = self.to_ct_color(self.theme.ui.panel_fg);
+        let focused_bg = self.to_ct_color(self.theme.ui.button_active_bg);
+        let focused_fg = self.to_ct_color(self.theme.ui.button_active_fg);
+
+        let mut cur_x = x + 1;
+        
+        let match_case = format!("[{}] {}", if self.find_panel.flags.match_case { "x" } else { " " }, self.i18n.get("panel.match_case"));
+        let is_mc_focused = self.find_panel.focused_field == PanelField::MatchCase;
+        for (i, c) in match_case.chars().enumerate() {
+            self.renderer.set_cell(cur_x + i as u16, y, Cell {
+                ch: c,
+                bg: if is_mc_focused { focused_bg } else { normal_bg },
+                fg: if is_mc_focused { focused_fg } else { normal_fg },
+                ..Default::default()
+            });
+        }
+        cur_x += match_case.chars().count() as u16 + 2;
+
+        let whole_word = format!("[{}] {}", if self.find_panel.flags.whole_word { "x" } else { " " }, self.i18n.get("panel.whole_word"));
+        let is_ww_focused = self.find_panel.focused_field == PanelField::WholeWord;
+        for (i, c) in whole_word.chars().enumerate() {
+            self.renderer.set_cell(cur_x + i as u16, y, Cell {
+                ch: c,
+                bg: if is_ww_focused { focused_bg } else { normal_bg },
+                fg: if is_ww_focused { focused_fg } else { normal_fg },
+                ..Default::default()
+            });
+        }
+        cur_x += whole_word.chars().count() as u16 + 2;
+
+        let use_regex = format!("[{}] {}", if self.find_panel.flags.use_regex { "x" } else { " " }, self.i18n.get("panel.use_regex"));
+        let is_re_focused = self.find_panel.focused_field == PanelField::Regex;
+        for (i, c) in use_regex.chars().enumerate() {
+            self.renderer.set_cell(cur_x + i as u16, y, Cell {
+                ch: c,
+                bg: if is_re_focused { focused_bg } else { normal_bg },
+                fg: if is_re_focused { focused_fg } else { normal_fg },
+                ..Default::default()
+            });
+        }
+    }
+
+    fn render_editor(&mut self) {
+        let (ex, ey, ew, eh) = self.layout.editor_bounds();
+        let (_gx, _gy, gw, gh) = self.layout.gutter_bounds();
+        let active_buffer_idx = self.active_buffer;
+        let word_wrap = self.config.word_wrap;
+        let tab_size = self.config.tab_size as usize;
+
+        let editor_bg = self.to_ct_color(self.theme.editor.background);
+        let editor_fg = self.to_ct_color(self.theme.editor.foreground);
+        let gutter_bg = editor_bg;
+        let gutter_fg = self.to_ct_color(self.theme.editor.line_number);
+        let selection_bg = self.to_ct_color(self.theme.editor.selection);
+        let selection_fg = editor_fg;
+        let cursor_bg = self.to_ct_color(self.theme.editor.cursor);
+
+        let current_line_bg = self.theme.editor.current_line.map(|c| self.to_ct_color(c)).unwrap_or(editor_bg);
+
+        let mut token_colors = std::collections::HashMap::new();
+        use led_core::syntax::TokenType::*;
+        for &t in &[Keyword, TypeName, Function, String, Number, Comment, Operator, Punctuation, Constant, Attribute, Error] {
+            token_colors.insert(t, self.get_token_color(t));
+        }
+
+        let focus = self.focus;
+        let App { ref mut renderer, ref mut buffers, .. } = *self;
+        let buffer = &mut buffers[active_buffer_idx];
+
+        if word_wrap {
+            // Word Wrap rendering
+            let mut rendered_rows = 0;
+            let mut logical_line_idx = buffer.scroll_row;
+            let mut vrow_offset = buffer.scroll_vrow;
+
+            let cursor_line = buffer.rope.char_to_line(buffer.cursor);
+
+            while rendered_rows < eh && logical_line_idx < buffer.line_count() {
+                let wraps = buffer.wrap_line(logical_line_idx, ew as usize, tab_size);
+                let line_start_char = buffer.rope.line_to_char(logical_line_idx);
+                let tokens = buffer.highlight_line(logical_line_idx);
+
+                let is_current_line = logical_line_idx == cursor_line && focus == Focus::Editor;
+
+                for (v_idx, range) in wraps.iter().enumerate().skip(vrow_offset) {
+                    if rendered_rows >= eh { break; }
+                    let ry = ey + rendered_rows;
+
+                    let line_bg = if is_current_line { current_line_bg } else { editor_bg };
+
+                    // Render gutter for the FIRST visual line of each logical line
+                    if gw > 0 {
+                        for dx in 0..gw {
+                            renderer.set_cell(_gx + dx, ry, Cell { ch: ' ', bg: gutter_bg, ..Default::default() });
+                        }
+                        if v_idx == 0 {
+                            let line_num = (logical_line_idx + 1).to_string();
+                            let num_x = _gx + gw - line_num.len() as u16 - 2;
+                            for (i, c) in line_num.chars().enumerate() {
+                                renderer.set_cell(num_x + i as u16, ry, Cell { ch: c, bg: gutter_bg, fg: gutter_fg, ..Default::default() });
+                            }
+                        }
+                    }
+
+                    // Render visual line content
+                    let mut visual_x = 0;
+                    let line_slice = buffer.rope.line(logical_line_idx);
+                    let mut byte_offset = 0;
+                    let mut current_token_idx = 0;
+                    
+                    for (i, c) in line_slice.chars().enumerate() {
+                        let char_len = c.len_utf8();
+                        if i < range.start { 
+                            byte_offset += char_len;
+                            continue; 
+                        }
+                        if i >= range.end { break; }
+
+                        let char_idx = line_start_char + i;
+                        let char_w = if c == '\t' {
+                            tab_size as u16 - (visual_x % tab_size as u16)
+                        } else {
+                            c.width().unwrap_or(0) as u16
+                        };
+
+                        let rx = ex + visual_x;
+                        let mut bg = line_bg;
+                        let mut fg = editor_fg;
+
+                        // Syntax highlighting
+                        while current_token_idx < tokens.len() && tokens[current_token_idx].byte_range.end <= byte_offset {
+                            current_token_idx += 1;
+                        }
+                        if current_token_idx < tokens.len() && tokens[current_token_idx].byte_range.start <= byte_offset {
+                            fg = *token_colors.get(&tokens[current_token_idx].token).unwrap_or(&editor_fg);
+                        }
+
+                        if let Some(ref r) = buffer.selection {
+                            if char_idx >= r.start && char_idx < r.end {
+                                bg = selection_bg;
+                                fg = selection_fg;
+                            }
+                        }
+                        
+                        // Search matches
+                        for (idx, m) in buffer.find_results.iter().enumerate() {
+                            if char_idx >= m.char_range.start && char_idx < m.char_range.end {
+                                if Some(idx) == buffer.current_match_idx {
+                                    bg = Color::Green;
+                                    fg = Color::Black;
+                                } else {
+                                    bg = Color::Yellow;
+                                    fg = Color::Black;
+                                }
+                                break;
+                            }
+                        }
+
+                        if char_idx == buffer.cursor && focus == Focus::Editor {
+                            bg = cursor_bg;
+                            fg = editor_bg;
+                        }
+
+                        if c == '\t' {
+                            renderer.set_cell(ex + visual_x, ry, Cell { ch: ' ', bg, fg, width: char_w as u8, ..Default::default() });
+                        } else if c != '\n' && c != '\r' {
+                            renderer.set_cell(rx, ry, Cell { ch: c, bg, fg, width: char_w as u8, ..Default::default() });
+                        } else {
+                            // End of logical line, might show cursor/selection
+                            if char_idx == buffer.cursor && focus == Focus::Editor {
+                                renderer.set_cell(rx, ry, Cell { ch: ' ', bg: cursor_bg, fg: editor_bg, width: 1, ..Default::default() });
+                            } else if bg != line_bg {
+                                renderer.set_cell(rx, ry, Cell { ch: ' ', bg, fg, width: 1, ..Default::default() });
+                            } else if is_current_line {
+                                renderer.set_cell(rx, ry, Cell { ch: ' ', bg: line_bg, fg, width: 1, ..Default::default() });
+                            }
+                        }
+                        visual_x += char_w;
+                        byte_offset += char_len;
+                    }
+
+                    // Handle cursor at the very end of file (after last char of last line)
+                    if logical_line_idx == buffer.line_count() - 1 && range.end == line_slice.len_chars() {
+                         let last_char_idx = line_start_char + line_slice.len_chars();
+                         let ends_with_newline = line_slice.len_chars() > 0 && (line_slice.char(line_slice.len_chars()-1) == '\n' || line_slice.char(line_slice.len_chars()-1) == '\r');
+                         if !ends_with_newline && buffer.cursor == last_char_idx && visual_x < ew {
+                             renderer.set_cell(ex + visual_x, ry, Cell { ch: ' ', bg: cursor_bg, fg: editor_bg, ..Default::default() });
+                             visual_x += 1;
+                         }
+                    }
+
+                    // Clear rest of row
+                    for dx in visual_x..ew {
+                        renderer.set_cell(ex + dx, ry, Cell { ch: ' ', bg: line_bg, fg: editor_fg, ..Default::default() });
+                    }
+
+                    rendered_rows += 1;
+                }
+                logical_line_idx += 1;
+                vrow_offset = 0;
+            }
+
+            // Clear remaining rows
+            for dy in rendered_rows..eh {
+                if gw > 0 {
+                    for dx in 0..gw {
+                        renderer.set_cell(_gx + dx, ey + dy, Cell { ch: ' ', bg: gutter_bg, ..Default::default() });
+                    }
+                }
+                for dx in 0..ew {
+                    renderer.set_cell(ex + dx, ey + dy, Cell { ch: ' ', bg: editor_bg, ..Default::default() });
+                }
+            }
+        } else {
+            // Existing No Wrap rendering
+            // Render gutter
+            if gw > 0 {
+                for dy in 0..gh {
+                    let line_idx = buffer.scroll_row + dy as usize;
+                    for dx in 0..gw {
+                        renderer.set_cell(_gx + dx, _gy + dy, Cell { ch: ' ', bg: gutter_bg, ..Default::default() });
+                    }
+                    if line_idx < buffer.line_count() {
+                        let line_num = (line_idx + 1).to_string();
+                        let num_x = _gx + gw - line_num.len() as u16 - 2;
+                        for (i, c) in line_num.chars().enumerate() {
+                            renderer.set_cell(num_x + i as u16, _gy + dy, Cell { ch: c, bg: gutter_bg, fg: gutter_fg, ..Default::default() });
+                        }
+                    }
+                }
+            }
+
+            // Render editor area
+            let cursor_line = buffer.rope.char_to_line(buffer.cursor);
+            for dy in 0..eh {
+                let line_idx = buffer.scroll_row + dy as usize;
+                if line_idx >= buffer.line_count() {
+                    for dx in 0..ew {
+                        renderer.set_cell(ex + dx, ey + dy, Cell { ch: ' ', bg: editor_bg, ..Default::default() });
+                    }
+                    continue;
+                }
+
+                let is_current_line = line_idx == cursor_line && focus == Focus::Editor;
+                let line_bg = if is_current_line { current_line_bg } else { editor_bg };
+
+                let tokens = buffer.highlight_line(line_idx);
+                let line = buffer.line(line_idx);
+                let mut char_idx = buffer.rope.line_to_char(line_idx);
+                let mut visual_x = 0;
+                let mut current_token_idx = 0;
+                let mut byte_offset = 0;
+                
+                for c in line.chars() {
+                    let char_len = c.len_utf8();
+                    let char_w = if c == '\t' {
+                        let tab_size = tab_size as u16;
+                        tab_size - (visual_x % tab_size)
+                    } else {
+                        c.width().unwrap_or(0) as u16
+                    };
+
+                    if visual_x + char_w > buffer.scroll_col as u16 + ew {
+                        break;
+                    }
+
+                    if visual_x + char_w > buffer.scroll_col as u16 {
+                        let rx = ex + (visual_x.saturating_sub(buffer.scroll_col as u16));
+                        let ry = ey + dy;
+                        let mut bg = line_bg;
+                        let mut fg = editor_fg;
+
+                        // Syntax highlighting
+                        while current_token_idx < tokens.len() && tokens[current_token_idx].byte_range.end <= byte_offset {
+                            current_token_idx += 1;
+                        }
+                        if current_token_idx < tokens.len() && tokens[current_token_idx].byte_range.start <= byte_offset {
+                            fg = *token_colors.get(&tokens[current_token_idx].token).unwrap_or(&editor_fg);
+                        }
+
+                        if let Some(ref range) = buffer.selection {
+                            if char_idx >= range.start && char_idx < range.end {
+                                bg = selection_bg;
+                                fg = selection_fg;
+                            }
+                        }
+
+                        // Search matches
+                        for (idx, m) in buffer.find_results.iter().enumerate() {
+                            if char_idx >= m.char_range.start && char_idx < m.char_range.end {
+                                if Some(idx) == buffer.current_match_idx {
+                                    bg = Color::Green;
+                                    fg = Color::Black;
+                                } else {
+                                    bg = Color::Yellow;
+                                    fg = Color::Black;
+                                }
+                                break;
+                            }
+                        }
+
+                        if char_idx == buffer.cursor && focus == Focus::Editor {
+                            bg = cursor_bg;
+                            fg = editor_bg;
+                        }
+
+                        if c == '\t' {
+                            for dx in 0..char_w {
+                                let vx = visual_x + dx;
+                                if vx >= buffer.scroll_col as u16 && vx < buffer.scroll_col as u16 + ew {
+                                    renderer.set_cell(ex + (vx - buffer.scroll_col as u16), ry, Cell { ch: ' ', bg, fg, width: 1, ..Default::default() });
+                                }
+                            }
+                        } else if c != '\n' && c != '\r' {
+                            let rx = ex + (visual_x.saturating_sub(buffer.scroll_col as u16));
+                            let ry = ey + dy;
+                            renderer.set_cell(rx, ry, Cell { ch: c, bg, fg, width: char_w as u8, ..Default::default() });
+                        } else {
+                            if char_idx == buffer.cursor && focus == Focus::Editor {
+                                renderer.set_cell(rx, ry, Cell { ch: ' ', bg: cursor_bg, fg: editor_bg, ..Default::default() });
+                            } else if bg != line_bg {
+                                renderer.set_cell(rx, ry, Cell { ch: ' ', bg, fg, ..Default::default() });
+                            } else if is_current_line {
+                                renderer.set_cell(rx, ry, Cell { ch: ' ', bg: line_bg, fg, ..Default::default() });
+                            }
+                        }
+                    }
+                    visual_x += char_w;
+                    char_idx += 1;
+                    byte_offset += char_len;
+                }
+                // Last line end cursor
+                if line_idx == buffer.line_count() - 1 {
+                     let last_char_idx = buffer.rope.line_to_char(line_idx) + line.len_chars();
+                     let ends_with_newline = line.len_chars() > 0 && (line.char(line.len_chars()-1) == '\n' || line.char(line.len_chars()-1) == '\r');
+                     if !ends_with_newline && buffer.cursor == last_char_idx {
+                         if visual_x >= buffer.scroll_col as u16 && visual_x < buffer.scroll_col as u16 + ew {
+                             renderer.set_cell(ex + (visual_x - buffer.scroll_col as u16), ey + dy, Cell { ch: ' ', bg: cursor_bg, fg: editor_bg, ..Default::default() });
+                             visual_x += 1;
+                         }
+                     }
+                }
+                for dx in (visual_x.saturating_sub(buffer.scroll_col as u16))..ew {
+                    renderer.set_cell(ex + dx, ey + dy, Cell { ch: ' ', bg: line_bg, fg: editor_fg, ..Default::default() });
+                }
+
+            }
+        }
+    }
+
+    fn render_status(&mut self) {
+        let (x, y, w, _h) = self.layout.status_bounds();
+        let buffer = &self.buffers[self.active_buffer];
+        let bg = self.to_ct_color(self.theme.ui.status_bar_bg);
+        let fg = self.to_ct_color(self.theme.ui.status_bar_fg);
+
+        // Background
+        for dx in 0..w {
+            self.renderer.set_cell(x + dx, y, Cell { ch: ' ', bg, ..Default::default() });
+        }
+
+        // Left segment: File status and path
+        let modified = if buffer.is_modified() { "[+] " } else { "" };
+        let filename = buffer.path.as_ref()
+            .and_then(|p| p.file_name())
+            .map(|f| f.to_string_lossy())
+            .unwrap_or_else(|| std::borrow::Cow::Borrowed(self.i18n.get("status.no_name")));
+        let left_text = format!(" {}{}", modified, filename);
+
+        // Right segment components
+        let (line, col) = buffer.char_to_line_col(buffer.cursor);
+        let mut visual_col = col + 1;
+        if self.config.word_wrap {
+            let (_ex, _ey, ew, _eh) = self.layout.editor_bounds();
+            let wraps = buffer.wrap_line(line, ew as usize, self.config.tab_size as usize);
+            let char_in_line = col;
+            for wrap in wraps {
+                if char_in_line >= wrap.start && char_in_line <= wrap.end {
+                    let mut w = 0;
+                    let line_slice = buffer.rope.line(line);
+                    for (i, c) in line_slice.chars().enumerate().skip(wrap.start) {
+                        if i >= char_in_line { break; }
+                        if c == '\t' {
+                            let ts = self.config.tab_size as usize;
+                            w += ts - (w % ts);
+                        } else {
+                            w += c.width().unwrap_or(0);
+                        }
+                    }
+                    visual_col = w + 1;
+                    break;
+                }
+            }
+        } else {
+            let mut w = 0;
+            let line_slice = buffer.rope.line(line);
+            for (i, c) in line_slice.chars().enumerate() {
+                if i >= col { break; }
+                if c == '\t' {
+                    let ts = self.config.tab_size as usize;
+                    w += ts - (w % ts);
+                } else {
+                    w += c.width().unwrap_or(0);
+                }
+            }
+            visual_col = w + 1;
+        }
+
+        let cursor_info = self.i18n.get("status.cursor")
+            .replace("{line}", &(line + 1).to_string())
+            .replace("{col}", &visual_col.to_string());
+        
+        let selection_info = if let Some(ref range) = buffer.selection {
+            format!(" {} ", self.i18n.get("status.selection").replace("{n}", &(range.end - range.start).to_string()))
+        } else {
+            "".to_string()
+        };
+
+        let search_info = if let Some(ref status) = buffer.search_status {
+            format!(" {} ", status)
+        } else if !buffer.find_results.is_empty() {
+            let current = buffer.current_match_idx.map(|i| i + 1).unwrap_or(0);
+            let total = buffer.find_results.len();
+            format!(" {} ", self.i18n.get("status.matches")
+                .replace("{current}", &current.to_string())
+                .replace("{total}", &total.to_string()))
+        } else {
+            "".to_string()
+        };
+
+        let encoding = match buffer.encoding {
+            Encoding::Utf8 => "UTF-8",
+            Encoding::Utf8Bom => "UTF-8 BOM",
+            Encoding::Utf16Le => "UTF-16LE",
+            Encoding::Utf16Be => "UTF-16BE",
+            Encoding::ShiftJis => "Shift-JIS",
+            Encoding::EucJp => "EUC-JP",
+            Encoding::Iso2022Jp => "ISO-2022-JP",
+            Encoding::Latin1 => "Latin-1",
+        };
+
+        let line_ending = match buffer.line_ending {
+            LineEnding::Lf => "LF",
+            LineEnding::Crlf => "CRLF",
+            LineEnding::Cr => "CR",
+        };
+
+        let syntax = buffer.syntax_highlighter.as_ref()
+            .map(|h| h.def.meta.name.as_str())
+            .unwrap_or_else(|| self.i18n.get("menu.view.syntax_plain"));
+
+        let vi_mode = if self.config.vi_mode {
+            match buffer.vi_mode {
+                led_core::ViMode::Normal => " NORMAL",
+                led_core::ViMode::Insert => " INSERT",
+                led_core::ViMode::Visual => " VISUAL",
+            }
+        } else {
+            ""
+        };
+
+        let right_text = format!("{}{} | {} | {} | {} | {} ", 
+            search_info, selection_info, cursor_info, encoding, line_ending, syntax);
+        let vi_mode_text = if !vi_mode.is_empty() { format!("|{} ", vi_mode) } else { "".to_string() };
+        let full_right_text = format!("{}{}", right_text, vi_mode_text);
+
+        // Render left
+        let mut cur_x = x;
+        for c in left_text.chars() {
+            let width = c.width().unwrap_or(0) as u16;
+            if cur_x + width <= x + w {
+                self.renderer.set_cell(cur_x, y, Cell { ch: c, bg, fg, width: width as u8, ..Default::default() });
+                cur_x += width;
+            }
+        }
+
+        // Render right (right-aligned)
+        let mut right_visual_width = 0;
+        for c in full_right_text.chars() {
+            right_visual_width += c.width().unwrap_or(0) as u16;
+        }
+
+        let mut cur_rx = x + w.saturating_sub(right_visual_width);
+        for c in full_right_text.chars() {
+            let width = c.width().unwrap_or(0) as u16;
+            if cur_rx >= x && cur_rx + width <= x + w {
+                self.renderer.set_cell(cur_rx, y, Cell { ch: c, bg, fg, width: width as u8, ..Default::default() });
+            }
+            cur_rx += width;
+        }
+    }
+
+    fn render_too_small(&self, stdout: &mut Stdout) -> Result<()> {
+        execute!(
+            stdout,
+            terminal::Clear(terminal::ClearType::All),
+            cursor::MoveTo(0, 0)
+        )?;
+        let msg = self.i18n.get("status.terminal_too_small")
+            .replace("{cols}", &self.width.to_string())
+            .replace("{rows}", &self.height.to_string());
+        let msg_w = msg.width() as u16;
+        let x = (self.width.saturating_sub(msg_w)) / 2;
+        let y = self.height / 2;
+        execute!(stdout, cursor::MoveTo(x, y))?;
+        write!(stdout, "{}", msg)?;
+        stdout.flush()?;
+        Ok(())
+    }
+}

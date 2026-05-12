@@ -1,0 +1,42 @@
+[meta]
+name = "Solarized Dark"
+
+[editor]
+background = "#002b36"
+foreground = "#839496"
+cursor = "#93a1a1"
+selection = "#073642"
+line_number = "#586e75"
+
+[ui]
+menu_bar_bg = "#073642"
+menu_bar_fg = "#93a1a1"
+menu_item_active_bg = "#002b36"
+menu_item_active_fg = "#268bd2"
+tab_bar_bg = "#073642"
+tab_active_bg = "#002b36"
+tab_active_fg = "#839496"
+tab_inactive_bg = "#073642"
+tab_inactive_fg = "#586e75"
+status_bar_bg = "#073642"
+status_bar_fg = "#93a1a1"
+panel_bg = "#073642"
+panel_fg = "#839496"
+panel_error_fg = "#dc322f"
+dialog_bg = "#073642"
+dialog_border = "#268bd2"
+button_active_bg = "#002b36"
+button_active_fg = "#268bd2"
+
+[syntax]
+keyword = "#859900"
+type_name = "#b58900"
+function = "#268bd2"
+string = "#2aa198"
+number = "#cb4b16"
+comment = "#586e75"
+operator = "#839496"
+punctuation = "#839496"
+constant = "#cb4b16"
+attribute = "#6c71c4"
+error = "#dc322f"

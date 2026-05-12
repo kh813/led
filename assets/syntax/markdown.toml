@@ -1,0 +1,28 @@
+[meta]
+name = "Markdown"
+extensions = ["md", "markdown"]
+
+[[rule]]
+token = "keyword"
+pattern = "^#+.*"
+
+[[rule]]
+token = "type_name"
+pattern = "\\*\\*.*\\*\\*"
+
+[[rule]]
+token = "attribute"
+pattern = "\\*.*\\*"
+
+[[rule]]
+token = "string"
+pattern = "`[^`]+`"
+
+[[rule]]
+token = "constant"
+start = "```"
+end = "```"
+
+[[rule]]
+token = "function"
+pattern = "\\[.*\\]\\(.*\\)"

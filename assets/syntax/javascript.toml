@@ -1,0 +1,44 @@
+[meta]
+name = "JavaScript"
+extensions = ["js", "jsx", "ts", "tsx"]
+
+[[rule]]
+token = "keyword"
+pattern = "break|case|catch|class|const|continue|debugger|default|delete|do|else|export|extends|finally|for|function|if|import|in|instanceof|new|return|super|switch|this|throw|try|typeof|var|void|while|with|yield|async|await|let|static|of"
+word_boundary = true
+
+[[rule]]
+token = "constant"
+pattern = "true|false|null|undefined|NaN|Infinity"
+word_boundary = true
+
+[[rule]]
+token = "string"
+pattern = "\".*?\""
+
+[[rule]]
+token = "string"
+pattern = "'.*?'"
+
+[[rule]]
+token = "string"
+pattern = "`.*?`"
+
+[[rule]]
+token = "comment"
+pattern = "//.*"
+
+[[rule]]
+token = "comment"
+start = "/\\*"
+end = "\\*/"
+
+[[rule]]
+token = "function"
+pattern = "[a-zA-Z_][a-zA-Z0-9_]*\\s*(?=\\()"
+word_boundary = true
+
+[[rule]]
+token = "type_name"
+pattern = "Number|String|Boolean|Object|Array|Promise|Error|RegExp|Map|Set|Symbol"
+word_boundary = true

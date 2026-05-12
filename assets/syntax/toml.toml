@@ -1,0 +1,33 @@
+[meta]
+name = "TOML"
+extensions = ["toml"]
+
+[[rule]]
+token = "keyword"
+pattern = "^\\s*\\[.*\\]"
+
+[[rule]]
+token = "type_name"
+pattern = "^\\s*[a-zA-Z0-9_-]+\\s*="
+
+[[rule]]
+token = "string"
+pattern = "\".*?\""
+
+[[rule]]
+token = "string"
+pattern = "'.*?'"
+
+[[rule]]
+token = "comment"
+pattern = "#.*"
+
+[[rule]]
+token = "constant"
+pattern = "true|false"
+word_boundary = true
+
+[[rule]]
+token = "number"
+pattern = "[0-9]+(\\.[0-9]+)?"
+word_boundary = true

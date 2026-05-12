@@ -1,0 +1,90 @@
+# config.toml.default — led configuration template
+#
+# Copy this file to ~/.config/led/config.toml and edit as needed.
+#
+#   cp assets/config.toml.default ~/.config/led/config.toml
+#
+# Rules:
+#   - This file is loaded at startup only. Restart led to apply changes.
+#   - If ~/.config/led/config.toml does not exist, led runs on built-in defaults.
+#     The file is not auto-generated on startup.
+#   - Unknown keys are silently ignored.
+#   - Missing keys fall back to their built-in default values.
+#   - Runtime toggles (e.g. View > Line Numbers, View > Theme) write back to
+#     ~/.config/led/config.toml automatically. If the file does not yet exist,
+#     it is created at that point with only the changed key(s).
+#
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+# UI language.
+# Built-in locales: "en" (English), "ja" (Japanese).
+# Custom locales can be placed in ~/.config/led/locales/<code>.toml.
+# Any key missing from a custom locale falls back to the English built-in.
+#
+# Type    : string
+# Default : "en"
+language = "en"
+
+
+# Active theme.
+# Must match a filename in ~/.config/led/themes/ without the .toml extension.
+# Built-in themes: "tokyo-night", "light", "solarized-dark", "solarized-light",
+#                  "catppuccin-mocha", "catppuccin-latte".
+# User themes: place a .toml file in ~/.config/led/themes/ and use its basename here.
+# This key is updated automatically when you switch themes via View > Theme.
+#
+# Type    : string
+# Default : "tokyo-night"
+theme = "tokyo-night"
+
+
+# Show line numbers in the left gutter.
+# Can also be toggled at runtime via View > [x] Line Numbers.
+# Runtime toggles are written back to this file and persist across sessions.
+#
+# Type    : boolean  (true / false)
+# Default : true
+line_numbers = true
+
+
+# Enable vi keybindings (Normal / Insert / Visual modes).
+# Can also be toggled at runtime via View > [ ] Vi Mode.
+#
+# Type    : boolean  (true / false)
+# Default : false
+vi_mode = false
+
+
+# Wrap long lines in the editor area.
+# When true: lines wrap at the terminal width; horizontal scroll is disabled;
+#            Up/Down moves by visual line (a long logical line may span multiple rows).
+# When false: lines extend past the terminal width; Shift+Scroll to scroll horizontally.
+# Can also be toggled at runtime via View > [ ] Word Wrap.
+#
+# Type    : boolean  (true / false)
+# Default : false
+word_wrap = false
+
+
+# Tab stop width in display cells.
+# Controls how wide a tab character (\t) appears on screen, and how many
+# spaces are inserted when expand_tab = true.
+# Typical values: 2, 4, 8.
+#
+# Type    : integer  (1–16)
+# Default : 4
+tab_size = 4
+
+
+# Expand Tab key press to spaces on input.
+# true  — pressing the Tab key inserts spaces (tab_size spaces wide).
+# false — pressing the Tab key inserts a literal \t character.
+#
+# Note: this setting controls what is inserted when you press Tab.
+#       Characters already present in the file are always preserved as-is
+#       on disk, regardless of this setting.
+#
+# Type    : boolean  (true / false)
+# Default : false
+expand_tab = false
