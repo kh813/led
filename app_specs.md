@@ -22,9 +22,9 @@
   | `make all` (cross-build from macOS) | macOS arm64 GUI | `led.app` | cargo native, bundled |
   | `make all` (cross-build from macOS) | Linux x64 TUI | `led.linux-x64` | `cross` (Docker) |
   | `make all` (cross-build from macOS) | Linux arm64 TUI | `led.linux-arm64` | `cross` (Docker) |
-  | GitHub Actions `windows-latest` runner | Windows x64 GUI | `led.exe` | `x86_64-pc-windows-msvc`; triggered by release tag |
+  | GitHub Actions `release.yml` | macOS / Linux / Windows (TUI & GUI) | `led-mac-arm64`, `led-mac-x64`, `led.app.zip`, `led-linux-x64`, `led-linux-arm64`, `led-windows-x64.exe`, `led-gui-windows-x64.exe` | Triggered on push tags (`v*`) or manual workflow dispatch |
 
-  > **Windows build**: `x86_64-pc-windows-msvc` target. Cannot be cross-compiled from macOS (MSVC SDK required). Built on a GitHub Actions `windows-latest` runner via `.github/workflows/release-windows.yml`, triggered by the same release tag as `make all`. `make all` does not include a Windows target.
+  > **GitHub Actions Build**: Built via `.github/workflows/release.yml` for macOS, Linux, and Windows (TUI & GUI binaries). `release-windows.yml` is superseded by `release.yml`.
 
   > **`cross` tool required for `make all`**: Linux targets use the [`cross`](https://github.com/cross-rs/cross) tool (Docker-based cross-compilation). Install with `cargo install cross`. Docker must be running when executing `make all`.
 - **TUI-First**: Looks like a genuine modern terminal application, not a relic of the DOS era

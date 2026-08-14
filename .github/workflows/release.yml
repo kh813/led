@@ -1,0 +1,133 @@
+name: Build & Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build (${{ matrix.target }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: aarch64-apple-darwin
+            os: macos-latest
+            use_cross: false
+            bin_name: led
+            gui_bin: led-gui
+            suffix: mac-arm64
+          - target: x86_64-apple-darwin
+            os: macos-latest
+            use_cross: false
+            bin_name: led
+            gui_bin: led-gui
+            suffix: mac-x64
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+            use_cross: false
+            bin_name: led
+            gui_bin: led-gui
+            suffix: linux-x64
+          - target: aarch64-unknown-linux-gnu
+            os: ubuntu-latest
+            use_cross: true
+            bin_name: led
+            gui_bin: led-gui
+            suffix: linux-arm64
+          - target: x86_64-pc-windows-msvc
+            os: windows-latest
+            use_cross: false
+            bin_name: led.exe
+            gui_bin: led-gui.exe
+            suffix: windows-x64.exe
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Install Linux GUI Dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libx11-dev libx11-xcb-dev libxkbcommon-dev libxkbcommon-x11-dev libxcb1-dev libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev libfontconfig1-dev libfreetype6-dev
+
+      - name: Install Cross
+        if: matrix.use_cross
+        run: cargo install cross --git https://github.com/cross-rs/cross
+
+      - name: Build TUI
+        if: "!matrix.use_cross"
+        run: cargo build --release --target ${{ matrix.target }} -p led-tui
+
+      - name: Build TUI (Cross)
+        if: matrix.use_cross
+        run: cross build --release --target ${{ matrix.target }} -p led-tui
+
+      - name: Build GUI
+        if: "!matrix.use_cross"
+        run: cargo build --release --target ${{ matrix.target }} -p led-gui
+
+      - name: Build GUI (Cross)
+        if: matrix.use_cross
+        run: cross build --release --target ${{ matrix.target }} -p led-gui
+
+      - name: Package Binaries (Unix)
+        if: runner.os != 'Windows'
+        run: |
+          mkdir -p artifacts
+          cp target/${{ matrix.target }}/release/${{ matrix.bin_name }} artifacts/led-${{ matrix.suffix }}
+          cp target/${{ matrix.target }}/release/${{ matrix.gui_bin }} artifacts/led-gui-${{ matrix.suffix }}
+
+      - name: Package macOS App Bundle
+        if: runner.os == 'macOS'
+        run: |
+          make gui CARGO_FLAGS="--target ${{ matrix.target }}"
+          cd dist && zip -r ../artifacts/led-${{ matrix.suffix }}.app.zip led.app && cd ..
+
+      - name: Package Binaries (Windows)
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          mkdir -p artifacts
+          cp target/${{ matrix.target }}/release/${{ matrix.bin_name }} artifacts/led-${{ matrix.suffix }}
+          cp target/${{ matrix.target }}/release/${{ matrix.gui_bin }} artifacts/led-gui-${{ matrix.suffix }}
+
+      - name: Upload Build Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: led-${{ matrix.target }}
+          path: artifacts/*
+
+  release:
+    name: Create GitHub Release
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: all-artifacts
+
+      - name: Organize release assets
+        run: |
+          mkdir -p release-assets
+          find all-artifacts -type f -exec cp {} release-assets/ \;
+          ls -la release-assets/
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release-assets/*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

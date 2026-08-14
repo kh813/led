@@ -27,17 +27,17 @@ Download the appropriate binary from the [releases page] and place it in your `P
 
 | Platform | Binary | Notes |
 | :--- | :--- | :--- |
-| macOS Apple Silicon | `led.mac-arm64` | TUI. Rename to `led` and `chmod +x`. |
-| macOS Intel | `led.mac-x64` | TUI. Rename to `led` and `chmod +x`. |
-| macOS (GUI) | `led.app` | Double-click or drag to `/Applications`. |
-| Linux x86-64 | `led.linux-x64` | TUI. Rename to `led` and `chmod +x`. |
-| Linux ARM64 | `led.linux-arm64` | TUI. Rename to `led` and `chmod +x`. |
-| Windows x86-64 | `led.exe` | GUI (`windows-msvc`). Run directly or add to `PATH`. |
+| macOS Apple Silicon | `led-mac-arm64` (TUI), `led-gui-mac-arm64` (GUI) | TUI/GUI binary. Rename TUI to `led` and `chmod +x`. |
+| macOS Intel | `led-mac-x64` (TUI), `led-gui-mac-x64` (GUI) | TUI/GUI binary. Rename TUI to `led` and `chmod +x`. |
+| macOS (GUI Bundle) | `led-mac-arm64.app.zip` / `led-mac-x64.app.zip` | macOS `.app` bundle package. |
+| Linux x86-64 | `led-linux-x64` (TUI), `led-gui-linux-x64` (GUI) | TUI/GUI binary. Rename TUI to `led` and `chmod +x`. |
+| Linux ARM64 | `led-linux-arm64` (TUI), `led-gui-linux-arm64` (GUI) | TUI/GUI binary. Rename TUI to `led` and `chmod +x`. |
+| Windows x86-64 | `led-windows-x64.exe` (TUI), `led-gui-windows-x64.exe` (GUI) | TUI / GUI binary (`x86_64-pc-windows-msvc`). |
 
 **macOS / Linux quick install:**
 ```bash
-# Example: macOS Apple Silicon
-curl -L https://github.com/yourname/led/releases/latest/download/led.mac-arm64 -o led
+# Example: macOS Apple Silicon TUI
+curl -L https://github.com/yourname/led/releases/latest/download/led-mac-arm64 -o led
 chmod +x led
 sudo mv led /usr/local/bin/led
 ```
@@ -76,7 +76,7 @@ ls dist/
 | `make clean` | Remove `dist/` |
 | `make help` | List all targets |
 
-> **Windows builds**: `led.exe` uses the `x86_64-pc-windows-msvc` target and cannot be cross-compiled from macOS. It is built automatically on a GitHub Actions `windows-latest` runner, triggered by the same release tag as `make all`. The resulting `led.exe` is uploaded as a release asset alongside the macOS and Linux binaries.
+> **Automated GitHub Actions Builds**: All binaries (TUI and GUI for macOS, Linux, and Windows) are cross-compiled automatically via GitHub Actions workflow (`.github/workflows/release.yml`) whenever a new release tag (e.g. `v0.1.0`) is pushed or manually triggered via `workflow_dispatch`.
 
 ---
 

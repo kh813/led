@@ -1,5 +1,43 @@
-  - All dialogs dismissible with `Esc`
-- [x] `git commit -m "Phase 16: led-gui dialogs, clipboard, vi mode, encoding, full parity"`
+  # led Todo List
+
+## Phase 18: Project Management & Navigation
+- [ ] **File Explorer (Side Bar)**:
+  - [ ] Implement directory scanning in `led-core`
+  - [ ] Create `FileTreeView` in GUI / `SideBar` in TUI
+  - [ ] Add `Alt+1` shortcut to toggle side bar focus
+- [ ] **Fuzzy Finder (`Ctrl+P`)**:
+  - [ ] Implement fast file indexing and fuzzy matching logic
+  - [ ] Create searchable list dialog for both TUI and GUI
+- [ ] **Recently Opened Files**:
+  - [ ] Persist file history in `config.toml` or separate state file
+  - [ ] Add `File > Recent Files` submenu
+- [ ] **Project-wide Search (`Ctrl+Shift+F`)**:
+  - [ ] Basic "grep" functionality across the current workspace directory
+
+## Phase 19: Advanced Editing & Visuals
+- [ ] **Bracket Matching**:
+  - [ ] Highlight corresponding `()`, `[]`, `{}` pairs
+- [ ] **Auto-indentation**:
+  - [ ] Maintain indentation level on newline
+  - [ ] Language-specific indentation rules (e.g., after `{`)
+- [ ] **Comment Toggle (`Ctrl+/`)**:
+  - [ ] Support single-line and block comment toggling based on syntax
+- [ ] **Soft Tabs / Tab Conversion**:
+  - [ ] Option to use spaces instead of tabs
+  - [ ] "Convert Tabs to Spaces" action
+
+## Phase 20: Settings & Ecosystem
+- [ ] **Settings Dialog (UI-based Configuration)**:
+  - [ ] Visual editor for `config.toml` settings
+  - [ ] Live preview for theme and font changes
+- [ ] **Keybinding Customization**:
+  - [ ] Allow users to override default shortcuts in `config.toml`
+- [x] **CI/CD & Compilation (GitHub Actions)**:
+  - [x] Multi-platform compilation workflow (`release.yml`) for TUI (`led`) and GUI (`led-gui`) across macOS, Linux, and Windows
+  - [x] Artifact upload and release packaging for tagged releases
+- [ ] **Packaging & Distribution**:
+  - [ ] Homebrew (macOS), NSIS (Windows), and .deb/.rpm (Linux) packages
+  - [ ] Documentation for installation via `cargo install`
 
 ---
 
@@ -14,16 +52,16 @@
   - [x] Ensure it appears when closing any modified buffer or quitting with any modified buffer
 - [x] Fix Menu "Exit" action behavior
 - [x] Improve TUI "Terminal Default" theme to match terminal color scheme (ANSI 16 colors)
-- [ ] Improve Japanese inline input (investigate/enable if possible)
+- [x] Improve Japanese inline input (implemented via hardware cursor positioning)
 
 ### GUI Fixes
-- [ ] Fix editor visibility parity with TUI
+- [x] Fix editor visibility parity with TUI
 - [x] Fix default window position (center on screen)
 - [x] Fix automatic theme selection (OS light/dark mode)
-- [ ] Fix color visibility:
+- [x] Fix color visibility:
   - [x] Unify `led_color_to_gpui` across all widgets using `gpui::rgb`.
-  - [ ] Ensure `EditorView` uses consistent color mapping for text and background.
-- [ ] **Verify native GUI rendering (no invisible text)**
+  - [x] Ensure `EditorView` uses consistent color mapping for text and background.
+- [x] **Verify native GUI rendering (no invisible text)**
 - [x] Implement Japanese inline input support (IME) in `EditorView`:
   - [x] Fix `marked_text_range` to return the composition range.
   - [x] Ensure `replace_and_mark_text_in_range` correctly manages composition state.
@@ -59,24 +97,22 @@
 
 ### ✅ Phase 17 Completion Log
 
-- **Completed**: 2026-05-10
+- **Completed**: 2026-05-13
 - **Commit**: `(pending)`
-- **Implementer**: AI session
-- **Files created**: None
+- **Implementer**: AI session & Gemini CLI
+- **Files created**:
+  - `crates/led-gui/build.rs` — Added Windows resource compilation.
+  - `crates/led-gui/resources/` — Organized icon assets.
 - **Files modified**:
-  - `crates/led-tui/src/app.rs` — Fixed hardware cursor visibility and placement for Editor and Dialogs. Added missing `PanelField` import.
-  - `crates/led-tui/src/layout.rs` — Added `dialog_bounds` method.
-  - `crates/led-tui/src/widgets/dialog.rs` — Added `cursor_pos` to `Dialog` trait and implementations. Fixed unused warnings.
-  - `crates/led-gui/src/window_view.rs` — Fixed startup focus on `EditorView`.
-  - `crates/led-gui/src/widgets/editor_view.rs` — Fixed text visibility by stripping newlines and simplifying vertical alignment.
+  - `crates/led-gui/Cargo.toml` — Added `winres` build dependency.
+  - `crates/led-tui/src/app.rs` — Fixed hardware cursor visibility and placement.
+  - `crates/led-gui/src/widgets/editor_view.rs` — Robust rendering and IME fixes.
 - **Key decisions made**:
-  - Explicitly focus the `EditorView` on startup in GPUI to ensure immediate keyboard input.
-  - Show and move the terminal hardware cursor in TUI to indicate focus and support IME/typing.
-  - Added `dialog_bounds` to `Layout` to support correct hardware cursor placement on dialogs.
-  - Strip newlines from rope lines before rendering in GPUI to avoid layout issues.
+  - Embedded Windows icon via `winres` for native `.exe` appearance.
+  - Fixed TUI IME positioning by moving the hardware cursor to the logical cursor.
+  - Explicitly set monospace fonts and unified color mapping in GUI to ensure visibility.
 - **Known issues / deferred work**:
-  - GUI file drag-and-drop remains deferred.
-  - Windows icon integration deferred.
+  - File drag-and-drop support remains limited in current GPUI version.
 
 ### ✅ Phase 16 Completion Log
 
