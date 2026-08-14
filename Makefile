@@ -49,6 +49,7 @@ gui:
 	@BIN_PATH=$$(find target -name $(LED_GUI_BIN) -type f | grep release | head -n 1); \
 	if [ -z "$$BIN_PATH" ]; then BIN_PATH="target/release/$(LED_GUI_BIN)"; fi; \
 	cp "$$BIN_PATH" $(DIST_DIR)/led.app/Contents/MacOS/$(LED_GUI_BIN)
+	@chmod +x $(DIST_DIR)/led.app/Contents/MacOS/$(LED_GUI_BIN)
 	@cp assets/icons/led.icns $(DIST_DIR)/led.app/Contents/Resources/led.icns
 	@echo '<?xml version="1.0" encoding="UTF-8"?>' > $(DIST_DIR)/led.app/Contents/Info.plist
 	@echo '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">' >> $(DIST_DIR)/led.app/Contents/Info.plist

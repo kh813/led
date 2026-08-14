@@ -27,9 +27,8 @@ Download the appropriate binary from the [releases page] and place it in your `P
 
 | Platform | Binary | Notes |
 | :--- | :--- | :--- |
-| macOS Apple Silicon | `led-mac-arm64` (TUI), `led-gui-mac-arm64` (GUI) | TUI/GUI binary. Rename TUI to `led` and `chmod +x`. |
-| macOS Intel | `led-mac-x64` (TUI), `led-gui-mac-x64` (GUI) | TUI/GUI binary. Rename TUI to `led` and `chmod +x`. |
-| macOS (GUI Bundle) | `led-mac-arm64.app.zip` / `led-mac-x64.app.zip` | macOS `.app` bundle package. |
+| macOS Apple Silicon (TUI) | `led-mac-arm64` | TUI binary. Rename to `led` and `chmod +x`. |
+| macOS Apple Silicon (GUI) | `led.app.zip` | Extracting provides `led.app`. Double-click or move to `/Applications`. |
 | Linux x86-64 | `led-linux-x64` (TUI), `led-gui-linux-x64` (GUI) | TUI/GUI binary. Rename TUI to `led` and `chmod +x`. |
 | Linux ARM64 | `led-linux-arm64` (TUI), `led-gui-linux-arm64` (GUI) | TUI/GUI binary. Rename TUI to `led` and `chmod +x`. |
 | Windows x86-64 | `led-windows-x64.exe` (TUI), `led-gui-windows-x64.exe` (GUI) | TUI / GUI binary (`x86_64-pc-windows-msvc`). |
