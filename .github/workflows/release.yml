@@ -84,6 +84,7 @@ jobs:
           cp target/${{ matrix.target }}/release/${{ matrix.bin_name }} artifacts/led-${{ matrix.suffix }}
           make gui CARGO_FLAGS="--target ${{ matrix.target }}"
           if [ -d "dist/led.app" ]; then
+            codesign --force --deep --sign - dist/led.app
             cd dist && zip -r -y ../artifacts/led-gui-${{ matrix.suffix }}.app.zip led.app && cd ..
           fi
 
@@ -101,10 +102,12 @@ jobs:
         shell: bash
         run: |
           mkdir -p artifacts
-          cp target/${{ matrix.target }}/release/${{ matrix.bin_name }} artifacts/led-${{ matrix.suffix }}
-          if [ -f "target/${{ matrix.target }}/release/${{ matrix.gui_bin }}" ]; then
-            cp target/${{ matrix.target }}/release/${{ matrix.gui_bin }} artifacts/led-gui-${{ matrix.suffix }}
+          cd target/${{ matrix.target }}/release
+          7z a ../../../artifacts/led-${{ matrix.suffix }}.zip ${{ matrix.bin_name }}
+          if [ -f "${{ matrix.gui_bin }}" ]; then
+            7z a ../../../artifacts/led-gui-${{ matrix.suffix }}.zip ${{ matrix.gui_bin }}
           fi
+          cd ../../..
 
       - name: Upload Build Artifacts
         uses: actions/upload-artifact@v4
