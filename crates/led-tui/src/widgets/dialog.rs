@@ -854,7 +854,7 @@ impl Dialog for MessageDialog {
 
     fn handle_key(&mut self, key: KeyEvent) -> DialogResult<Action> {
         match key.code {
-            KeyCode::Left | KeyCode::BackTab => {
+            KeyCode::Left | KeyCode::BackTab | KeyCode::Up => {
                 if self.selected_btn > 0 {
                     self.selected_btn -= 1;
                 } else {
@@ -862,7 +862,7 @@ impl Dialog for MessageDialog {
                 }
                 DialogResult::Pending
             }
-            KeyCode::Right | KeyCode::Tab => {
+            KeyCode::Right | KeyCode::Tab | KeyCode::Down => {
                 if self.selected_btn + 1 < self.buttons.len() {
                     self.selected_btn += 1;
                 } else {

@@ -82,7 +82,7 @@ jobs:
           cp target/${{ matrix.target }}/release/${{ matrix.bin_name }} artifacts/led-${{ matrix.suffix }}
           make gui CARGO_FLAGS="--target ${{ matrix.target }}"
           if [ -d "dist/led.app" ]; then
-            cd dist && zip -r -y ../artifacts/led.app.zip led.app && cd ..
+            cd dist && zip -r -y ../artifacts/led-gui-${{ matrix.suffix }}.app.zip led.app && cd ..
           fi
 
       - name: Package Linux Artifacts

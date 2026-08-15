@@ -21,7 +21,7 @@
   | `make all` (cross-build from macOS) | macOS arm64 GUI | `led.app` | cargo native, bundled |
   | `make all` (cross-build from macOS) | Linux x64 TUI | `led.linux-x64` | `cross` (Docker) |
   | `make all` (cross-build from macOS) | Linux arm64 TUI | `led.linux-arm64` | `cross` (Docker) |
-  | GitHub Actions `release.yml` | macOS / Linux / Windows | `led-mac-arm64`, `led.app.zip`, `led-linux-x64`, `led-linux-arm64`, `led-windows-x64.exe`, `led-gui-windows-x64.exe` | Triggered on push tags (`v*`) or manual workflow dispatch |
+  | GitHub Actions `release.yml` | macOS / Linux / Windows | `led-mac-arm64`, `led-gui-mac-arm64.app.zip`, `led-linux-x64`, `led-linux-arm64`, `led-windows-x64.exe`, `led-gui-windows-x64.exe` | Triggered on push tags (`v*`) or manual workflow dispatch |
 
   > **GitHub Actions Build**: Built via `.github/workflows/release.yml` for macOS, Linux, and Windows (TUI & GUI binaries). `release-windows.yml` is superseded by `release.yml`.
 
