@@ -2907,3 +2907,119 @@ impl App {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+
+    fn make_key(code: KeyCode) -> KeyEvent {
+        KeyEvent::new(code, KeyModifiers::NONE)
+    }
+
+    fn make_ctrl_key(code: KeyCode) -> KeyEvent {
+        KeyEvent::new(code, KeyModifiers::CONTROL)
+    }
+
+    #[test]
+    fn test_app_new_buffer_and_close() {
+        let mut app = App::new(vec![]).expect("Failed to init App");
+        assert_eq!(app.buffers.len(), 1);
+        assert_eq!(app.focus, Focus::Editor);
+
+        // Perform New Buffer
+        app.perform_action(Action::New);
+        assert_eq!(app.buffers.len(), 2);
+        assert_eq!(app.active_buffer, 1);
+
+        // Close Buffer
+        app.perform_action(Action::Close);
+        assert_eq!(app.buffers.len(), 1);
+        assert_eq!(app.active_buffer, 0);
+    }
+
+    #[test]
+    fn test_file_open_dialog_workflow() {
+        let mut app = App::new(vec![]).expect("Failed to init App");
+        
+        // Trigger Open File action
+        app.perform_action(Action::Open);
+        assert_eq!(app.focus, Focus::Dialog);
+        assert_eq!(app.pending_op, PendingOp::Open);
+        assert!(app.current_dialog.is_some());
+
+        // Cancel dialog
+        app.handle_key(make_key(KeyCode::Esc));
+        assert_eq!(app.focus, Focus::Editor);
+        assert!(app.current_dialog.is_none());
+    }
+
+    #[test]
+    fn test_file_save_and_unsaved_changes_dialog() {
+        let mut app = App::new(vec![]).expect("Failed to init App");
+        
+        // Modify buffer
+        if let Some(buffer) = app.buffers.get_mut(app.active_buffer) {
+            buffer.insert(0, "Hello World");
+            assert!(buffer.is_modified());
+        }
+
+        // Try to exit -> Should trigger unsaved changes MessageDialog
+        app.perform_action(Action::Exit);
+        assert_eq!(app.focus, Focus::Dialog);
+        assert_eq!(app.pending_op, PendingOp::Exit);
+        assert!(app.current_dialog.is_some());
+
+        // Select "DontSave" -> Discard changes & exit
+        app.handle_dialog_result(DialogResult::Ok(dialog::Action::DontSave));
+        assert_eq!(app.running, false);
+    }
+
+    #[test]
+    fn test_i18n_language_switch_and_config() {
+        let mut app = App::new(vec![]).expect("Failed to init App");
+        
+        // Verify default language (ja or en)
+        let initial_lang = app.config.language.clone();
+        
+        // Change language config & reload i18n
+        app.config.language = if initial_lang == "ja" { "en".to_string() } else { "ja".to_string() };
+        app.i18n = I18n::load(&app.config.language);
+        app.menus = App::build_menus(&app.i18n, &app.config, app.buffers.get(app.active_buffer), &app.themes, &app.syntax_defs);
+        
+        // Check menu title updated
+        let file_menu_label = app.menus[0].label.clone();
+        if app.config.language == "ja" {
+            assert_eq!(file_menu_label, "ファイル");
+        } else {
+            assert_eq!(file_menu_label, "File");
+        }
+    }
+
+    #[test]
+    fn test_find_and_replace_panel_workflow() {
+        let mut app = App::new(vec![]).expect("Failed to init App");
+        
+        if let Some(buffer) = app.buffers.get_mut(app.active_buffer) {
+            buffer.insert(0, "foo bar foo");
+        }
+
+        // Open Find panel (Ctrl+F)
+        app.handle_key(make_ctrl_key(KeyCode::Char('f')));
+        assert_eq!(app.focus, Focus::Panel);
+
+        // Input search query 'foo'
+        app.handle_key(make_key(KeyCode::Char('f')));
+        app.handle_key(make_key(KeyCode::Char('o')));
+        app.handle_key(make_key(KeyCode::Char('o')));
+        assert_eq!(app.find_panel.find_text, "foo");
+
+        let buffer = &app.buffers[app.active_buffer];
+        assert_eq!(buffer.find_results.len(), 2);
+
+        // Close panel with Esc
+        app.handle_key(make_key(KeyCode::Esc));
+        assert_eq!(app.focus, Focus::Editor);
+    }
+}
+
