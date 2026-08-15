@@ -1179,3 +1179,64 @@ impl Dialog for GoToLineDialog {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+
+    fn make_key(code: KeyCode) -> KeyEvent {
+        KeyEvent::new(code, KeyModifiers::NONE)
+    }
+
+    #[test]
+    fn test_message_dialog_navigation() {
+        let buttons = vec![
+            ("Yes".to_string(), Action::Save),
+            ("No".to_string(), Action::DontSave),
+            ("Cancel".to_string(), Action::Cancel),
+        ];
+        let mut dialog = MessageDialog::new("Test".to_string(), "Message".to_string(), buttons);
+
+        assert_eq!(dialog.selected_btn, 0);
+
+        // Test Right / Down / Tab
+        dialog.handle_key(make_key(KeyCode::Right));
+        assert_eq!(dialog.selected_btn, 1);
+        dialog.handle_key(make_key(KeyCode::Down));
+        assert_eq!(dialog.selected_btn, 2);
+        dialog.handle_key(make_key(KeyCode::Tab));
+        assert_eq!(dialog.selected_btn, 0); // Wrap around
+
+        // Test Left / Up / BackTab
+        dialog.handle_key(make_key(KeyCode::Left));
+        assert_eq!(dialog.selected_btn, 2);
+        dialog.handle_key(make_key(KeyCode::Up));
+        assert_eq!(dialog.selected_btn, 1);
+        dialog.handle_key(make_key(KeyCode::BackTab));
+        assert_eq!(dialog.selected_btn, 0);
+
+        // Test Enter confirms current button action
+        dialog.handle_key(make_key(KeyCode::Right)); // selected: 1 ("No")
+        match dialog.handle_key(make_key(KeyCode::Enter)) {
+            DialogResult::Ok(Action::DontSave) => {}
+            _ => panic!("Expected Action::DontSave on Enter"),
+        }
+    }
+
+    #[test]
+    fn test_goto_line_dialog() {
+        let i18n = led_core::I18n::load("en");
+        let mut dialog = GoToLineDialog::new(&i18n);
+
+        dialog.handle_key(make_key(KeyCode::Char('4')));
+        dialog.handle_key(make_key(KeyCode::Char('2')));
+        assert_eq!(dialog.input_text, "42");
+
+        match dialog.handle_key(make_key(KeyCode::Enter)) {
+            DialogResult::Ok(Action::ConfirmLine(line)) => assert_eq!(line, 42),
+            _ => panic!("Expected Action::ConfirmLine(42)"),
+        }
+    }
+}
+
+
