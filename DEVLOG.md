@@ -1,5 +1,15 @@
 # led Devlog
 
+## 2026-05-14
+
+### GUI Modernization & Visual Polish (GUI)
+- **Typography & Font Separation**: Separated UI proportional font (`.AppleSystemUIFont` on macOS, sans-serif on others) from editor monospace font (`Menlo` / `monospace`). Tab labels, status bar indicators, search toolbar, and modal dialogs now render with crisp native system UI typography.
+- **Modern TabBar**: Redesigned tabs with rounded pill shapes, subtle hover highlights, clean active tab borders, uncommitted dirty dot indicator (`●`), hover-responsive close button (`×`), and a New Tab (`+`) button.
+- **Modern StatusBar**: Segmented pill layout with hover feedback, vi mode badge pill, and interactive click handlers (clicking Line/Col opens Go to Line).
+- **Find/Replace Toolbar**: Modernized input boxes with focus rings, placeholder text, search match counters (`3 of 12`), and compact pill toggle buttons for Match Case (`Aa`), Whole Word (`\b`), and Regex (`.*`).
+- **Modal Dialog Cards**: Updated About, Go to Line, and Unsaved Changes dialogs to modern floating card modals with rounded corners (`rounded-xl`), elevated drop shadows, and primary/secondary button states.
+- **Editor Overlay Scrollbar**: Added smooth semi-transparent overlay scrollbar with hover states for viewport navigation.
+
 ## 2026-05-11
 
 ### GUI Stability & UX (GUI)

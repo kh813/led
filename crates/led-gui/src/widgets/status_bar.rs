@@ -1,6 +1,7 @@
 use gpui::*;
 use crate::workspace::Workspace;
-use crate::widgets::led_color_to_gpui;
+use crate::widgets::{led_color_to_gpui, ui_font_family, with_alpha};
+use crate::app::GoToLine;
 
 pub struct StatusBar {
     workspace: Entity<Workspace>,
@@ -26,54 +27,136 @@ impl Render for StatusBar {
             .and_then(|s| s.to_str())
             .unwrap_or("[No Name]");
         
-        let modified_flag = if editor.is_modified() { " [+]" } else { "" };
+        let is_modified = editor.is_modified();
+        let vi_mode_enabled = workspace.config.vi_mode;
         let vi_mode = format!("{:?}", editor.vi_mode).to_uppercase();
         
         let (line, col) = editor.char_to_line_col(editor.cursor);
 
         let selection_info = if let Some(ref sel) = editor.selection {
-            format!("{} chars", sel.end - sel.start)
+            Some(format!("{} chars", (sel.end as isize - sel.start as isize).abs()))
         } else {
-            "".to_string()
+            None
         };
 
         let encoding = format!("{:?}", editor.encoding).to_uppercase();
         let line_ending = format!("{:?}", editor.line_ending).to_uppercase();
-        let syntax = editor.syntax_highlighter.as_ref().map(|h| h.def.meta.name.clone()).unwrap_or("Plain Text".to_string());
+        let syntax = editor.syntax_highlighter.as_ref().map(|h| h.def.meta.name.clone()).unwrap_or_else(|| "Plain Text".to_string());
+
+        let border_color = with_alpha(led_color_to_gpui(theme.editor.line_number), 0.3);
+        let hover_pill_bg = with_alpha(led_color_to_gpui(theme.ui.status_bar_fg), 0.12);
+        let modified_color = led_color_to_gpui(theme.syntax.keyword.unwrap_or(theme.editor.cursor));
 
         div()
-            .h(px(24.0))
+            .h(px(26.0))
             .w_full()
             .flex()
             .items_center()
             .justify_between()
+            .px_3()
             .bg(led_color_to_gpui(theme.ui.status_bar_bg))
             .text_color(led_color_to_gpui(theme.ui.status_bar_fg))
-            .text_size(px(12.0))
-            .font_family(if cfg!(target_os = "macos") { ".AppleSystemUIFontMonospaced-Regular" } else { "monospace" })
+            .text_size(px(11.5))
+            .font_family(ui_font_family())
             .border_t_1()
-            .border_color(led_color_to_gpui(theme.editor.line_number))
+            .border_color(border_color)
             .child(
                 div()
                     .h_full()
                     .flex()
                     .items_center()
-                    .px_2()
-                    .child(format!("{}{}", file_name, modified_flag))
+                    .gap_2()
+                    .child(
+                        div()
+                            .flex()
+                            .items_center()
+                            .gap_1p5()
+                            .child(
+                                if is_modified {
+                                    div()
+                                        .w(px(6.0))
+                                        .h(px(6.0))
+                                        .rounded_full()
+                                        .bg(modified_color)
+                                } else {
+                                    div()
+                                }
+                            )
+                            .child(file_name.to_string())
+                    )
+                    .children(if vi_mode_enabled {
+                        Some(
+                            div()
+                                .px_1p5()
+                                .py(px(1.0))
+                                .rounded_sm()
+                                .text_size(px(10.0))
+                                .bg(if vi_mode == "INSERT" { gpui::rgb(0x2e7d32) } else if vi_mode == "VISUAL" { gpui::rgb(0x7b1fa2) } else { gpui::rgb(0x1565c0) })
+                                .text_color(gpui::rgb(0xffffff))
+                                .child(vi_mode)
+                        )
+                    } else {
+                        None
+                    })
             )
             .child(
                 div()
                     .h_full()
                     .flex()
                     .items_center()
-                    .px_2()
-                    .gap_4()
-                    .child(div().h_full().flex().items_center().child(selection_info))
-                    .child(div().h_full().flex().items_center().child(vi_mode))
-                    .child(div().h_full().flex().items_center().child(format!("Ln {}, Col {}", line + 1, col + 1)))
-                    .child(div().h_full().flex().items_center().child(encoding))
-                    .child(div().h_full().flex().items_center().child(line_ending))
-                    .child(div().h_full().flex().items_center().child(syntax))
+                    .gap_1()
+                    .children(selection_info.map(|info| {
+                        div()
+                            .h(px(20.0))
+                            .px_2()
+                            .flex()
+                            .items_center()
+                            .rounded_sm()
+                            .bg(with_alpha(border_color, 0.5))
+                            .child(info)
+                    }))
+                    .child(
+                        div()
+                            .h(px(20.0))
+                            .px_2()
+                            .flex()
+                            .items_center()
+                            .rounded_sm()
+                            .cursor_pointer()
+                            .hover(move |s| s.bg(hover_pill_bg))
+                            .child(format!("Ln {}, Col {}", line + 1, col + 1))
+                            .on_mouse_down(MouseButton::Left, cx.listener(|_, _, _, cx| {
+                                cx.dispatch_action(&GoToLine {});
+                            }))
+                    )
+                    .child(
+                        div()
+                            .h(px(20.0))
+                            .px_2()
+                            .flex()
+                            .items_center()
+                            .rounded_sm()
+                            .child(encoding)
+                    )
+                    .child(
+                        div()
+                            .h(px(20.0))
+                            .px_2()
+                            .flex()
+                            .items_center()
+                            .rounded_sm()
+                            .child(line_ending)
+                    )
+                    .child(
+                        div()
+                            .h(px(20.0))
+                            .px_2()
+                            .flex()
+                            .items_center()
+                            .rounded_sm()
+                            .child(syntax)
+                    )
             )
     }
 }
+

@@ -1,7 +1,7 @@
 use gpui::*;
 use crate::workspace::Workspace;
-use crate::widgets::led_color_to_gpui;
-use crate::app::CloseTab;
+use crate::widgets::{led_color_to_gpui, ui_font_family, with_alpha};
+use crate::app::{CloseTab, New};
 
 pub struct TabBar {
     workspace: Entity<Workspace>,
@@ -32,27 +32,36 @@ impl Render for TabBar {
         let theme = &workspace.theme;
         let active_index = workspace.active_editor_index;
 
+        let border_color = with_alpha(led_color_to_gpui(theme.editor.line_number), 0.35);
+        let hover_tab_bg = with_alpha(led_color_to_gpui(theme.ui.tab_active_bg), 0.4);
+        let active_accent = led_color_to_gpui(theme.syntax.keyword.unwrap_or(theme.editor.cursor));
+
         div()
-            .h(px(32.0))
+            .h(px(36.0))
             .w_full()
             .flex()
-            .items_center()
+            .items_end()
+            .px_2()
             .bg(led_color_to_gpui(theme.ui.tab_bar_bg))
             .border_b_1()
-            .border_color(led_color_to_gpui(theme.editor.line_number))
+            .border_color(border_color)
+            .font_family(ui_font_family())
             .on_scroll_wheel(cx.listener(|this, event, _, cx| {
                 this.handle_scroll(event, cx);
             }))
             .child(
                 div()
                     .flex()
+                    .flex_grow()
                     .h_full()
+                    .items_end()
                     .overflow_hidden()
                     .child(
                         div()
                             .flex()
                             .h_full()
-                            .items_center()
+                            .items_end()
+                            .gap_1()
                             .ml(self.scroll_offset)
                             .children(
                                 workspace.editors.iter().enumerate().map(|(idx, editor)| {
@@ -61,8 +70,8 @@ impl Render for TabBar {
                                         .and_then(|p| p.file_name())
                                         .and_then(|s| s.to_str())
                                         .unwrap_or("[No Name]");
-                                    let modified_flag = if editor.is_modified() { " [+]" } else { "" };
-                                    let ro_flag = if editor.read_only { " [RO]" } else { "" };
+                                    let is_modified = editor.is_modified();
+                                    let is_ro = editor.read_only;
 
                                     let bg_color = if is_active { 
                                         led_color_to_gpui(theme.ui.tab_active_bg) 
@@ -78,33 +87,71 @@ impl Render for TabBar {
                                     div()
                                         .flex()
                                         .items_center()
+                                        .h(px(30.0))
                                         .px_3()
-                                        .h_full()
+                                        .rounded_t_md()
                                         .bg(bg_color)
                                         .text_color(text_color)
-                                        .text_size(px(12.0))
-                                        .font_family(if cfg!(target_os = "macos") { ".AppleSystemUIFontMonospaced-Regular" } else { "monospace" })
+                                        .text_size(px(12.5))
+                                        .cursor_pointer()
+                                        .border_t_1()
+                                        .border_l_1()
                                         .border_r_1()
-                                        .border_color(led_color_to_gpui(theme.editor.line_number))
+                                        .border_color(if is_active { border_color } else { rgba(0x00000000) })
+                                        .hover(move |s| {
+                                            if !is_active {
+                                                s.bg(hover_tab_bg)
+                                            } else {
+                                                s
+                                            }
+                                        })
                                         .child(
                                             div()
                                                 .flex()
-                                                .h_full()
                                                 .items_center()
-                                                .child(format!("{}{}{}", file_name, modified_flag, ro_flag))
+                                                .gap_2()
                                                 .on_mouse_down(MouseButton::Left, cx.listener(move |this, _, _, cx| {
                                                     this.workspace.update(cx, |w, cx| {
                                                         w.active_editor_index = idx;
                                                         cx.notify();
                                                     });
                                                 }))
+                                                .child(file_name.to_string())
+                                                .children(if is_ro {
+                                                    Some(
+                                                        div()
+                                                            .text_size(px(10.0))
+                                                            .px_1()
+                                                            .rounded_sm()
+                                                            .bg(with_alpha(border_color, 0.4))
+                                                            .child("RO")
+                                                    )
+                                                } else {
+                                                    None
+                                                })
+                                                .children(if is_modified {
+                                                    Some(
+                                                        div()
+                                                            .w(px(7.0))
+                                                            .h(px(7.0))
+                                                            .rounded_full()
+                                                            .bg(active_accent)
+                                                    )
+                                                } else {
+                                                    None
+                                                })
                                         )
                                         .child(
                                             div()
-                                                .h_full()
                                                 .flex()
                                                 .items_center()
+                                                .justify_center()
+                                                .w(px(16.0))
+                                                .h(px(16.0))
                                                 .ml_2()
+                                                .rounded_sm()
+                                                .text_size(px(13.0))
+                                                .hover(|s| s.bg(rgba(0xffffff22)))
                                                 .child("×")
                                                 .on_mouse_down(MouseButton::Left, cx.listener(move |this, _, _, cx| {
                                                     this.workspace.update(cx, |w, cx| {
@@ -118,5 +165,25 @@ impl Render for TabBar {
                             )
                     )
             )
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .w(px(26.0))
+                    .h(px(26.0))
+                    .mb_1()
+                    .ml_2()
+                    .rounded_md()
+                    .text_size(px(16.0))
+                    .text_color(led_color_to_gpui(theme.ui.tab_inactive_fg))
+                    .cursor_pointer()
+                    .hover(|s| s.bg(rgba(0xffffff18)).text_color(gpui::rgb(0xffffff)))
+                    .child("+")
+                    .on_mouse_down(MouseButton::Left, cx.listener(|_, _, _, cx| {
+                        cx.dispatch_action(&New {});
+                    }))
+            )
     }
 }
+

@@ -1,7 +1,7 @@
 use gpui::*;
 use crate::workspace::Workspace;
 use led_core::i18n::I18n;
-use crate::widgets::led_color_to_gpui;
+use crate::widgets::{led_color_to_gpui, ui_font_family, with_alpha};
 
 #[allow(dead_code)]
 pub struct MenuBar {
@@ -37,28 +37,69 @@ impl Render for MenuBar {
         let theme = &workspace.theme;
         let bg = led_color_to_gpui(theme.ui.menu_bar_bg);
         let fg = led_color_to_gpui(theme.ui.menu_bar_fg);
-        let border = led_color_to_gpui(theme.ui.dialog_border);
+        let border = with_alpha(led_color_to_gpui(theme.editor.line_number), 0.35);
+        let hover_bg = with_alpha(fg, 0.12);
 
         div()
             .w_full()
-            .h(px(24.0))
+            .h(px(28.0))
             .bg(bg)
             .text_color(fg)
-            .text_size(px(13.0))
-            .font_family(if cfg!(target_os = "macos") { ".AppleSystemUIFontMonospaced-Regular" } else { "monospace" })
+            .text_size(px(12.5))
+            .font_family(ui_font_family())
             .border_b_1()
             .border_color(border)
             .flex()
             .items_center()
-            .px_2()
-            .gap_4()
+            .px_3()
+            .gap_1()
             .child(
                 div()
-                    .h_full()
+                    .h(px(22.0))
+                    .px_2()
                     .flex()
                     .items_center()
+                    .rounded_sm()
+                    .cursor_pointer()
+                    .hover(move |s| s.bg(hover_bg))
                     .on_mouse_down(MouseButton::Left, cx.listener(|this, _, window, cx| this.toggle_menu(0, window, cx)))
                     .child(self.i18n.get("menu.file").to_string())
+            )
+            .child(
+                div()
+                    .h(px(22.0))
+                    .px_2()
+                    .flex()
+                    .items_center()
+                    .rounded_sm()
+                    .cursor_pointer()
+                    .hover(move |s| s.bg(hover_bg))
+                    .on_mouse_down(MouseButton::Left, cx.listener(|this, _, window, cx| this.toggle_menu(1, window, cx)))
+                    .child(self.i18n.get("menu.edit").to_string())
+            )
+            .child(
+                div()
+                    .h(px(22.0))
+                    .px_2()
+                    .flex()
+                    .items_center()
+                    .rounded_sm()
+                    .cursor_pointer()
+                    .hover(move |s| s.bg(hover_bg))
+                    .on_mouse_down(MouseButton::Left, cx.listener(|this, _, window, cx| this.toggle_menu(2, window, cx)))
+                    .child(self.i18n.get("menu.view").to_string())
+            )
+            .child(
+                div()
+                    .h(px(22.0))
+                    .px_2()
+                    .flex()
+                    .items_center()
+                    .rounded_sm()
+                    .cursor_pointer()
+                    .hover(move |s| s.bg(hover_bg))
+                    .on_mouse_down(MouseButton::Left, cx.listener(|this, _, window, cx| this.toggle_menu(3, window, cx)))
+                    .child(self.i18n.get("menu.help").to_string())
             )
             .child(
                 div()

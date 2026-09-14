@@ -27,6 +27,7 @@ impl Workspace {
         &mut self.editors[self.active_editor_index]
     }
 
+    #[allow(dead_code)]
     pub fn find_editor_by_path(&self, path: &std::path::Path) -> Option<usize> {
         self.editors.iter().position(|e| e.path.as_ref() == Some(&path.to_path_buf()))
     }

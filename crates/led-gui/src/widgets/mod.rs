@@ -8,6 +8,22 @@ pub mod dialog;
 use gpui::Rgba;
 use led_core::theme::Color as LedColor;
 
+pub fn ui_font_family() -> &'static str {
+    if cfg!(target_os = "macos") {
+        ".AppleSystemUIFont"
+    } else {
+        "sans-serif"
+    }
+}
+
+pub fn mono_font_family() -> &'static str {
+    if cfg!(target_os = "macos") {
+        "Menlo"
+    } else {
+        "monospace"
+    }
+}
+
 pub fn led_color_to_gpui(color: LedColor) -> Rgba {
     match color {
         LedColor::Rgb(r, g, b) => {
@@ -47,3 +63,29 @@ pub fn led_color_to_gpui(color: LedColor) -> Rgba {
         }
     }
 }
+
+pub fn with_alpha(mut rgba: Rgba, alpha: f32) -> Rgba {
+    rgba.a = alpha;
+    rgba
+}
+
+#[allow(dead_code)]
+pub fn lighten(rgba: Rgba, amount: f32) -> Rgba {
+    Rgba {
+        r: (rgba.r + amount).min(1.0),
+        g: (rgba.g + amount).min(1.0),
+        b: (rgba.b + amount).min(1.0),
+        a: rgba.a,
+    }
+}
+
+#[allow(dead_code)]
+pub fn darken(rgba: Rgba, amount: f32) -> Rgba {
+    Rgba {
+        r: (rgba.r - amount).max(0.0),
+        g: (rgba.g - amount).max(0.0),
+        b: (rgba.b - amount).max(0.0),
+        a: rgba.a,
+    }
+}
+

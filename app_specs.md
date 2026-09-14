@@ -813,14 +813,33 @@ led-gui/src/
 
 `window_view.rs` is responsible for composing the layout. On macOS, it skips `menu_bar.rs` and begins with `tab_bar.rs`. On Windows/Linux, it places `menu_bar.rs` first.
 
-#### Native GUI Rendering Implementation Details
+#### Native GUI Rendering & Modern UI Design Details
 
-To ensure visibility and parity with the TUI version:
-- **Monospace Font**: `EditorView` MUST explicitly set a monospace font family (e.g., "Menlo", "Consolas", "Courier New") to ensure consistent character widths and height.
-- **Line Layout**: Each line is rendered as a `flex-row` div with a fixed height.
-- **Chunk Rendering**: Text is split into chunks based on syntax highlighting and selection. Each chunk is rendered in a `div` that MUST inherit the monospace font and have `h_full()` to ensure proper vertical alignment.
-- **Scrolling**: Horizontal scrolling is implemented by wrapping the content area of each line in a `relative` div and applying a horizontal offset.
-- **Transparency**: The editor background and text colors are derived directly from `led-core::theme` to maintain visual consistency.
+`led-gui` is designed as a modern, polished desktop editor that leverages native GUI capabilities while retaining the lightweight, keyboard-friendly nature of `led`:
+
+- **Typography & Font Separation**:
+  - **Editor & Gutter**: Uses dedicated system monospace fonts (`Menlo`, `SF Mono`, `Consolas`, `monospace`) for precise character alignment.
+  - **UI Elements (Tabs, Status Bar, Find Panel, Dialogs)**: Uses platform-standard proportional UI fonts (`.AppleSystemUIFont` on macOS, sans-serif on Linux/Windows) for clean readability and authentic native GUI feel.
+- **Tab Bar**:
+  - Rounded tab pills with subtle borders and smooth hover states.
+  - Unsaved modification indicator: clean "dirty dot" circle indicator instead of TUI text `[+]`.
+  - Close button (`×`) with hover highlight and smooth padding.
+  - Clean active tab separation and subtle horizontal scroll support.
+- **Status Bar**:
+  - Modern segmented pill design with distinct interactive sections.
+  - Interactive click handlers: clicking line/col opens "Go to Line", clicking encoding, line endings, or syntax displays relevant pickers/actions.
+- **Find / Replace Panel**:
+  - Modern floating / inline toolbar with rounded input fields, focus rings, and placeholders.
+  - Styled toggle buttons for Match Case (`Aa`), Whole Word (`\b`), and Regex (`.*`).
+  - Search count badge (`3 of 12`) and navigation action buttons.
+- **Modal Dialogs (About, Go to Line, Unsaved Changes)**:
+  - Centered modern modal cards with rounded corners (`rounded-xl`), backdrop blur/dim, and elevated drop shadows.
+  - Platform-standard primary and secondary action buttons with hover states.
+- **Scrollbar**:
+  - Smooth semi-transparent scroll thumb overlay with hover feedback.
+- **Line Layout & Text Rendering**:
+  - Each line is rendered as a flex-row with fixed height and proper baseline alignment.
+  - Text chunks are mapped from `led-core::syntax` and `led-core::theme` with crisp GPU rendering and IME composition underline support.
 
 ### Feature Parity Target
 

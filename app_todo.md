@@ -1,5 +1,31 @@
   # led Todo List
 
+## Phase 21: GUI Modernization & UX Polish
+- [x] **Typography & Styling Foundation**:
+  - [x] Separate UI proportional font (`.AppleSystemUIFont` / sans-serif) from editor monospace font
+  - [x] Implement consistent spacing, rounded border utilities, and hover color mappings
+- [x] **Modern TabBar**:
+  - [x] Rounded tab pills with clean active/inactive separation
+  - [x] Unsaved modification indicator with styled dirty dot
+  - [x] Close button (`×`) with hover highlight and padding
+  - [x] Smooth tab switching and horizontal scroll handling
+  - [x] Add New Tab (`+`) button
+- [x] **Modern StatusBar**:
+  - [x] Segmented pill design with proportional typography and badge styling
+  - [x] Interactive click handlers: click line/col for Go to Line dialog
+  - [x] Clean visual hierarchy between file info and status indicators
+- [x] **Modern Find/Replace Panel**:
+  - [x] Rounded input fields with placeholder text and focus rings
+  - [x] Pill toggle buttons for Match Case (`Aa`), Whole Word (`\b`), Regex (`.*`)
+  - [x] Search count badge (`3 of 12`) and sleek navigation action buttons
+- [x] **Modern Modal Dialogs**:
+  - [x] Rounded modal card UI with drop shadow (`rounded-xl`, `shadow-2xl`)
+  - [x] Primary / Secondary button styling with hover states
+  - [x] Clean Go to Line, About, and Unsaved Changes dialog layouts
+- [x] **Scrollbar & Editor Visual Polish**:
+  - [x] Smooth overlay scrollbar with hover feedback
+  - [x] Selection highlight, gutter border, and line padding refinements
+
 ## Phase 18: Project Management & Navigation
 - [ ] **File Explorer (Side Bar)**:
   - [ ] Implement directory scanning in `led-core`

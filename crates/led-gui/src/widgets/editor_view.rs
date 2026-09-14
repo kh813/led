@@ -3,7 +3,7 @@ use crate::workspace::Workspace;
 use led_core::syntax::TokenType;
 use led_core::theme::{Theme};
 use unicode_width::UnicodeWidthChar;
-use crate::widgets::led_color_to_gpui;
+use crate::widgets::{led_color_to_gpui, mono_font_family, with_alpha};
 
 pub struct EditorView {
     pub workspace: Entity<Workspace>,
@@ -334,7 +334,7 @@ impl Render for EditorView {
             .text_color(led_color_to_gpui(theme.editor.foreground))
             .text_size(px(14.0))
             .line_height(px(22.0))
-            .font_family(if cfg!(target_os = "macos") { ".AppleSystemUIFontMonospaced-Regular" } else { "monospace" })
+            .font_family(mono_font_family())
             .child(
                 canvas(
                     move |_bounds, _window, _cx| {
@@ -356,13 +356,61 @@ impl Render for EditorView {
                 div()
                     .w_full()
                     .h_full()
-                    .font_family(if cfg!(target_os = "macos") { ".AppleSystemUIFontMonospaced-Regular" } else { "monospace" })
+                    .font_family(mono_font_family())
                     .child(self.render_lines(workspace))
             )
+            .child(self.render_scrollbar(workspace))
     }
 }
 
 impl EditorView {
+    fn render_scrollbar(&self, workspace: &Workspace) -> impl IntoElement {
+        let editor = workspace.active_editor();
+        let line_count = editor.line_count().max(1);
+        let scroll_row = editor.scroll_row;
+        let theme = &workspace.theme;
+
+        let visible_lines = 35.0_f32;
+        let line_count_f = line_count as f32;
+
+        if line_count <= 35 {
+            return div().w_0().h_0().into_any_element();
+        }
+
+        let thumb_height_ratio = (visible_lines / line_count_f).clamp(0.08, 0.95);
+        let thumb_top_ratio = (scroll_row as f32 / line_count_f).min(1.0 - thumb_height_ratio);
+
+        let thumb_color = with_alpha(led_color_to_gpui(theme.ui.status_bar_fg), 0.22);
+        let thumb_hover = with_alpha(led_color_to_gpui(theme.ui.status_bar_fg), 0.45);
+
+        div()
+            .absolute()
+            .top_0()
+            .right_0()
+            .w(px(8.0))
+            .h_full()
+            .py_1()
+            .pr_1()
+            .child(
+                div()
+                    .w_full()
+                    .h_full()
+                    .relative()
+                    .child(
+                        div()
+                            .absolute()
+                            .left_0()
+                            .w(px(5.0))
+                            .rounded_full()
+                            .bg(thumb_color)
+                            .hover(move |s| s.bg(thumb_hover))
+                            .top(rems(thumb_top_ratio * 38.0))
+                            .h(rems(thumb_height_ratio * 38.0))
+                    )
+            )
+            .into_any_element()
+    }
+
     fn render_lines(&self, workspace: &Workspace) -> impl IntoElement {
         let editor = workspace.active_editor();
         let line_count = editor.line_count();
@@ -413,7 +461,7 @@ impl EditorView {
                             .justify_end()
                             .px_2()
                             .text_color(led_color_to_gpui(theme.editor.line_number))
-                            .font_family(if cfg!(target_os = "macos") { ".AppleSystemUIFontMonospaced-Regular" } else { "monospace" })
+                            .font_family(mono_font_family())
                             .child(if vidx == 0 { (line_idx + 1).to_string() } else { "".to_string() })
                     )
                     .child(
@@ -421,7 +469,7 @@ impl EditorView {
                             .h_full()
                             .flex()
                             .items_center()
-                            .font_family(if cfg!(target_os = "macos") { ".AppleSystemUIFontMonospaced-Regular" } else { "monospace" })
+                            .font_family(mono_font_family())
                             .child(chunk.to_string())
                     )
             }))
@@ -453,7 +501,8 @@ impl EditorView {
             editor_bg
         };
 
-        let gutter_width = if workspace.config.line_numbers { px(50.0) } else { px(0.0) };
+        let gutter_width = if workspace.config.line_numbers { px(52.0) } else { px(0.0) };
+        let gutter_border = with_alpha(led_color_to_gpui(theme.editor.line_number), 0.2);
 
         // Measure average character width for scrolling/cursor
         let char_width = 8.4; // Default fallback
@@ -472,9 +521,11 @@ impl EditorView {
                     .flex()
                     .items_center()
                     .justify_end()
-                    .px_2()
+                    .px_2p5()
+                    .border_r_1()
+                    .border_color(if workspace.config.line_numbers { gutter_border } else { rgba(0x00000000) })
                     .text_color(led_color_to_gpui(theme.editor.line_number))
-                    .font_family(if cfg!(target_os = "macos") { ".AppleSystemUIFontMonospaced-Regular" } else { "monospace" })
+                    .font_family(mono_font_family())
                     .child(if workspace.config.line_numbers { (line_idx + 1).to_string() } else { "".to_string() })
             )
             .child(
@@ -593,7 +644,7 @@ impl EditorView {
             .bg(gpui::rgb(0x0000ff))
             .border_b_1()
             .border_color(gpui::rgb(0xffffff))
-            .font_family(if cfg!(target_os = "macos") { ".AppleSystemUIFontMonospaced-Regular" } else { "monospace" })
+            .font_family(mono_font_family())
             .child(text.to_string())
             .into_any_element()
     }
@@ -620,7 +671,7 @@ impl EditorView {
                             .flex()
                             .items_center()
                             .text_color(text_color)
-                            .font_family(if cfg!(target_os = "macos") { ".AppleSystemUIFontMonospaced-Regular" } else { "monospace" })
+                            .font_family(mono_font_family())
                             .child(chunk_chars[..highlight_start].iter().collect::<String>())
                             .into_any_element()
                     );
@@ -633,7 +684,7 @@ impl EditorView {
                         .items_center()
                         .bg(led_color_to_gpui(theme.editor.selection))
                         .text_color(text_color)
-                        .font_family(if cfg!(target_os = "macos") { ".AppleSystemUIFontMonospaced-Regular" } else { "monospace" })
+                        .font_family(mono_font_family())
                         .child(chunk_chars[highlight_start..highlight_end].iter().collect::<String>())
                         .into_any_element()
                 );
@@ -645,7 +696,7 @@ impl EditorView {
                             .flex()
                             .items_center()
                             .text_color(text_color)
-                            .font_family(if cfg!(target_os = "macos") { ".AppleSystemUIFontMonospaced-Regular" } else { "monospace" })
+                            .font_family(mono_font_family())
                             .child(chunk_chars[highlight_end..].iter().collect::<String>())
                             .into_any_element()
                     );
@@ -660,7 +711,7 @@ impl EditorView {
                 .flex()
                 .items_center()
                 .text_color(text_color)
-                .font_family(if cfg!(target_os = "macos") { ".AppleSystemUIFontMonospaced-Regular" } else { "monospace" })
+                .font_family(mono_font_family())
                 .child(text.to_string())
                 .into_any_element()
         );
