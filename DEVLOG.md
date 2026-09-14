@@ -3,7 +3,8 @@
 ## 2026-09-14
 
 ### GUI Font/Spacing Customization, Syntax Highlighting & Theme System Enhancement (GUI & CLI)
-- **Natural Browser-style New Tab / New Window Shortcuts & Window Close**:
+- **Natural Browser-style New Tab / New Window Shortcuts & Window Cascading**:
+  - Implemented cascading offset (28px diagonal step) for new windows so overlapping windows are easily recognizable when opening multiple windows.
   - Updated keyboard shortcuts to browser-standard conventions: `Cmd+T` / `Ctrl+T` for **New Tab**, and `Cmd+N` / `Ctrl+N` for **New Window** (in GUI).
   - Implemented window close on `Cmd+W` / `Ctrl+W` when no tabs remain open in the workspace (`workspace.editors.is_empty()`), closing the window immediately without confirmation dialogs.
   - Implemented global action handlers for `NewTab` (Cmd+T), `NewWindow` (Cmd+N), and `New` so pressing shortcuts when no windows are open reliably opens a new window with a new tab.

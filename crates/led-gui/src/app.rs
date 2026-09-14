@@ -288,8 +288,29 @@ fn centered_window_options(cx: &App) -> WindowOptions {
     let mut origin = Point::default();
     if let Some(display) = cx.primary_display() {
         let display_bounds = display.bounds();
-        origin.x = display_bounds.origin.x + (display_bounds.size.width - window_size.width) / 2.0;
-        origin.y = display_bounds.origin.y + (display_bounds.size.height - window_size.height) / 2.0;
+        let base_x = display_bounds.origin.x + (display_bounds.size.width - window_size.width) / 2.0;
+        let base_y = display_bounds.origin.y + (display_bounds.size.height - window_size.height) / 2.0;
+
+        let num_windows = cx.windows().len();
+        if num_windows > 0 {
+            // Offset new window diagonally by 28px per existing window, wrapping around if exceeding screen boundaries
+            let offset_step = px(28.0);
+            let max_offset_x = (display_bounds.size.width - window_size.width).max(px(0.0));
+            let max_offset_y = (display_bounds.size.height - window_size.height).max(px(0.0));
+            
+            let max_steps_x = ((max_offset_x / 2.0) / offset_step).max(1.0) as usize;
+            let max_steps_y = ((max_offset_y / 2.0) / offset_step).max(1.0) as usize;
+            let max_steps = max_steps_x.min(max_steps_y).max(1);
+
+            let cascade_idx = num_windows % (max_steps + 1);
+            let offset = offset_step * (cascade_idx as f32);
+
+            origin.x = base_x + offset;
+            origin.y = base_y + offset;
+        } else {
+            origin.x = base_x;
+            origin.y = base_y;
+        }
     }
 
     WindowOptions {
