@@ -13,12 +13,12 @@ pub fn setup_app(app: &mut App, rx: futures::channel::mpsc::UnboundedReceiver<Ve
     let config = Config::load();
     let i18n = I18n::load(&config.language);
 
-    setup_menu(app, &i18n);
-
-    // Global key bindings
+    // Global key bindings - must be bound before setup_menu so NSMenu keyEquivalents are properly set
     app.bind_keys(vec![
         #[cfg(target_os = "macos")]
-        KeyBinding::new("cmd-n", New {}, None),
+        KeyBinding::new("cmd-t", NewTab {}, None),
+        #[cfg(target_os = "macos")]
+        KeyBinding::new("cmd-n", NewWindow {}, None),
         #[cfg(target_os = "macos")]
         KeyBinding::new("cmd-o", Open {}, None),
         #[cfg(target_os = "macos")]
@@ -47,9 +47,21 @@ pub fn setup_app(app: &mut App, rx: futures::channel::mpsc::UnboundedReceiver<Ve
         KeyBinding::new("cmd-h", Replace {}, None),
         #[cfg(target_os = "macos")]
         KeyBinding::new("cmd-a", SelectAll {}, None),
+        #[cfg(target_os = "macos")]
+        KeyBinding::new("cmd-,", OpenSettings {}, None),
+        #[cfg(target_os = "macos")]
+        KeyBinding::new("cmd-=", ZoomIn {}, None),
+        #[cfg(target_os = "macos")]
+        KeyBinding::new("cmd-+", ZoomIn {}, None),
+        #[cfg(target_os = "macos")]
+        KeyBinding::new("cmd--", ZoomOut {}, None),
+        #[cfg(target_os = "macos")]
+        KeyBinding::new("cmd-0", ResetZoom {}, None),
 
         #[cfg(not(target_os = "macos"))]
-        KeyBinding::new("ctrl-n", New {}, None),
+        KeyBinding::new("ctrl-t", NewTab {}, None),
+        #[cfg(not(target_os = "macos"))]
+        KeyBinding::new("ctrl-n", NewWindow {}, None),
         #[cfg(not(target_os = "macos"))]
         KeyBinding::new("ctrl-o", Open {}, None),
         #[cfg(not(target_os = "macos"))]
@@ -70,14 +82,78 @@ pub fn setup_app(app: &mut App, rx: futures::channel::mpsc::UnboundedReceiver<Ve
         KeyBinding::new("ctrl-h", Replace {}, None),
         #[cfg(not(target_os = "macos"))]
         KeyBinding::new("ctrl-a", SelectAll {}, None),
+        #[cfg(not(target_os = "macos"))]
+        KeyBinding::new("ctrl-,", OpenSettings {}, None),
+        #[cfg(not(target_os = "macos"))]
+        KeyBinding::new("ctrl-=", ZoomIn {}, None),
+        #[cfg(not(target_os = "macos"))]
+        KeyBinding::new("ctrl-+", ZoomIn {}, None),
+        #[cfg(not(target_os = "macos"))]
+        KeyBinding::new("ctrl--", ZoomOut {}, None),
+        #[cfg(not(target_os = "macos"))]
+        KeyBinding::new("ctrl-0", ResetZoom {}, None),
     ]);
 
-    // App-level action handlers to handle actions when no window is open
+    // App-level action handlers to handle actions when no window is open or globally
+    let config_new_tab = config.clone();
+    let i18n_new_tab = i18n.clone();
+    app.on_action(move |_: &NewTab, cx| {
+        let mut handled = false;
+        if let Some(active_window) = cx.active_window() {
+            if let Ok(res) = cx.update_window(active_window, |any_view, _window, cx| {
+                if let Ok(view_handle) = any_view.downcast::<WindowView>() {
+                    view_handle.update(cx, |view, cx| {
+                        view.workspace.update(cx, |w, cx| {
+                            w.new_tab();
+                            cx.notify();
+                        });
+                    });
+                    true
+                } else {
+                    false
+                }
+            }) {
+                handled = res;
+            }
+        }
+        if !handled {
+            new_window(config_new_tab.clone(), i18n_new_tab.clone(), cx);
+        }
+    });
+
+    let config_new_win = config.clone();
+    let i18n_new_win = i18n.clone();
+    app.on_action(move |_: &NewWindow, cx| {
+        new_window(config_new_win.clone(), i18n_new_win.clone(), cx);
+    });
+
     let config_new = config.clone();
     let i18n_new = i18n.clone();
     app.on_action(move |_: &New, cx| {
-        new_window(config_new.clone(), i18n_new.clone(), cx);
+        let mut handled = false;
+        if let Some(active_window) = cx.active_window() {
+            if let Ok(res) = cx.update_window(active_window, |any_view, _window, cx| {
+                if let Ok(view_handle) = any_view.downcast::<WindowView>() {
+                    view_handle.update(cx, |view, cx| {
+                        view.workspace.update(cx, |w, cx| {
+                            w.new_tab();
+                            cx.notify();
+                        });
+                    });
+                    true
+                } else {
+                    false
+                }
+            }) {
+                handled = res;
+            }
+        }
+        if !handled {
+            new_window(config_new.clone(), i18n_new.clone(), cx);
+        }
     });
+
+    setup_menu(app, &i18n);
 
     let config_open = config.clone();
     let i18n_open = i18n.clone();
@@ -173,6 +249,9 @@ pub fn setup_app(app: &mut App, rx: futures::channel::mpsc::UnboundedReceiver<Ve
         cx.quit();
     });
 
+    // Activate the application on launch so its window is brought to the foreground
+    app.activate(true);
+
     // Initial window
     new_window(config.clone(), i18n.clone(), app);
 
@@ -223,26 +302,23 @@ fn centered_window_options(cx: &App) -> WindowOptions {
 }
 
 pub fn new_window(config: Config, i18n: I18n, cx: &mut App) {
-    let themes = Theme::builtins();
-    
+    cx.activate(true);
     let theme_to_use = if config.theme == "terminal-default" || config.theme.is_empty() {
         match cx.window_appearance() {
             WindowAppearance::Dark | WindowAppearance::VibrantDark => {
-                themes.iter().find(|t| t.meta.name == "Tokyo Night").cloned().unwrap_or_else(Theme::default)
+                Theme::find_by_name("tokyo-night").unwrap_or_else(Theme::default)
             }
             WindowAppearance::Light | WindowAppearance::VibrantLight => {
-                themes.iter().find(|t| t.meta.name == "Catppuccin Latte").cloned().unwrap_or_else(Theme::default)
+                Theme::find_by_name("catppuccin-latte").unwrap_or_else(Theme::default)
             }
         }
     } else {
-        themes.iter()
-            .find(|t| t.meta.name.to_lowercase().replace(" ", "-") == config.theme.to_lowercase())
-            .cloned()
-            .unwrap_or_else(Theme::default)
+        Theme::find_by_name(&config.theme).unwrap_or_else(Theme::default)
     };
 
     let options = centered_window_options(cx);
     cx.open_window(options, move |window, cx| {
+        window.activate_window();
         let workspace = cx.new(|_| {
             let mut w = Workspace::new(config.clone());
             w.theme = theme_to_use;
@@ -253,22 +329,18 @@ pub fn new_window(config: Config, i18n: I18n, cx: &mut App) {
 }
 
 pub fn open_paths(paths: Vec<std::path::PathBuf>, config: Config, i18n: I18n, cx: &mut App) {
-    let themes = Theme::builtins();
-    
+    cx.activate(true);
     let theme_to_use = if config.theme == "terminal-default" || config.theme.is_empty() {
         match cx.window_appearance() {
             WindowAppearance::Dark | WindowAppearance::VibrantDark => {
-                themes.iter().find(|t| t.meta.name == "Tokyo Night").cloned().unwrap_or_else(Theme::default)
+                Theme::find_by_name("tokyo-night").unwrap_or_else(Theme::default)
             }
             WindowAppearance::Light | WindowAppearance::VibrantLight => {
-                themes.iter().find(|t| t.meta.name == "Catppuccin Latte").cloned().unwrap_or_else(Theme::default)
+                Theme::find_by_name("catppuccin-latte").unwrap_or_else(Theme::default)
             }
         }
     } else {
-        themes.iter()
-            .find(|t| t.meta.name.to_lowercase().replace(" ", "-") == config.theme.to_lowercase())
-            .cloned()
-            .unwrap_or_else(Theme::default)
+        Theme::find_by_name(&config.theme).unwrap_or_else(Theme::default)
     };
 
     let options = centered_window_options(cx);
@@ -357,7 +429,7 @@ impl Action for SetSyntax {
 #[cfg(target_os = "macos")]
 fn build_native_menus(i18n: &I18n) -> Vec<Menu> {
     let mut theme_items = Vec::new();
-    for theme in led_core::theme::Theme::builtins() {
+    for theme in led_core::theme::Theme::load_all() {
         theme_items.push(MenuItem::action(
             theme.meta.name.clone(),
             SetTheme { name: theme.meta.name.clone() },
@@ -392,6 +464,8 @@ fn build_native_menus(i18n: &I18n) -> Vec<Menu> {
             items: vec![
                 MenuItem::action("About led-gui", About {}),
                 MenuItem::separator(),
+                MenuItem::action(i18n.get("menu.app.preferences"), OpenSettings {}),
+                MenuItem::separator(),
                 MenuItem::action("Quit led-gui", Quit {}),
             ],
             disabled: false,
@@ -399,7 +473,8 @@ fn build_native_menus(i18n: &I18n) -> Vec<Menu> {
         Menu {
             name: i18n.get("menu.file").into(),
             items: vec![
-                MenuItem::action(i18n.get("menu.file.new"), New {}),
+                MenuItem::action(i18n.get("menu.file.new_tab"), NewTab {}),
+                MenuItem::action(i18n.get("menu.file.new_window"), NewWindow {}),
                 MenuItem::action(i18n.get("menu.file.open"), Open {}),
                 MenuItem::separator(),
                 MenuItem::action(i18n.get("menu.file.save"), Save {}),
@@ -433,6 +508,10 @@ fn build_native_menus(i18n: &I18n) -> Vec<Menu> {
             items: vec![
                 MenuItem::action(i18n.get("menu.view.go_to_line"), GoToLine {}),
                 MenuItem::separator(),
+                MenuItem::action(i18n.get("menu.view.zoom_in"), ZoomIn {}),
+                MenuItem::action(i18n.get("menu.view.zoom_out"), ZoomOut {}),
+                MenuItem::action(i18n.get("menu.view.reset_zoom"), ResetZoom {}),
+                MenuItem::separator(),
                 MenuItem::action(i18n.get("menu.view.line_numbers"), ToggleLineNumbers {}),
                 MenuItem::action(i18n.get("menu.view.word_wrap"), ToggleWordWrap {}),
                 MenuItem::action(i18n.get("menu.view.vi_mode"), ToggleViMode {}),
@@ -464,6 +543,8 @@ fn build_native_menus(i18n: &I18n) -> Vec<Menu> {
                     items: syntax_items,
                     disabled: false,
                 }),
+                MenuItem::separator(),
+                MenuItem::action(i18n.get("menu.app.preferences"), OpenSettings {}),
             ],
             disabled: false,
         },
@@ -487,13 +568,13 @@ fn build_native_menus(i18n: &I18n) -> Vec<Menu> {
 
 actions!(led, [
     // App/File
-    About, Quit, Exit, New, Open, Save, SaveAs, CloseTab,
+    About, OpenSettings, Quit, Exit, New, NewTab, NewWindow, Open, Save, SaveAs, CloseTab,
     // Edit
     Undo, Redo, Cut, Copy, Paste, Find, Replace, SelectAll,
     // Tabs
     NextTab, PrevTab,
     // View
-    GoToLine, ToggleLineNumbers, ToggleWordWrap, ToggleViMode,
+    GoToLine, ZoomIn, ZoomOut, ResetZoom, ToggleLineNumbers, ToggleWordWrap, ToggleViMode,
     SetEncodingUtf8, SetEncodingUtf8Bom, SetEncodingUtf16Le, SetEncodingUtf16Be,
     SetEncodingShiftJis, SetEncodingEucJp, SetEncodingIso2022Jp, SetEncodingLatin1,
     SetLineEndingLf, SetLineEndingCrlf, SetLineEndingCr,

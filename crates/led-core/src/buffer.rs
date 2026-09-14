@@ -93,9 +93,9 @@ impl Editor {
         };
 
         let line_count = content.lines().count().max(1);
-        Ok(Self {
+        let mut editor = Self {
             rope: Rope::from_str(&content),
-            path: Some(path),
+            path: Some(path.clone()),
             encoding,
             line_ending,
             read_only: false,
@@ -116,7 +116,20 @@ impl Editor {
             syntax_highlighter: None,
             line_states: vec![crate::syntax::LineState::Normal; line_count],
             line_tokens: vec![None; line_count],
-        })
+        };
+
+        if let Some(highlighter) = Self::detect_syntax(&path) {
+            editor.update_syntax(Some(highlighter));
+        }
+
+        Ok(editor)
+    }
+
+    pub fn detect_syntax(path: &Path) -> Option<crate::syntax::SyntaxHighlighter> {
+        let ext = path.extension()?.to_str()?;
+        let syntax_defs = crate::syntax::SyntaxDefinition::builtins();
+        let def = syntax_defs.into_iter().find(|s| s.meta.extensions.iter().any(|e| e.eq_ignore_ascii_case(ext)))?;
+        crate::syntax::SyntaxHighlighter::new(def).ok()
     }
 
     pub fn update_syntax(&mut self, highlighter: Option<crate::syntax::SyntaxHighlighter>) {
@@ -781,6 +794,11 @@ impl Editor {
         self.path = Some(path.as_ref().to_path_buf());
         self.modified_since_save = false;
         self.saved_undo_len = self.undo_stack.len();
+        if self.syntax_highlighter.is_none() {
+            if let Some(highlighter) = Self::detect_syntax(path.as_ref()) {
+                self.update_syntax(Some(highlighter));
+            }
+        }
         Ok(())
     }
 }
@@ -856,6 +874,20 @@ mod tests {
         assert_eq!(wraps[0], 0..4); // abcd
         assert_eq!(wraps[1], 4..8); // efgh
         assert_eq!(wraps[2], 8..10); // ij
+    }
+
+    #[test]
+    fn test_syntax_detection_markdown() {
+        let temp_dir = std::env::temp_dir();
+        let md_file = temp_dir.join("test_led_syntax.md");
+        std::fs::write(&md_file, "# Heading\n`code`\n**bold**\n").unwrap();
+
+        let editor = Editor::from_file(&md_file).unwrap();
+        assert!(editor.syntax_highlighter.is_some());
+        assert_eq!(editor.line_tokens.len(), 4);
+        // First line should have Heading keyword token
+        assert!(!editor.line_tokens[0].as_ref().unwrap().is_empty());
+        let _ = std::fs::remove_file(&md_file);
     }
 
     #[test]

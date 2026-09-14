@@ -19,6 +19,7 @@ pub enum DialogType {
     UnsavedChanges { filename: String, intent: UnsavedChangesIntent },
     #[allow(dead_code)]
     Message { title: String, message: String },
+    Settings,
 }
 
 pub struct Dialog {
@@ -176,9 +177,10 @@ impl Dialog {
             DialogType::GoToLine => {
                 if let Ok(line) = self.input_text.parse::<usize>() {
                     self.workspace.update(cx, |w, _| {
-                        let editor = w.active_editor_mut();
-                        editor.cursor = editor.rope.line_to_char(line.saturating_sub(1));
-                        editor.selection = None;
+                        if let Some(editor) = w.active_editor_mut() {
+                            editor.cursor = editor.rope.line_to_char(line.saturating_sub(1));
+                            editor.selection = None;
+                        }
                     });
                 }
             }
@@ -199,8 +201,9 @@ impl Dialog {
                     });
                 } else {
                     self.workspace.update(cx, |w, _| {
-                        let editor = w.active_editor_mut();
-                        let _ = editor.save_as(&path);
+                        if let Some(editor) = w.active_editor_mut() {
+                            let _ = editor.save_as(&path);
+                        }
                     });
                 }
             }
@@ -232,6 +235,9 @@ impl Render for Dialog {
         let fg = led_color_to_gpui(theme.editor.foreground);
         let border = with_alpha(led_color_to_gpui(theme.editor.line_number), 0.35);
 
+        let dialog_width = if matches!(self.dialog_type, DialogType::Settings) { px(560.0) } else { px(460.0) };
+        let dialog_max_h = if matches!(self.dialog_type, DialogType::Settings) { px(640.0) } else { px(580.0) };
+
         div()
             .absolute()
             .top_0()
@@ -244,8 +250,8 @@ impl Render for Dialog {
             .bg(rgba(0x00000080)) // Dim backdrop overlay
             .child(
                 div()
-                    .w(px(460.0))
-                    .max_h(px(580.0))
+                    .w(dialog_width)
+                    .max_h(dialog_max_h)
                     .bg(bg)
                     .text_color(fg)
                     .font_family(ui_font_family())
@@ -267,6 +273,7 @@ impl Dialog {
     fn render_content(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let workspace = self.workspace.read(cx);
         let theme = &workspace.theme;
+        let fg = led_color_to_gpui(theme.editor.foreground);
         let accent = led_color_to_gpui(theme.syntax.keyword.unwrap_or(theme.editor.cursor));
         let button_bg = with_alpha(led_color_to_gpui(theme.ui.status_bar_fg), 0.1);
         let button_hover = with_alpha(led_color_to_gpui(theme.ui.status_bar_fg), 0.2);
@@ -628,6 +635,587 @@ impl Dialog {
                                     .text_color(gpui::rgb(0xffffff))
                                     .text_size(px(12.5))
                                     .cursor_pointer()
+                                    .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, cx| this.close(cx)))
+                                    .child(self.i18n.get("dialog.ok").to_string())
+                            )
+                    )
+            }
+            DialogType::Settings => {
+                let themes = led_core::theme::Theme::load_all();
+                let current_theme_name = workspace.theme.meta.name.clone();
+                let font_size = workspace.config.font_size;
+                let line_height = workspace.config.line_height;
+                let ui_font_size = workspace.config.ui_font_size;
+                let tab_size = workspace.config.tab_size;
+                let expand_tab = workspace.config.expand_tab;
+                let line_numbers = workspace.config.line_numbers;
+                let word_wrap = workspace.config.word_wrap;
+
+                let chip_bg = with_alpha(led_color_to_gpui(theme.ui.status_bar_fg), 0.08);
+                let chip_active_bg = with_alpha(accent, 0.25);
+                let chip_border = with_alpha(led_color_to_gpui(theme.editor.line_number), 0.35);
+
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap_3p5()
+                    .child(
+                        div()
+                            .flex()
+                            .items_center()
+                            .justify_between()
+                            .child(
+                                div()
+                                    .text_size(px(16.0))
+                                    .font_weight(FontWeight::BOLD)
+                                    .child(self.i18n.get("dialog.settings.title").to_string())
+                            )
+                            .child(
+                                div()
+                                    .text_size(px(14.0))
+                                    .text_color(with_alpha(fg, 0.6))
+                                    .cursor_pointer()
+                                    .hover(|s| s.opacity(0.8))
+                                    .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, cx| this.close(cx)))
+                                    .child("✕")
+                            )
+                    )
+                    // Theme section
+                    .child(
+                        div()
+                            .flex()
+                            .flex_col()
+                            .gap_1p5()
+                            .child(
+                                div()
+                                    .text_size(px(12.0))
+                                    .font_weight(FontWeight::SEMIBOLD)
+                                    .text_color(with_alpha(fg, 0.75))
+                                    .child(self.i18n.get("dialog.settings.theme").to_string())
+                            )
+                            .child(
+                                div()
+                                    .flex()
+                                    .flex_wrap()
+                                    .gap_1p5()
+                                    .children(themes.into_iter().map(|t| {
+                                        let is_active = t.meta.name == current_theme_name;
+                                        let t_name = t.meta.name.clone();
+                                        let t_slug = t_name.to_lowercase().replace(' ', "-");
+                                        let bg_color = if is_active { chip_active_bg } else { chip_bg };
+                                        let border_c = if is_active { accent } else { chip_border };
+                                        
+                                        div()
+                                            .h(px(26.0))
+                                            .px_2p5()
+                                            .flex()
+                                            .items_center()
+                                            .justify_center()
+                                            .rounded_md()
+                                            .border_1()
+                                            .border_color(border_c)
+                                            .bg(bg_color)
+                                            .text_size(px(11.5))
+                                            .font_weight(if is_active { FontWeight::SEMIBOLD } else { FontWeight::NORMAL })
+                                            .cursor_pointer()
+                                            .hover(|s| s.opacity(0.85))
+                                            .on_mouse_down(MouseButton::Left, cx.listener(move |this, _, _, cx| {
+                                                this.workspace.update(cx, |w, cx| {
+                                                    if let Some(theme) = led_core::theme::Theme::find_by_name(&t_slug) {
+                                                        w.theme = theme;
+                                                        let _ = led_core::config::Config::write_key("theme", &t_slug);
+                                                        cx.notify();
+                                                    }
+                                                });
+                                                cx.notify();
+                                            }))
+                                            .child(t_name)
+                                    }))
+                            )
+                    )
+                    // Font Family section
+                    .child(
+                        div()
+                            .flex()
+                            .flex_col()
+                            .gap_1p5()
+                            .child(
+                                div()
+                                    .text_size(px(12.0))
+                                    .font_weight(FontWeight::SEMIBOLD)
+                                    .text_color(with_alpha(fg, 0.75))
+                                    .child(self.i18n.get("dialog.settings.font_family").to_string())
+                            )
+                            .child(
+                                div()
+                                    .flex()
+                                    .flex_wrap()
+                                    .gap_1p5()
+                                    .children(vec![
+                                        (None, "System Default"),
+                                        (Some("Menlo"), "Menlo"),
+                                        (Some("SF Mono"), "SF Mono"),
+                                        (Some("Fira Code"), "Fira Code"),
+                                        (Some("JetBrains Mono"), "JetBrains Mono"),
+                                        (Some("Courier New"), "Courier New"),
+                                    ].into_iter().map(|(font_opt, label)| {
+                                        let is_active = match (font_opt, &workspace.config.font_family) {
+                                            (None, None) => true,
+                                            (Some(a), Some(b)) => a == b.as_str(),
+                                            _ => false,
+                                        };
+                                        let bg_color = if is_active { chip_active_bg } else { chip_bg };
+                                        let border_c = if is_active { accent } else { chip_border };
+
+                                        div()
+                                            .h(px(26.0))
+                                            .px_2p5()
+                                            .flex()
+                                            .items_center()
+                                            .justify_center()
+                                            .rounded_md()
+                                            .border_1()
+                                            .border_color(border_c)
+                                            .bg(bg_color)
+                                            .text_size(px(11.5))
+                                            .font_weight(if is_active { FontWeight::SEMIBOLD } else { FontWeight::NORMAL })
+                                            .cursor_pointer()
+                                            .hover(|s| s.opacity(0.85))
+                                            .on_mouse_down(MouseButton::Left, cx.listener(move |this, _, _, cx| {
+                                                this.workspace.update(cx, |w, cx| {
+                                                    w.config.font_family = font_opt.map(|s| s.to_string());
+                                                    let _ = led_core::config::Config::write_key("font_family", font_opt.unwrap_or(""));
+                                                    cx.notify();
+                                                });
+                                                cx.notify();
+                                            }))
+                                            .child(label)
+                                    }))
+                            )
+                    )
+                    // Steppers (Font Size, Line Height, UI Size)
+                    .child(
+                        div()
+                            .flex()
+                            .gap_3()
+                            // Font Size
+                            .child(
+                                div()
+                                    .flex_1()
+                                    .flex()
+                                    .flex_col()
+                                    .gap_1()
+                                    .child(
+                                        div()
+                                            .text_size(px(11.5))
+                                            .font_weight(FontWeight::MEDIUM)
+                                            .text_color(with_alpha(fg, 0.75))
+                                            .child(self.i18n.get("dialog.settings.font_size").to_string())
+                                    )
+                                    .child(
+                                        div()
+                                            .h(px(30.0))
+                                            .px_2()
+                                            .flex()
+                                            .items_center()
+                                            .justify_between()
+                                            .rounded_md()
+                                            .bg(input_bg)
+                                            .border_1()
+                                            .border_color(chip_border)
+                                            .child(
+                                                div()
+                                                    .w(px(22.0))
+                                                    .h(px(22.0))
+                                                    .flex()
+                                                    .items_center()
+                                                    .justify_center()
+                                                    .rounded_sm()
+                                                    .bg(chip_bg)
+                                                    .cursor_pointer()
+                                                    .hover(|s| s.opacity(0.8))
+                                                    .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, cx| {
+                                                        this.workspace.update(cx, |w, cx| {
+                                                            let size = (w.config.font_size - 1.0).max(8.0);
+                                                            w.config.font_size = size;
+                                                            w.config.line_height = (size * 1.55).round();
+                                                            let _ = led_core::config::Config::write_key("font_size", &format!("{:.1}", size));
+                                                            let _ = led_core::config::Config::write_key("line_height", &format!("{:.1}", w.config.line_height));
+                                                            cx.notify();
+                                                        });
+                                                        cx.notify();
+                                                    }))
+                                                    .child("-")
+                                            )
+                                            .child(
+                                                div()
+                                                    .text_size(px(12.0))
+                                                    .font_weight(FontWeight::SEMIBOLD)
+                                                    .child(format!("{:.1} px", font_size))
+                                            )
+                                            .child(
+                                                div()
+                                                    .w(px(22.0))
+                                                    .h(px(22.0))
+                                                    .flex()
+                                                    .items_center()
+                                                    .justify_center()
+                                                    .rounded_sm()
+                                                    .bg(chip_bg)
+                                                    .cursor_pointer()
+                                                    .hover(|s| s.opacity(0.8))
+                                                    .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, cx| {
+                                                        this.workspace.update(cx, |w, cx| {
+                                                            let size = (w.config.font_size + 1.0).min(48.0);
+                                                            w.config.font_size = size;
+                                                            w.config.line_height = (size * 1.55).round();
+                                                            let _ = led_core::config::Config::write_key("font_size", &format!("{:.1}", size));
+                                                            let _ = led_core::config::Config::write_key("line_height", &format!("{:.1}", w.config.line_height));
+                                                            cx.notify();
+                                                        });
+                                                        cx.notify();
+                                                    }))
+                                                    .child("+")
+                                            )
+                                    )
+                            )
+                            // Line Height
+                            .child(
+                                div()
+                                    .flex_1()
+                                    .flex()
+                                    .flex_col()
+                                    .gap_1()
+                                    .child(
+                                        div()
+                                            .text_size(px(11.5))
+                                            .font_weight(FontWeight::MEDIUM)
+                                            .text_color(with_alpha(fg, 0.75))
+                                            .child(self.i18n.get("dialog.settings.line_height").to_string())
+                                    )
+                                    .child(
+                                        div()
+                                            .h(px(30.0))
+                                            .px_2()
+                                            .flex()
+                                            .items_center()
+                                            .justify_between()
+                                            .rounded_md()
+                                            .bg(input_bg)
+                                            .border_1()
+                                            .border_color(chip_border)
+                                            .child(
+                                                div()
+                                                    .w(px(22.0))
+                                                    .h(px(22.0))
+                                                    .flex()
+                                                    .items_center()
+                                                    .justify_center()
+                                                    .rounded_sm()
+                                                    .bg(chip_bg)
+                                                    .cursor_pointer()
+                                                    .hover(|s| s.opacity(0.8))
+                                                    .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, cx| {
+                                                        this.workspace.update(cx, |w, cx| {
+                                                            let lh = (w.config.line_height - 1.0).max(12.0);
+                                                            w.config.line_height = lh;
+                                                            let _ = led_core::config::Config::write_key("line_height", &format!("{:.1}", lh));
+                                                            cx.notify();
+                                                        });
+                                                        cx.notify();
+                                                    }))
+                                                    .child("-")
+                                            )
+                                            .child(
+                                                div()
+                                                    .text_size(px(12.0))
+                                                    .font_weight(FontWeight::SEMIBOLD)
+                                                    .child(format!("{:.1} px", line_height))
+                                            )
+                                            .child(
+                                                div()
+                                                    .w(px(22.0))
+                                                    .h(px(22.0))
+                                                    .flex()
+                                                    .items_center()
+                                                    .justify_center()
+                                                    .rounded_sm()
+                                                    .bg(chip_bg)
+                                                    .cursor_pointer()
+                                                    .hover(|s| s.opacity(0.8))
+                                                    .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, cx| {
+                                                        this.workspace.update(cx, |w, cx| {
+                                                            let lh = (w.config.line_height + 1.0).min(72.0);
+                                                            w.config.line_height = lh;
+                                                            let _ = led_core::config::Config::write_key("line_height", &format!("{:.1}", lh));
+                                                            cx.notify();
+                                                        });
+                                                        cx.notify();
+                                                    }))
+                                                    .child("+")
+                                            )
+                                    )
+                            )
+                            // UI Size
+                            .child(
+                                div()
+                                    .flex_1()
+                                    .flex()
+                                    .flex_col()
+                                    .gap_1()
+                                    .child(
+                                        div()
+                                            .text_size(px(11.5))
+                                            .font_weight(FontWeight::MEDIUM)
+                                            .text_color(with_alpha(fg, 0.75))
+                                            .child(self.i18n.get("dialog.settings.ui_font_size").to_string())
+                                    )
+                                    .child(
+                                        div()
+                                            .h(px(30.0))
+                                            .px_2()
+                                            .flex()
+                                            .items_center()
+                                            .justify_between()
+                                            .rounded_md()
+                                            .bg(input_bg)
+                                            .border_1()
+                                            .border_color(chip_border)
+                                            .child(
+                                                div()
+                                                    .w(px(22.0))
+                                                    .h(px(22.0))
+                                                    .flex()
+                                                    .items_center()
+                                                    .justify_center()
+                                                    .rounded_sm()
+                                                    .bg(chip_bg)
+                                                    .cursor_pointer()
+                                                    .hover(|s| s.opacity(0.8))
+                                                    .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, cx| {
+                                                        this.workspace.update(cx, |w, cx| {
+                                                            let size = (w.config.ui_font_size - 1.0).max(10.0);
+                                                            w.config.ui_font_size = size;
+                                                            let _ = led_core::config::Config::write_key("ui_font_size", &format!("{:.1}", size));
+                                                            cx.notify();
+                                                        });
+                                                        cx.notify();
+                                                    }))
+                                                    .child("-")
+                                            )
+                                            .child(
+                                                div()
+                                                    .text_size(px(12.0))
+                                                    .font_weight(FontWeight::SEMIBOLD)
+                                                    .child(format!("{:.1} px", ui_font_size))
+                                            )
+                                            .child(
+                                                div()
+                                                    .w(px(22.0))
+                                                    .h(px(22.0))
+                                                    .flex()
+                                                    .items_center()
+                                                    .justify_center()
+                                                    .rounded_sm()
+                                                    .bg(chip_bg)
+                                                    .cursor_pointer()
+                                                    .hover(|s| s.opacity(0.8))
+                                                    .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, cx| {
+                                                        this.workspace.update(cx, |w, cx| {
+                                                            let size = (w.config.ui_font_size + 1.0).min(24.0);
+                                                            w.config.ui_font_size = size;
+                                                            let _ = led_core::config::Config::write_key("ui_font_size", &format!("{:.1}", size));
+                                                            cx.notify();
+                                                        });
+                                                        cx.notify();
+                                                    }))
+                                                    .child("+")
+                                            )
+                                    )
+                            )
+                    )
+                    // Tab Width & Toggles Row
+                    .child(
+                        div()
+                            .flex()
+                            .items_center()
+                            .justify_between()
+                            .pt_1()
+                            .child(
+                                div()
+                                    .flex()
+                                    .items_center()
+                                    .gap_2()
+                                    .child(
+                                        div()
+                                            .text_size(px(11.5))
+                                            .font_weight(FontWeight::MEDIUM)
+                                            .text_color(with_alpha(fg, 0.75))
+                                            .child(format!("{}:", self.i18n.get("dialog.settings.tab_size")))
+                                    )
+                                    .children(vec![2, 4, 8].into_iter().map(|ts| {
+                                        let is_active = tab_size == ts;
+                                        let bg_c = if is_active { chip_active_bg } else { chip_bg };
+                                        let border_c = if is_active { accent } else { chip_border };
+                                        div()
+                                            .h(px(24.0))
+                                            .px_2()
+                                            .flex()
+                                            .items_center()
+                                            .justify_center()
+                                            .rounded_md()
+                                            .border_1()
+                                            .border_color(border_c)
+                                            .bg(bg_c)
+                                            .text_size(px(11.5))
+                                            .font_weight(if is_active { FontWeight::SEMIBOLD } else { FontWeight::NORMAL })
+                                            .cursor_pointer()
+                                            .hover(|s| s.opacity(0.85))
+                                            .on_mouse_down(MouseButton::Left, cx.listener(move |this, _, _, cx| {
+                                                this.workspace.update(cx, |w, cx| {
+                                                    w.config.tab_size = ts;
+                                                    let _ = led_core::config::Config::write_key("tab_size", &ts.to_string());
+                                                    cx.notify();
+                                                });
+                                                cx.notify();
+                                            }))
+                                            .child(ts.to_string())
+                                    }))
+                            )
+                            .child(
+                                div()
+                                    .flex()
+                                    .items_center()
+                                    .gap_2()
+                                    // Expand tab toggle
+                                    .child(
+                                        div()
+                                            .h(px(24.0))
+                                            .px_2()
+                                            .flex()
+                                            .items_center()
+                                            .rounded_md()
+                                            .border_1()
+                                            .border_color(if expand_tab { accent } else { chip_border })
+                                            .bg(if expand_tab { chip_active_bg } else { chip_bg })
+                                            .text_size(px(11.0))
+                                            .cursor_pointer()
+                                            .hover(|s| s.opacity(0.85))
+                                            .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, cx| {
+                                                this.workspace.update(cx, |w, cx| {
+                                                    w.config.expand_tab = !w.config.expand_tab;
+                                                    let _ = led_core::config::Config::write_key("expand_tab", if w.config.expand_tab { "true" } else { "false" });
+                                                    cx.notify();
+                                                });
+                                                cx.notify();
+                                            }))
+                                            .child(if expand_tab { "✓ Spaces" } else { "Tabs" })
+                                    )
+                                    // Line Numbers toggle
+                                    .child(
+                                        div()
+                                            .h(px(24.0))
+                                            .px_2()
+                                            .flex()
+                                            .items_center()
+                                            .rounded_md()
+                                            .border_1()
+                                            .border_color(if line_numbers { accent } else { chip_border })
+                                            .bg(if line_numbers { chip_active_bg } else { chip_bg })
+                                            .text_size(px(11.0))
+                                            .cursor_pointer()
+                                            .hover(|s| s.opacity(0.85))
+                                            .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, cx| {
+                                                this.workspace.update(cx, |w, cx| {
+                                                    w.config.line_numbers = !w.config.line_numbers;
+                                                    let _ = led_core::config::Config::write_key("line_numbers", if w.config.line_numbers { "true" } else { "false" });
+                                                    cx.notify();
+                                                });
+                                                cx.notify();
+                                            }))
+                                            .child(if line_numbers { "✓ Lines" } else { "Lines" })
+                                    )
+                                    // Word Wrap toggle
+                                    .child(
+                                        div()
+                                            .h(px(24.0))
+                                            .px_2()
+                                            .flex()
+                                            .items_center()
+                                            .rounded_md()
+                                            .border_1()
+                                            .border_color(if word_wrap { accent } else { chip_border })
+                                            .bg(if word_wrap { chip_active_bg } else { chip_bg })
+                                            .text_size(px(11.0))
+                                            .cursor_pointer()
+                                            .hover(|s| s.opacity(0.85))
+                                            .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, cx| {
+                                                this.workspace.update(cx, |w, cx| {
+                                                    w.config.word_wrap = !w.config.word_wrap;
+                                                    let _ = led_core::config::Config::write_key("word_wrap", if w.config.word_wrap { "true" } else { "false" });
+                                                    cx.notify();
+                                                });
+                                                cx.notify();
+                                            }))
+                                            .child(if word_wrap { "✓ Wrap" } else { "Wrap" })
+                                    )
+                            )
+                    )
+                    // Footer Actions
+                    .child(
+                        div()
+                            .flex()
+                            .items_center()
+                            .justify_between()
+                            .pt_2()
+                            .border_t_1()
+                            .border_color(chip_border)
+                            .child(
+                                div()
+                                    .h(px(28.0))
+                                    .px_3()
+                                    .flex()
+                                    .items_center()
+                                    .justify_center()
+                                    .rounded_md()
+                                    .bg(button_bg)
+                                    .text_size(px(12.0))
+                                    .cursor_pointer()
+                                    .hover(move |s| s.bg(button_hover))
+                                    .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, cx| {
+                                        this.workspace.update(cx, |w, cx| {
+                                            w.config.font_family = None;
+                                            w.config.font_size = 14.0;
+                                            w.config.line_height = 22.0;
+                                            w.config.ui_font_size = 13.0;
+                                            w.config.tab_size = 4;
+                                            w.config.expand_tab = true;
+                                            let _ = led_core::config::Config::write_key("font_family", "");
+                                            let _ = led_core::config::Config::write_key("font_size", "14.0");
+                                            let _ = led_core::config::Config::write_key("line_height", "22.0");
+                                            let _ = led_core::config::Config::write_key("ui_font_size", "13.0");
+                                            let _ = led_core::config::Config::write_key("tab_size", "4");
+                                            let _ = led_core::config::Config::write_key("expand_tab", "true");
+                                            cx.notify();
+                                        });
+                                        cx.notify();
+                                    }))
+                                    .child(self.i18n.get("dialog.settings.reset_defaults").to_string())
+                            )
+                            .child(
+                                div()
+                                    .h(px(28.0))
+                                    .px_5()
+                                    .flex()
+                                    .items_center()
+                                    .justify_center()
+                                    .rounded_md()
+                                    .bg(accent)
+                                    .text_color(gpui::rgb(0xffffff))
+                                    .text_size(px(12.5))
+                                    .font_weight(FontWeight::MEDIUM)
+                                    .cursor_pointer()
+                                    .hover(|s| s.opacity(0.9))
                                     .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, cx| this.close(cx)))
                                     .child(self.i18n.get("dialog.ok").to_string())
                             )

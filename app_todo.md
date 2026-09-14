@@ -1,5 +1,19 @@
   # led Todo List
 
+## Phase 22: GUI Font & Spacing and Theme Customization
+- [x] **GUI Font & Typography Customization (`led-gui`)**:
+  - [x] Add `font_family`, `font_size`, and `line_height` to `Config` for editor code area
+  - [x] Add `ui_font_family` and `ui_font_size` for UI chrome (tabs, status bar, dialogs)
+  - [x] Wire dynamic font size and line height into editor text measurement, rendering, scroll calculations, and mouse hit-testing
+  - [x] Keep CLI (`led-tui`) untouched (terminal font is controlled by terminal emulator)
+- [x] **Theme Customization & Human-Readable CSS Colors (TUI & GUI)**:
+  - [x] Expand theme color parser in `led-core` to support CSS Hex (`#rgb`, `#rrggbb`, `#rrggbbaa`), CSS `rgb(...)`, `rgba(...)`, `ansi(...)`, and named CSS colors
+  - [x] Implement dynamic user theme discovery from `~/.config/led/themes/*.toml` in `Theme::load_all()` and `Theme::find_by_name()`
+  - [x] Populate theme menus and live switching dynamically in both TUI (`led-tui`) and GUI (`led-gui`)
+- [x] **Documentation & Configuration Templates**:
+  - [x] Create `assets/config.toml.default` and update root `config.toml.default`
+  - [x] Update `app_specs.md`, `MANUAL.md`, `README.md`, and `DEVLOG.md`
+
 ## Phase 21: GUI Modernization & UX Polish
 - [x] **Typography & Styling Foundation**:
   - [x] Separate UI proportional font (`.AppleSystemUIFont` / sans-serif) from editor monospace font

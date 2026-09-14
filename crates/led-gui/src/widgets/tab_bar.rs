@@ -1,12 +1,20 @@
 use gpui::*;
 use crate::workspace::Workspace;
 use crate::widgets::{led_color_to_gpui, ui_font_family, with_alpha};
-use crate::app::{CloseTab, New};
+
+#[derive(Clone, Debug)]
+pub enum TabBarEvent {
+    Select(usize),
+    Close(usize),
+    New,
+}
 
 pub struct TabBar {
     workspace: Entity<Workspace>,
     scroll_offset: Pixels,
 }
+
+impl EventEmitter<TabBarEvent> for TabBar {}
 
 impl TabBar {
     pub fn new(workspace: Entity<Workspace>, cx: &mut Context<Self>) -> Self {
@@ -105,61 +113,59 @@ impl Render for TabBar {
                                                 s
                                             }
                                         })
+                                        .on_mouse_down(MouseButton::Left, cx.listener(move |this, _, _, cx| {
+                                            this.workspace.update(cx, |w, cx| {
+                                                w.active_editor_index = idx;
+                                                cx.notify();
+                                            });
+                                            cx.emit(TabBarEvent::Select(idx));
+                                        }))
                                         .child(
                                             div()
-                                                .flex()
-                                                .items_center()
-                                                .gap_2()
-                                                .on_mouse_down(MouseButton::Left, cx.listener(move |this, _, _, cx| {
-                                                    this.workspace.update(cx, |w, cx| {
-                                                        w.active_editor_index = idx;
-                                                        cx.notify();
-                                                    });
-                                                }))
-                                                .child(file_name.to_string())
-                                                .children(if is_ro {
-                                                    Some(
-                                                        div()
-                                                            .text_size(px(10.0))
-                                                            .px_1()
-                                                            .rounded_sm()
-                                                            .bg(with_alpha(border_color, 0.4))
-                                                            .child("RO")
-                                                    )
-                                                } else {
-                                                    None
-                                                })
-                                                .children(if is_modified {
-                                                    Some(
-                                                        div()
-                                                            .w(px(7.0))
-                                                            .h(px(7.0))
-                                                            .rounded_full()
-                                                            .bg(active_accent)
-                                                    )
-                                                } else {
-                                                    None
-                                                })
+                                                 .flex()
+                                                 .items_center()
+                                                 .gap_2()
+                                                 .child(file_name.to_string())
+                                                 .children(if is_ro {
+                                                     Some(
+                                                         div()
+                                                             .text_size(px(10.0))
+                                                             .px_1()
+                                                             .rounded_sm()
+                                                             .bg(with_alpha(border_color, 0.4))
+                                                             .child("RO")
+                                                     )
+                                                 } else {
+                                                     None
+                                                 })
+                                                 .children(if is_modified {
+                                                     Some(
+                                                         div()
+                                                             .w(px(7.0))
+                                                             .h(px(7.0))
+                                                             .rounded_full()
+                                                             .bg(active_accent)
+                                                     )
+                                                 } else {
+                                                     None
+                                                 })
                                         )
                                         .child(
                                             div()
-                                                .flex()
-                                                .items_center()
-                                                .justify_center()
-                                                .w(px(16.0))
-                                                .h(px(16.0))
-                                                .ml_2()
-                                                .rounded_sm()
-                                                .text_size(px(13.0))
-                                                .hover(|s| s.bg(rgba(0xffffff22)))
-                                                .child("×")
-                                                .on_mouse_down(MouseButton::Left, cx.listener(move |this, _, _, cx| {
-                                                    this.workspace.update(cx, |w, cx| {
-                                                        w.active_editor_index = idx;
-                                                        cx.notify();
-                                                    });
-                                                    cx.dispatch_action(&CloseTab {});
-                                                }))
+                                                 .flex()
+                                                 .items_center()
+                                                 .justify_center()
+                                                 .w(px(16.0))
+                                                 .h(px(16.0))
+                                                 .ml_2()
+                                                 .rounded_sm()
+                                                 .text_size(px(13.0))
+                                                 .hover(|s| s.bg(rgba(0xffffff22)))
+                                                 .child("×")
+                                                 .on_mouse_down(MouseButton::Left, cx.listener(move |_this, _, _, cx| {
+                                                     cx.stop_propagation();
+                                                     cx.emit(TabBarEvent::Close(idx));
+                                                 }))
                                         )
                                 }).collect::<Vec<_>>()
                             )
@@ -180,8 +186,9 @@ impl Render for TabBar {
                     .cursor_pointer()
                     .hover(|s| s.bg(rgba(0xffffff18)).text_color(gpui::rgb(0xffffff)))
                     .child("+")
-                    .on_mouse_down(MouseButton::Left, cx.listener(|_, _, _, cx| {
-                        cx.dispatch_action(&New {});
+                    .on_mouse_down(MouseButton::Left, cx.listener(|_this, _, _, cx| {
+                        cx.stop_propagation();
+                        cx.emit(TabBarEvent::New);
                     }))
             )
     }

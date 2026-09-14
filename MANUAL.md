@@ -48,18 +48,21 @@ sudo mv led /usr/local/bin/led
 
 ### Build from source
 
-**Requirements**: Rust toolchain (`rustup`), Xcode Command Line Tools (macOS)
+**Requirements**: Rust toolchain (`rustup`), C compiler / build-essential
 
 ```bash
 git clone https://github.com/yourname/led.git
 cd led
 
-# TUI only (current host)
+# Build both TUI and GUI for current OS
 make
 
-# All targets from macOS (requires Docker for Linux cross-compilation)
-# cargo install cross  ← install cross tool first if not already installed
-make all
+# Or build individual components:
+make tui      # Build TUI (led)
+make gui      # Build GUI (led-gui and led.app on macOS)
+
+# Install binaries to ~/.local/bin (and ~/Applications on macOS)
+make install
 
 # Outputs land in dist/
 ls dist/
@@ -69,13 +72,19 @@ ls dist/
 
 | Target | Description |
 | :--- | :--- |
-| `make` | Build `led` (TUI) for the current host into `dist/` |
-| `make all` | Cross-build all targets (macOS only; Docker required for Linux) |
-| `make gui` | Build `led.app` (GUI) for current macOS host |
-| `make clean` | Remove `dist/` |
-| `make help` | List all targets |
+| `make` / `make local` | Build both TUI (`led`) and GUI (`led-gui` / `led.app`) for the local host OS into `dist/` |
+| `make tui` / `make cli` | Build TUI binary (`led`) into `dist/` |
+| `make gui` | Build GUI binary (and `led.app` bundle on macOS) into `dist/` |
+| `make test` | Run workspace unit & integration tests (`cargo test --workspace`) |
+| `make check` | Run fast workspace type-checks (`cargo check --workspace --all-targets`) |
+| `make install` | Install binaries to `~/.local/bin` (and `led.app` to `~/Applications` on macOS) |
+| `make package` | Create distribution archive (`.tar.gz` / `.zip`) in `dist/` |
+| `make clean` | Remove `dist/` and clean cargo cache |
+| `make help` | List all make targets and usage |
 
-> **Automated GitHub Actions Builds**: All binaries (TUI and GUI for macOS, Linux, and Windows) are cross-compiled automatically via GitHub Actions workflow (`.github/workflows/release.yml`) whenever a new release tag (e.g. `v0.1.0`) is pushed or manually triggered via `workflow_dispatch`.
+> **GitHub Actions CI/CD**:
+> - **CI (`.github/workflows/ci.yml`)**: Automatically triggers on PRs and pushes to `main` across macOS, Ubuntu Linux, and Windows to verify checks, tests, and builds.
+> - **Releases (`.github/workflows/release.yml`)**: Automatically cross-compiles release binaries (TUI & GUI) for macOS Apple Silicon (`aarch64-apple-darwin`), macOS Intel (`x86_64-apple-darwin`), Linux x64 (`x86_64-unknown-linux-gnu`), and Windows x64 (`x86_64-pc-windows-msvc`), generates `SHA256SUMS.txt`, and publishes them to GitHub Releases whenever a version tag (e.g. `v0.1.0`) is pushed.
 
 ---
 
@@ -139,14 +148,15 @@ led file1.txt file2.txt  # Open multiple files in tabs
 
 | Action | Shortcut |
 | :--- | :--- |
-| New tab | `Ctrl+N` |
-| Open… | `Ctrl+O` |
-| Save | `Ctrl+S` |
-| Save As… | `Ctrl+Shift+S` |
-| Close tab | `Ctrl+W` |
-| Exit | `Ctrl+Q` |
+| New Tab | `Ctrl+T` (`⌘T` on macOS) |
+| New Window (GUI) | `Ctrl+N` (`⌘N` on macOS) |
+| Open… | `Ctrl+O` (`⌘O` on macOS) |
+| Save | `Ctrl+S` (`⌘S` on macOS) |
+| Save As… | `Ctrl+Shift+S` (`⌘Shift+S` on macOS) |
+| Close Tab | `Ctrl+W` (`⌘W` on macOS) |
+| Exit / Quit | `Ctrl+Q` (`⌘Q` on macOS) |
 
-> **Note**: On macOS, use the Command key (`⌘`) instead of `Ctrl` for all shortcuts (e.g., `⌘S` for Save).
+> **Note**: On macOS, use the Command key (`⌘`) instead of `Ctrl` for all shortcuts (e.g., `⌘T` for New Tab, `⌘N` for New Window, `⌘S` for Save).
 
 ### Edit
 
@@ -163,10 +173,14 @@ led file1.txt file2.txt  # Open multiple files in tabs
 
 > **Paste behavior**: Line endings in pasted text are automatically normalized to match the current buffer's line ending setting (LF, CRLF, or CR).
 
-### Navigation
-
+### Navigation & View
+ 
 | Action | Shortcut |
 | :--- | :--- |
+| Preferences / Settings | `Ctrl+,` (`⌘,` on macOS) |
+| Zoom In | `Ctrl+=` / `Ctrl++` (`⌘=` on macOS) |
+| Zoom Out | `Ctrl+-` (`⌘-` on macOS) |
+| Reset Zoom | `Ctrl+0` (`⌘0` on macOS) |
 | Go to Line… | `Ctrl+G` |
 | New tab | `Ctrl+T` |
 | Next tab | `Ctrl+Tab` |
@@ -246,6 +260,13 @@ tab_size = 4
 # Note: this affects what is inserted when you press Tab. The actual characters
 # already in the file are always preserved as-is on disk regardless of this setting.
 expand_tab = false
+
+# GUI Font & Spacing Settings (led-gui only; ignored by led-tui)
+# font_family = "Menlo"      # Editor monospace font family (null = system monospace)
+font_size = 14.0             # Editor font size in pixels (default: 14.0)
+line_height = 22.0           # Editor line height in pixels (default: 22.0)
+# ui_font_family = ".AppleSystemUIFont" # UI font family
+ui_font_size = 13.0          # UI font size in pixels (default: 13.0)
 ```
 
 > **Note**: All config files are loaded at startup only. Changes to `config.toml` take effect after restarting `led`, except for settings changed via the View menu which are applied immediately.
@@ -284,8 +305,13 @@ expand_tab = false
 
 ## 5. Theme File Format
 
-Theme files live in `~/.config/led/themes/*.toml`.  
-Colors are specified as 24-bit hex RGB strings (`"#rrggbb"`).
+Theme files live in `~/.config/led/themes/*.toml`. Built-in and custom user themes are automatically loaded and selectable from the **View > Theme** menu and `config.toml` in both **GUI** and **CLI/TUI** modes.
+
+Colors can be specified in multiple standard formats:
+- **CSS Hex**: `"#rgb"`, `"#rrggbb"`, or `"#rrggbbaa"` (e.g. `"#1a1b26"`, `"#fff"`, `"#1a1b2680"`)
+- **CSS RGB / RGBA**: `"rgb(26, 27, 38)"`, `"rgba(26, 27, 38, 0.5)"`
+- **ANSI**: `"ansi(1)"` (0–255 color index) or `"ansi(red)"` / `"ansi(bright_blue)"`
+- **Named CSS Colors**: `"black"`, `"white"`, `"red"`, `"green"`, `"blue"`, `"yellow"`, `"magenta"`, `"cyan"`, `"gray"`
 
 ### Full Schema
 

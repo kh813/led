@@ -84,12 +84,10 @@ impl App {
         let config = Config::load();
         let i18n = I18n::load(&config.language);
 
-        let themes = led_core::theme::Theme::builtins();
+        let themes = led_core::theme::Theme::load_all();
         let syntax_defs = led_core::syntax::SyntaxDefinition::builtins();
-        let theme = themes.iter()
-            .find(|t| t.meta.name.to_lowercase().replace(" ", "-") == config.theme.to_lowercase())
-            .cloned()
-            .unwrap_or_else(|| themes[0].clone());
+        let theme = led_core::theme::Theme::find_by_name(&config.theme)
+            .unwrap_or_else(|| themes.first().cloned().unwrap_or_default());
 
         let mut buffers = Vec::new();
         let mut errors = Vec::new();
@@ -288,7 +286,7 @@ impl App {
 
         vec![
             Menu::new(i18n.get("menu.file"), vec![
-                MenuItem::Action { label: i18n.get("menu.file.new").to_string(), action: Action::New, shortcut: Some("Ctrl+N".to_string()) },
+                MenuItem::Action { label: i18n.get("menu.file.new").to_string(), action: Action::New, shortcut: Some("Ctrl+T".to_string()) },
                 MenuItem::Action { label: i18n.get("menu.file.open").to_string(), action: Action::Open, shortcut: Some("Ctrl+O".to_string()) },
                 MenuItem::Separator,
                 MenuItem::Action { label: i18n.get("menu.file.save").to_string(), action: Action::Save, shortcut: Some("Ctrl+S".to_string()) },
@@ -406,7 +404,7 @@ impl App {
         if self.focus != Focus::Dialog && key.modifiers == KeyModifiers::CONTROL {
             match key.code {
                 KeyCode::Char('q') => { self.perform_action(Action::Exit); return; }
-                KeyCode::Char('n') => { self.perform_action(Action::New); return; }
+                KeyCode::Char('t') | KeyCode::Char('n') => { self.perform_action(Action::New); return; }
                 KeyCode::Char('o') => { self.perform_action(Action::Open); return; }
                 KeyCode::Char('s') => { self.perform_action(Action::Save); return; }
                 KeyCode::Char('w') => { self.perform_action(Action::Close); return; }

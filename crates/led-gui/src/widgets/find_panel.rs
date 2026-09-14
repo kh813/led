@@ -61,7 +61,10 @@ impl FindPanel {
             },
         };
         self.workspace.update(cx, |w, _| {
-            let editor = w.active_editor_mut();
+            let editor = match w.active_editor_mut() {
+                Some(e) => e,
+                None => return,
+            };
             if query.pattern.is_empty() {
                 editor.find_results.clear();
                 editor.current_match_idx = None;
@@ -81,7 +84,10 @@ impl FindPanel {
 
     fn handle_search_next(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
         self.workspace.update(cx, |w, _| {
-            let editor = w.active_editor_mut();
+            let editor = match w.active_editor_mut() {
+                Some(e) => e,
+                None => return,
+            };
             if editor.find_results.is_empty() { return; }
             let idx = match editor.current_match_idx {
                 Some(i) => (i + 1) % editor.find_results.len(),
@@ -97,7 +103,10 @@ impl FindPanel {
 
     fn handle_search_prev(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
         self.workspace.update(cx, |w, _| {
-            let editor = w.active_editor_mut();
+            let editor = match w.active_editor_mut() {
+                Some(e) => e,
+                None => return,
+            };
             if editor.find_results.is_empty() { return; }
             let idx = match editor.current_match_idx {
                 Some(i) => if i == 0 { editor.find_results.len() - 1 } else { i - 1 },
@@ -113,7 +122,10 @@ impl FindPanel {
 
     fn handle_search_replace(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
         self.workspace.update(cx, |w, _| {
-            let editor = w.active_editor_mut();
+            let editor = match w.active_editor_mut() {
+                Some(e) => e,
+                None => return,
+            };
             if let Some(idx) = editor.current_match_idx {
                 let m = editor.find_results[idx].clone();
                 editor.delete(m.char_range);
@@ -126,7 +138,10 @@ impl FindPanel {
 
     fn handle_search_replace_all(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
         self.workspace.update(cx, |w, _| {
-            let editor = w.active_editor_mut();
+            let editor = match w.active_editor_mut() {
+                Some(e) => e,
+                None => return,
+            };
             let results = editor.find_results.clone();
             for m in results.into_iter().rev() {
                 editor.delete(m.char_range);
@@ -202,13 +217,16 @@ impl Render for FindPanel {
         let button_bg = with_alpha(led_color_to_gpui(theme.ui.status_bar_fg), 0.08);
         let button_hover = with_alpha(led_color_to_gpui(theme.ui.status_bar_fg), 0.18);
 
-        let editor = workspace.active_editor();
-        let match_count = editor.find_results.len();
+        let (match_count, current_idx) = if let Some(editor) = workspace.active_editor() {
+            (editor.find_results.len(), editor.current_match_idx)
+        } else {
+            (0, None)
+        };
         let match_badge = if self.find_text.is_empty() {
             "".to_string()
         } else if match_count == 0 {
             "No results".to_string()
-        } else if let Some(idx) = editor.current_match_idx {
+        } else if let Some(idx) = current_idx {
             format!("{} of {}", idx + 1, match_count)
         } else {
             format!("{} results", match_count)

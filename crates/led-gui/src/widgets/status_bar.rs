@@ -20,7 +20,27 @@ impl Render for StatusBar {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let workspace = self.workspace.read(cx);
         let theme = &workspace.theme;
-        let editor = workspace.active_editor();
+        let border_color = with_alpha(led_color_to_gpui(theme.editor.line_number), 0.3);
+
+        let editor = match workspace.active_editor() {
+            Some(e) => e,
+            None => {
+                return div()
+                    .h(px(26.0))
+                    .w_full()
+                    .flex()
+                    .items_center()
+                    .justify_between()
+                    .px_3()
+                    .bg(led_color_to_gpui(theme.ui.status_bar_bg))
+                    .text_color(with_alpha(led_color_to_gpui(theme.ui.status_bar_fg), 0.5))
+                    .text_size(px(11.5))
+                    .font_family(ui_font_family())
+                    .border_t_1()
+                    .border_color(border_color)
+                    .child(div().child("No open tabs"));
+            }
+        };
         
         let file_name = editor.path.as_ref()
             .and_then(|p| p.file_name())

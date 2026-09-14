@@ -1,5 +1,48 @@
 # led Devlog
 
+## 2026-09-14
+
+### GUI Font/Spacing Customization, Syntax Highlighting & Theme System Enhancement (GUI & CLI)
+- **Natural Browser-style New Tab / New Window Shortcuts & Window Close**:
+  - Updated keyboard shortcuts to browser-standard conventions: `Cmd+T` / `Ctrl+T` for **New Tab**, and `Cmd+N` / `Ctrl+N` for **New Window** (in GUI).
+  - Implemented window close on `Cmd+W` / `Ctrl+W` when no tabs remain open in the workspace (`workspace.editors.is_empty()`), closing the window immediately without confirmation dialogs.
+  - Implemented global action handlers for `NewTab` (Cmd+T), `NewWindow` (Cmd+N), and `New` so pressing shortcuts when no windows are open reliably opens a new window with a new tab.
+  - Fixed an issue where `Cmd+T` failed to open a new tab due to empty scratch buffer replacement logic overwriting the existing buffer instead of adding a new tab. Added dedicated `Workspace::new_tab()`.
+  - Added unit tests (`test_new_tab_always_adds_new_tab`, `test_add_editor_untitled_always_adds_tab`, `test_close_active_editor_until_empty`) ensuring `new_tab()` and tab management remain fully robust.
+  - Updated File menu items (`New Tab` / `新規タブ`, `New Window` / `新規ウィンドウ`), empty workspace keyboard hints (`⌘T: New Tab`, `⌘N: New Window`, `⌘O: Open File`), TUI shortcuts (`Ctrl+T` / `Ctrl+N`), and documentation (`MANUAL.md`, `app_specs.md`).
+- **macOS App Bundle Launch & Reopen Fix**:
+  - Removed explicit `NSPrincipalClass` from `Info.plist` to allow GPUI's runtime `GPUIApplication` subclass to properly bind and handle window lifecycle events.
+  - Implemented `app.on_reopen` in `led-gui` to automatically spawn a new window when `open dist/led.app` or dock activation occurs with no open windows.
+- **Automatic Syntax Highlighting on File Open & Drag-and-Drop**:
+  - Automatically detect language syntax definitions (Markdown, Rust, Python, JavaScript, CSS, HTML, Go, TOML, Swift, XML) on file open in `Editor::from_file` and on Save As (`save_as`).
+  - Pre-tokenizes lines on load so syntax colors (headings, bold, inline/fenced code blocks, links in Markdown, keywords, types, strings, comments in code) are immediately rendered in both GUI and TUI without manual syntax selection.
+  - Fixed a string slice panic in `EditorView::render_line_content` and `render_wrapped_line` by clamping token byte ranges to stripped line lengths and ensuring safe UTF-8 character boundary alignment.
+- **GUI Preferences / Settings Dialog (`Cmd+,`)**:
+  - Implemented interactive floating modal settings card in `led-gui`.
+  - Supports live switching and instant preview of Themes (built-in and custom), Font Family presets (`System Default`, `Menlo`, `SF Mono`, `Fira Code`, `JetBrains Mono`, `Courier New`), Font Size stepper, Line Height stepper, UI Font Size stepper, Tab Width (`2`, `4`, `8`), and toggles for `Line Numbers`, `Word Wrap`, and `Spaces/Tabs`.
+  - Added "Reset to Defaults" button to restore stock editor preferences.
+  - Changes instantly persist to `~/.config/led/config.toml`.
+- **Zoom In / Zoom Out / Reset Zoom (`Cmd+=`, `Cmd+-`, `Cmd+0`)**:
+  - Added native menu items and keyboard shortcuts to quickly adjust editor text size and line spacing.
+- **Unsaved Changes Dialog Fix on Cmd+Q**:
+  - Fixed standard ASCII keystroke dispatch in `EditorView::handle_key_down` so direct character typing marks buffers as modified and records undo history properly.
+  - Ensures Cmd+Q (`Quit`) and window close actions consistently prompt the Unsaved Changes confirmation dialog.
+- **Theme System & Human-Readable CSS Colors**:
+  - Expanded `Color` in `led-core` to parse CSS hex (`#rgb`, `#rrggbb`, `#rrggbbaa`), `rgb(...)`, `rgba(...)`, `ansi(...)` (numeric or named colors), and standard named colors (`black`, `white`, etc.).
+  - Added dynamic theme discovery via `Theme::load_all()` and `Theme::find_by_name()` from `~/.config/led/themes/*.toml`.
+  - Dynamically populated native menus in `led-gui` and TUI theme submenus in `led-tui`.
+- **TabBar Close (`×`) & Empty State Support**:
+  - Fixed an issue where the last remaining unmodified tab could not be closed. Closing the last tab now properly removes it from `TabBar` while keeping the window open.
+  - Implemented an elegant empty workspace view in `EditorView` and `StatusBar` with keyboard shortcut hints (`⌘N: New Tab`, `⌘O: Open File`).
+  - Added clean empty buffer replacement logic: when opening a new file while the workspace contains an unmodified/untitled scratch buffer, the unmodified tab is automatically replaced by the opened file instead of leaving an unused empty tab.
+- **Local Build & GitHub Actions CI/CD Workflows**:
+  - Unified `Makefile` to automatically detect host OS (macOS, Linux, Windows) with targets for `make` (build all for host OS), `make tui`, `make gui` (bundles `led.app` on macOS), `make test`, `make check`, `make install`, `make package`, and `make clean`.
+  - Added `.github/workflows/ci.yml` for multi-OS CI testing and checks on PRs and pushes to `main`.
+  - Added `.github/workflows/release.yml` for multi-platform binary compilation (macOS ARM64/Intel, Linux x64, Windows x64), checksum generation, and automated GitHub Release publishing on version tags (`v*`).
+- **Config & Documentation**:
+  - Created `assets/config.toml.default` and refreshed root `config.toml.default` documenting all keys.
+  - Updated `app_specs.md`, `MANUAL.md`, and `app_todo.md`.
+
 ## 2026-05-14
 
 ### GUI Modernization & Visual Polish (GUI)

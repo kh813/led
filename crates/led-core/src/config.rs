@@ -12,6 +12,12 @@ pub struct Config {
     pub word_wrap: bool,
     pub tab_size: usize,
     pub expand_tab: bool,
+    // GUI specific customization (CLI ignores font settings)
+    pub font_family: Option<String>,
+    pub font_size: f32,
+    pub line_height: f32,
+    pub ui_font_family: Option<String>,
+    pub ui_font_size: f32,
 }
 
 impl Default for Config {
@@ -24,6 +30,11 @@ impl Default for Config {
             word_wrap: false,
             tab_size: 4,
             expand_tab: false,
+            font_family: None,
+            font_size: 14.0,
+            line_height: 22.0,
+            ui_font_family: None,
+            ui_font_size: 12.5,
         }
     }
 }
@@ -58,6 +69,29 @@ impl Config {
                     "word_wrap" => if let Some(b) = v.as_bool() { config.word_wrap = b; },
                     "tab_size" => if let Some(i) = v.as_integer() { config.tab_size = i as usize; },
                     "expand_tab" => if let Some(b) = v.as_bool() { config.expand_tab = b; },
+                    "font_family" => if let Some(s) = v.as_str() { config.font_family = Some(s.to_string()); },
+                    "font_size" => {
+                        if let Some(f) = v.as_float() {
+                            config.font_size = f as f32;
+                        } else if let Some(i) = v.as_integer() {
+                            config.font_size = i as f32;
+                        }
+                    }
+                    "line_height" => {
+                        if let Some(f) = v.as_float() {
+                            config.line_height = f as f32;
+                        } else if let Some(i) = v.as_integer() {
+                            config.line_height = i as f32;
+                        }
+                    }
+                    "ui_font_family" => if let Some(s) = v.as_str() { config.ui_font_family = Some(s.to_string()); },
+                    "ui_font_size" => {
+                        if let Some(f) = v.as_float() {
+                            config.ui_font_size = f as f32;
+                        } else if let Some(i) = v.as_integer() {
+                            config.ui_font_size = i as f32;
+                        }
+                    }
                     _ => {}
                 }
             }
@@ -118,5 +152,38 @@ impl Config {
 
         fs::write(&path, lines.join("\n")).context("Failed to write config file")?;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_config_deserialize_fonts_and_settings() {
+        let toml_str = r#"
+        language = "ja"
+        theme = "catppuccin-mocha"
+        line_numbers = false
+        tab_size = 2
+        expand_tab = false
+        font_family = "Fira Code"
+        font_size = 16.0
+        line_height = 24.0
+        ui_font_family = "Inter"
+        ui_font_size = 13.5
+        "#;
+        let value = toml_span::parse(toml_str).unwrap();
+        let config = Config::deserialize_from_value(&value).unwrap();
+        assert_eq!(config.language, "ja");
+        assert_eq!(config.theme, "catppuccin-mocha");
+        assert_eq!(config.line_numbers, false);
+        assert_eq!(config.tab_size, 2);
+        assert_eq!(config.expand_tab, false);
+        assert_eq!(config.font_family, Some("Fira Code".to_string()));
+        assert_eq!(config.font_size, 16.0);
+        assert_eq!(config.line_height, 24.0);
+        assert_eq!(config.ui_font_family, Some("Inter".to_string()));
+        assert_eq!(config.ui_font_size, 13.5);
     }
 }

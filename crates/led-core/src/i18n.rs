@@ -42,6 +42,8 @@ impl I18n {
     fn get_en_defaults() -> HashMap<String, String> {
         let mut m = HashMap::new();
         m.insert("menu.file".to_string(), "File".to_string());
+        m.insert("menu.file.new_tab".to_string(), "New Tab".to_string());
+        m.insert("menu.file.new_window".to_string(), "New Window".to_string());
         m.insert("menu.file.new".to_string(), "New".to_string());
         m.insert("menu.file.open".to_string(), "Open…".to_string());
         m.insert("menu.file.save".to_string(), "Save".to_string());
@@ -123,6 +125,20 @@ impl I18n {
 
         m.insert("menu.view.syntax_plain".to_string(), "Plain Text".to_string());
 
+        m.insert("menu.app.preferences".to_string(), "Preferences…".to_string());
+        m.insert("menu.view.zoom_in".to_string(), "Zoom In".to_string());
+        m.insert("menu.view.zoom_out".to_string(), "Zoom Out".to_string());
+        m.insert("menu.view.reset_zoom".to_string(), "Reset Zoom".to_string());
+
+        m.insert("dialog.settings.title".to_string(), "Preferences".to_string());
+        m.insert("dialog.settings.theme".to_string(), "Theme".to_string());
+        m.insert("dialog.settings.font_family".to_string(), "Editor Font".to_string());
+        m.insert("dialog.settings.font_size".to_string(), "Font Size".to_string());
+        m.insert("dialog.settings.line_height".to_string(), "Line Height".to_string());
+        m.insert("dialog.settings.ui_font_size".to_string(), "UI Font Size".to_string());
+        m.insert("dialog.settings.tab_size".to_string(), "Tab Width".to_string());
+        m.insert("dialog.settings.reset_defaults".to_string(), "Reset Defaults".to_string());
+
         m.insert("about.version".to_string(), "Version".to_string());
         m.insert("about.license".to_string(), "License".to_string());
         m
@@ -131,6 +147,8 @@ impl I18n {
     fn get_ja_defaults() -> HashMap<String, String> {
         let mut m = HashMap::new();
         m.insert("menu.file".to_string(), "ファイル".to_string());
+        m.insert("menu.file.new_tab".to_string(), "新規タブ".to_string());
+        m.insert("menu.file.new_window".to_string(), "新規ウィンドウ".to_string());
         m.insert("menu.file.new".to_string(), "新規作成".to_string());
         m.insert("menu.file.open".to_string(), "開く…".to_string());
         m.insert("menu.file.save".to_string(), "保存".to_string());
@@ -211,6 +229,20 @@ impl I18n {
         m.insert("dialog.file_browser.filename".to_string(), "ファイル名".to_string());
 
         m.insert("menu.view.syntax_plain".to_string(), "標準テキスト".to_string());
+
+        m.insert("menu.app.preferences".to_string(), "設定…".to_string());
+        m.insert("menu.view.zoom_in".to_string(), "拡大".to_string());
+        m.insert("menu.view.zoom_out".to_string(), "縮小".to_string());
+        m.insert("menu.view.reset_zoom".to_string(), "実際のサイズ".to_string());
+
+        m.insert("dialog.settings.title".to_string(), "設定".to_string());
+        m.insert("dialog.settings.theme".to_string(), "テーマ".to_string());
+        m.insert("dialog.settings.font_family".to_string(), "エディタフォント".to_string());
+        m.insert("dialog.settings.font_size".to_string(), "フォントサイズ".to_string());
+        m.insert("dialog.settings.line_height".to_string(), "行の高さ".to_string());
+        m.insert("dialog.settings.ui_font_size".to_string(), "UIフォントサイズ".to_string());
+        m.insert("dialog.settings.tab_size".to_string(), "タブ幅".to_string());
+        m.insert("dialog.settings.reset_defaults".to_string(), "初期値に戻す".to_string());
 
         m.insert("about.version".to_string(), "バージョン".to_string());
         m.insert("about.license".to_string(), "ライセンス".to_string());

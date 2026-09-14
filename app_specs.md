@@ -327,15 +327,16 @@ Mouse events always route via hit-test regardless of focus.
 
 | Menu | Action | Shortcut | Notes |
 | :--- | :--- | :--- | :--- |
-| **File** | New | Ctrl+N | |
-| | Open… | Ctrl+O | |
+| **File** | New Tab | Ctrl+T (⌘T) | Opens a new tab |
+| | New Window | Ctrl+N (⌘N) | Opens a new window (GUI) |
+| | Open… | Ctrl+O (⌘O) | |
 | | ───── | | |
-| | Save | Ctrl+S | |
-| | Save As… | Ctrl+Shift+S | |
+| | Save | Ctrl+S (⌘S) | |
+| | Save As… | Ctrl+Shift+S (⌘Shift+S) | |
 | | ───── | | |
-| | Close | Ctrl+W | |
+| | Close | Ctrl+W (⌘W) | Closes active tab (or window if empty) |
 | | ───── | | |
-| | Exit | Ctrl+Q | |
+| | Exit | Ctrl+Q (⌘Q) | |
 | **Edit** | Undo | Ctrl+Z | |
 | | Redo | Ctrl+Y | |
 | | ───── | | |
@@ -817,9 +818,12 @@ led-gui/src/
 
 `led-gui` is designed as a modern, polished desktop editor that leverages native GUI capabilities while retaining the lightweight, keyboard-friendly nature of `led`:
 
-- **Typography & Font Separation**:
-  - **Editor & Gutter**: Uses dedicated system monospace fonts (`Menlo`, `SF Mono`, `Consolas`, `monospace`) for precise character alignment.
-  - **UI Elements (Tabs, Status Bar, Find Panel, Dialogs)**: Uses platform-standard proportional UI fonts (`.AppleSystemUIFont` on macOS, sans-serif on Linux/Windows) for clean readability and authentic native GUI feel.
+- **Typography & Font Customization**:
+  - **Editor & Gutter**: Uses dedicated monospace fonts (configurable via `font_family`, defaulting to platform default like `Menlo` on macOS). `font_size` (default: 14.0px) and `line_height` (default: 22.0px) are fully customizable in `config.toml`.
+  - **UI Elements (Tabs, Status Bar, Find Panel, Dialogs)**: Uses platform-standard proportional UI fonts (`ui_font_family`, default: `.AppleSystemUIFont` on macOS) and `ui_font_size` (default: 13.0px) for clean readability and authentic native GUI feel.
+- **Dynamic Theme Discovery & CSS Color Support**:
+  - Automatically loads built-in themes and user-defined themes from `~/.config/led/themes/*.toml`.
+  - Supports CSS Hex (`#rgb`, `#rrggbb`, `#rrggbbaa`), CSS `rgb(...)` / `rgba(...)`, `ansi(...)` (numeric or named), and standard named CSS colors.
 - **Tab Bar**:
   - Rounded tab pills with subtle borders and smooth hover states.
   - Unsaved modification indicator: clean "dirty dot" circle indicator instead of TUI text `[+]`.

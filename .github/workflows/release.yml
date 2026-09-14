@@ -1,144 +1,134 @@
-name: Build & Release
+name: Release
 
 on:
   push:
     tags:
-      - 'v*'
+      - "v*"
   workflow_dispatch:
 
+env:
+  CARGO_TERM_COLOR: always
+
+permissions:
+  contents: write
+
 jobs:
-  build:
-    name: Build (${{ matrix.target }})
+  build-release:
+    name: Build (${{ matrix.name }})
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
         include:
-          - target: aarch64-apple-darwin
-            os: macos-latest
-            use_cross: false
-            bin_name: led
-            gui_bin: led-gui
-            suffix: mac-arm64
-          - target: x86_64-unknown-linux-gnu
+          - name: macos-arm64
+            os: macos-14
+            target: aarch64-apple-darwin
+            is_macos: true
+            archive_name: led-${{ github.ref_name }}-macos-arm64
+            gui_archive_name: led-gui-${{ github.ref_name }}-macos-arm64
+          - name: macos-x64
+            os: macos-13
+            target: x86_64-apple-darwin
+            is_macos: true
+            archive_name: led-${{ github.ref_name }}-macos-x64
+            gui_archive_name: led-gui-${{ github.ref_name }}-macos-x64
+          - name: linux-x64
             os: ubuntu-latest
-            use_cross: false
-            bin_name: led
-            gui_bin: led-gui
-            suffix: linux-x64
-          - target: aarch64-unknown-linux-gnu
-            os: ubuntu-latest
-            use_cross: true
-            bin_name: led
-            gui_bin: led-gui
-            suffix: linux-arm64
-          - target: x86_64-pc-windows-msvc
+            target: x86_64-unknown-linux-gnu
+            is_linux: true
+            archive_name: led-${{ github.ref_name }}-linux-x64
+          - name: windows-x64
             os: windows-latest
-            use_cross: false
-            bin_name: led.exe
-            gui_bin: led-gui.exe
-            suffix: windows-x64.exe
+            target: x86_64-pc-windows-msvc
+            is_windows: true
+            archive_name: led-${{ github.ref_name }}-windows-x64
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-      - name: Install Rust toolchain
+      - name: Install Linux system dependencies
+        if: matrix.is_linux
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libxkbcommon-dev \
+            libx11-xcb-dev \
+            libvulkan-dev \
+            libasound2-dev \
+            libfontconfig1-dev \
+            pkg-config
+
+      - name: Setup Rust toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
 
-      - name: Install Linux GUI Dependencies
-        if: runner.os == 'Linux'
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@v2
+
+      # --- Unix Builds (macOS & Linux) ---
+      - name: Build TUI (Unix)
+        if: "!matrix.is_windows"
         run: |
-          sudo apt-get update
-          sudo apt-get install -y libx11-dev libx11-xcb-dev libxkbcommon-dev libxkbcommon-x11-dev libxcb1-dev libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev libfontconfig1-dev libfreetype6-dev
+          cargo build --release -p led-tui --target ${{ matrix.target }}
+          mkdir -p dist/${{ matrix.archive_name }}
+          cp target/${{ matrix.target }}/release/led dist/${{ matrix.archive_name }}/
+          cp README.md MANUAL.md LICENSE* dist/${{ matrix.archive_name }}/ 2>/dev/null || true
+          tar -czvf dist/${{ matrix.archive_name }}.tar.gz -C dist ${{ matrix.archive_name }}
 
-      - name: Install Cross
-        if: matrix.use_cross
-        uses: taiki-e/install-action@v2
-        with:
-          tool: cross
-
-      - name: Build TUI
-        if: "!matrix.use_cross"
-        run: cargo build --release --target ${{ matrix.target }} -p led-tui
-
-      - name: Build TUI (Cross)
-        if: matrix.use_cross
-        run: cross build --release --target ${{ matrix.target }} -p led-tui
-
-      - name: Build GUI
-        if: "!matrix.use_cross"
-        continue-on-error: true
-        run: cargo build --release --target ${{ matrix.target }} -p led-gui
-
-      - name: Build GUI (Cross)
-        if: matrix.use_cross
-        continue-on-error: true
-        run: cross build --release --target ${{ matrix.target }} -p led-gui
-
-      - name: Package macOS Artifacts
-        if: runner.os == 'macOS'
+      - name: Build & Package macOS GUI (.app)
+        if: matrix.is_macos
         run: |
-          mkdir -p artifacts
-          cp target/${{ matrix.target }}/release/${{ matrix.bin_name }} artifacts/led-${{ matrix.suffix }}
-          make gui CARGO_FLAGS="--target ${{ matrix.target }}"
-          if [ -d "dist/led.app" ]; then
-            codesign --force --deep --sign - dist/led.app
-            cd dist && zip -r -y ../artifacts/led-gui-${{ matrix.suffix }}.app.zip led.app && cd ..
-          fi
+          make gui
+          cd dist
+          zip -r ${{ matrix.gui_archive_name }}.zip led.app
 
-      - name: Package Linux Artifacts
-        if: runner.os == 'Linux'
-        run: |
-          mkdir -p artifacts
-          cp target/${{ matrix.target }}/release/${{ matrix.bin_name }} artifacts/led-${{ matrix.suffix }}
-          if [ -f "target/${{ matrix.target }}/release/${{ matrix.gui_bin }}" ]; then
-            cp target/${{ matrix.target }}/release/${{ matrix.gui_bin }} artifacts/led-gui-${{ matrix.suffix }}
-          fi
-
-      - name: Package Windows Artifacts
-        if: runner.os == 'Windows'
+      # --- Windows Builds ---
+      - name: Build TUI (Windows)
+        if: matrix.is_windows
         shell: bash
         run: |
-          mkdir -p artifacts
-          cd target/${{ matrix.target }}/release
-          7z a ../../../artifacts/led-${{ matrix.suffix }}.zip ${{ matrix.bin_name }}
-          if [ -f "${{ matrix.gui_bin }}" ]; then
-            7z a ../../../artifacts/led-gui-${{ matrix.suffix }}.zip ${{ matrix.gui_bin }}
-          fi
-          cd ../../..
+          cargo build --release -p led-tui --target ${{ matrix.target }}
+          mkdir -p dist/${{ matrix.archive_name }}
+          cp target/${{ matrix.target }}/release/led.exe dist/${{ matrix.archive_name }}/
+          cp README.md MANUAL.md dist/${{ matrix.archive_name }}/ 2>/dev/null || true
+          cd dist
+          7z a ${{ matrix.archive_name }}.zip ${{ matrix.archive_name }}
 
-      - name: Upload Build Artifacts
+      - name: Upload Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: led-${{ matrix.target }}
-          path: artifacts/*
+          name: artifacts-${{ matrix.name }}
+          path: |
+            dist/*.tar.gz
+            dist/*.zip
 
-  release:
-    name: Create GitHub Release
-    needs: build
-    if: startsWith(github.ref, 'refs/tags/v')
+  publish-release:
+    name: Publish Release
+    needs: build-release
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-      - name: Download all artifacts
+      - name: Download all built artifacts
         uses: actions/download-artifact@v4
         with:
-          path: all-artifacts
+          path: release_assets
+          merge-multiple: true
 
-      - name: Organize release assets
+      - name: Generate Checksums
+        working-directory: release_assets
         run: |
-          mkdir -p release-assets
-          find all-artifacts -type f -exec cp {} release-assets/ \;
-          ls -la release-assets/
+          sha256sum * > SHA256SUMS.txt
+          cat SHA256SUMS.txt
 
-      - name: Create Release
+      - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/')
         with:
-          files: release-assets/*
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          files: release_assets/*
+          generate_release_notes: true
+          draft: false
+          prerelease: false

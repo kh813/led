@@ -2,7 +2,7 @@ use gpui::*;
 use led_core::config::Config;
 use led_core::i18n::I18n;
 use crate::widgets::editor_view::EditorView;
-use crate::widgets::tab_bar::TabBar;
+use crate::widgets::tab_bar::{TabBar, TabBarEvent};
 use crate::widgets::status_bar::StatusBar;
 use crate::widgets::find_panel::FindPanel;
 use crate::workspace::Workspace;
@@ -17,7 +17,7 @@ use crate::widgets::dialog::{Dialog, DialogType, DialogEvent, UnsavedChangesInte
 pub struct WindowView {
     config: Config,
     i18n: I18n,
-    workspace: Entity<Workspace>,
+    pub(crate) workspace: Entity<Workspace>,
     editor: Entity<EditorView>,
     tab_bar: Entity<TabBar>,
     status_bar: Entity<StatusBar>,
@@ -48,6 +48,42 @@ impl WindowView {
             cx.notify();
         }).detach();
 
+        cx.subscribe(&tab_bar, |this, _tab_bar, event: &TabBarEvent, cx| {
+            match event {
+                TabBarEvent::Select(idx) => {
+                    this.workspace.update(cx, |w, cx| {
+                        w.active_editor_index = *idx;
+                        cx.notify();
+                    });
+                }
+                TabBarEvent::New => {
+                    this.workspace.update(cx, |w, cx| {
+                        w.new_tab();
+                        cx.notify();
+                    });
+                }
+                TabBarEvent::Close(idx) => {
+                    let idx = *idx;
+                    let is_modified = this.workspace.read(cx).editors.get(idx).map(|e| e.is_modified()).unwrap_or(false);
+                    if is_modified {
+                        this.workspace.update(cx, |w, cx| {
+                            w.active_editor_index = idx;
+                            cx.notify();
+                        });
+                        let filename = this.workspace.read(cx).editors[idx].path.as_ref()
+                            .map(|p| p.to_string_lossy().into_owned())
+                            .unwrap_or(this.i18n.get("status.no_name").to_string());
+                        this.show_dialog(DialogType::UnsavedChanges { filename, intent: UnsavedChangesIntent::CloseTab }, None, cx);
+                    } else {
+                        this.workspace.update(cx, |w, cx| {
+                            w.close_editor(idx);
+                            cx.notify();
+                        });
+                    }
+                }
+            }
+        }).detach();
+
         Self {
             config,
             i18n,
@@ -63,7 +99,7 @@ impl WindowView {
         }
     }
 
-    fn show_dialog(&mut self, dialog_type: DialogType, window: &mut Window, cx: &mut Context<Self>) {
+    fn show_dialog(&mut self, dialog_type: DialogType, window: Option<&mut Window>, cx: &mut Context<Self>) {
         let dialog = cx.new(|cx| Dialog::new(self.workspace.clone(), self.i18n.clone(), dialog_type, cx));
         cx.subscribe(&dialog, |this, _dialog, event, cx| {
             match event {
@@ -94,7 +130,9 @@ impl WindowView {
                 DialogEvent::Save(intent) => {
                     let intent = *intent;
                     this.workspace.update(cx, |w, cx| {
-                        let _ = w.active_editor_mut().save();
+                        if let Some(editor) = w.active_editor_mut() {
+                            let _ = editor.save();
+                        }
                         cx.notify();
                     });
                     this.dialog = None;
@@ -164,15 +202,52 @@ impl WindowView {
             }
         }).detach();
         self.dialog = Some(dialog.clone());
-        dialog.update(cx, |d, cx| d.focus(window, cx));
+        if let Some(window) = window {
+            dialog.update(cx, |d, cx| d.focus(window, cx));
+        } else {
+            cx.spawn(|_, cx: &mut AsyncApp| {
+                let cx = cx.clone();
+                async move {
+                    cx.update(|cx| {
+                        if let Some(window_handle) = cx.active_window() {
+                            let _ = cx.update_window(window_handle, |_any_view, window, cx| {
+                                dialog.update(cx, |d, cx| {
+                                    d.focus(window, cx);
+                                });
+                            });
+                        }
+                    });
+                }
+            }).detach();
+        }
         cx.notify();
     }
 
     fn handle_new(&mut self, _: &New, _window: &mut Window, cx: &mut Context<Self>) {
         self.workspace.update(cx, |w, cx| {
-            w.add_editor(Editor::new());
+            w.new_tab();
             cx.notify();
         });
+    }
+
+    fn handle_new_tab(&mut self, _: &NewTab, _window: &mut Window, cx: &mut Context<Self>) {
+        self.workspace.update(cx, |w, cx| {
+            w.new_tab();
+            cx.notify();
+        });
+    }
+
+    fn handle_new_window(&mut self, _: &NewWindow, _window: &mut Window, cx: &mut Context<Self>) {
+        let config = self.config.clone();
+        let i18n = self.i18n.clone();
+        cx.spawn(|_, cx: &mut AsyncApp| {
+            let cx = cx.clone();
+            async move {
+                cx.update(|cx| {
+                    crate::app::new_window(config, i18n, cx);
+                });
+            }
+        }).detach();
     }
 
     fn handle_open(&mut self, _: &Open, _window: &mut Window, cx: &mut Context<Self>) {
@@ -203,10 +278,15 @@ impl WindowView {
 
     fn handle_save(&mut self, _: &Save, _window: &mut Window, cx: &mut Context<Self>) {
         let workspace = self.workspace.clone();
-        let editor = workspace.read(cx).active_editor();
-        if let Some(_path) = editor.path.clone() {
+        let path_opt = workspace.read(cx).active_editor().and_then(|e| e.path.clone());
+        if path_opt.is_none() && workspace.read(cx).active_editor().is_none() {
+            return;
+        }
+        if let Some(_path) = path_opt {
             workspace.update(cx, |w, cx| {
-                let _ = w.active_editor_mut().save();
+                if let Some(editor) = w.active_editor_mut() {
+                    let _ = editor.save();
+                }
                 cx.notify();
             });
         } else {
@@ -220,7 +300,9 @@ impl WindowView {
                         let path = file.path().to_path_buf();
                         cx.update(|cx| {
                             workspace.update(cx, |w, cx| {
-                                let _ = w.active_editor_mut().save_as(&path);
+                                if let Some(editor) = w.active_editor_mut() {
+                                    let _ = editor.save_as(&path);
+                                }
                                 cx.notify();
                             });
                         });
@@ -232,6 +314,9 @@ impl WindowView {
 
     fn handle_save_as(&mut self, _: &SaveAs, _window: &mut Window, cx: &mut Context<Self>) {
         let workspace = self.workspace.clone();
+        if workspace.read(cx).active_editor().is_none() {
+            return;
+        }
         cx.spawn(|_, cx: &mut AsyncApp| {
             let cx = cx.clone();
             async move {
@@ -243,7 +328,9 @@ impl WindowView {
                     let path = file.path().to_path_buf();
                     cx.update(|cx| {
                         workspace.update(cx, |w, cx| {
-                            let _ = w.active_editor_mut().save_as(&path);
+                            if let Some(editor) = w.active_editor_mut() {
+                                let _ = editor.save_as(&path);
+                            }
                             cx.notify();
                         });
                     });
@@ -253,12 +340,24 @@ impl WindowView {
     }
 
     fn handle_close_tab(&mut self, _: &CloseTab, window: &mut Window, cx: &mut Context<Self>) {
-        let is_modified = self.workspace.read(cx).active_editor().is_modified();
+        let workspace = self.workspace.read(cx);
+        if workspace.editors.is_empty() {
+            window.remove_window();
+            return;
+        }
+        let editor = match workspace.active_editor() {
+            Some(e) => e,
+            None => {
+                window.remove_window();
+                return;
+            }
+        };
+        let is_modified = editor.is_modified();
         if is_modified {
-            let filename = self.workspace.read(cx).active_editor().path.as_ref()
+            let filename = editor.path.as_ref()
                 .map(|p| p.to_string_lossy().into_owned())
                 .unwrap_or(self.i18n.get("status.no_name").to_string());
-            self.show_dialog(DialogType::UnsavedChanges { filename, intent: UnsavedChangesIntent::CloseTab }, window, cx);
+            self.show_dialog(DialogType::UnsavedChanges { filename, intent: UnsavedChangesIntent::CloseTab }, Some(window), cx);
         } else {
             self.workspace.update(cx, |w, cx| {
                 w.close_active_editor();
@@ -283,14 +382,18 @@ impl WindowView {
 
     fn handle_undo(&mut self, _: &Undo, _window: &mut Window, cx: &mut Context<Self>) {
         self.workspace.update(cx, |w, cx| {
-            w.active_editor_mut().undo();
+            if let Some(editor) = w.active_editor_mut() {
+                editor.undo();
+            }
             cx.notify();
         });
     }
 
     fn handle_redo(&mut self, _: &Redo, _window: &mut Window, cx: &mut Context<Self>) {
         self.workspace.update(cx, |w, cx| {
-            w.active_editor_mut().redo();
+            if let Some(editor) = w.active_editor_mut() {
+                editor.redo();
+            }
             cx.notify();
         });
     }
@@ -298,10 +401,11 @@ impl WindowView {
     fn handle_cut(&mut self, _: &Cut, _window: &mut Window, cx: &mut Context<Self>) {
         let mut text_to_copy = None;
         self.workspace.update(cx, |w, cx| {
-            let editor = w.active_editor_mut();
-            if let Some(range) = editor.selection.clone() {
-                text_to_copy = Some(editor.rope.slice(range.clone()).to_string());
-                editor.delete(range);
+            if let Some(editor) = w.active_editor_mut() {
+                if let Some(range) = editor.selection.clone() {
+                    text_to_copy = Some(editor.rope.slice(range.clone()).to_string());
+                    editor.delete(range);
+                }
             }
             cx.notify();
         });
@@ -312,10 +416,11 @@ impl WindowView {
 
     fn handle_copy(&mut self, _: &Copy, _window: &mut Window, cx: &mut Context<Self>) {
         let workspace = self.workspace.read(cx);
-        let editor = workspace.active_editor();
-        if let Some(range) = editor.selection.clone() {
-            let text = editor.rope.slice(range).to_string();
-            cx.write_to_clipboard(ClipboardItem::new_string(text));
+        if let Some(editor) = workspace.active_editor() {
+            if let Some(range) = editor.selection.clone() {
+                let text = editor.rope.slice(range).to_string();
+                cx.write_to_clipboard(ClipboardItem::new_string(text));
+            }
         }
     }
 
@@ -324,11 +429,12 @@ impl WindowView {
             if let Some(text) = item.text() {
                 let text = text.clone();
                 self.workspace.update(cx, |w, cx| {
-                    let editor = w.active_editor_mut();
-                    if let Some(range) = editor.selection.clone() {
-                        editor.delete(range);
+                    if let Some(editor) = w.active_editor_mut() {
+                        if let Some(range) = editor.selection.clone() {
+                            editor.delete(range);
+                        }
+                        editor.insert(editor.cursor, &text);
                     }
-                    editor.insert(editor.cursor, &text);
                     cx.notify();
                 });
             }
@@ -337,8 +443,9 @@ impl WindowView {
 
     fn handle_select_all(&mut self, _: &SelectAll, _window: &mut Window, cx: &mut Context<Self>) {
         self.workspace.update(cx, |w, cx| {
-            let editor = w.active_editor_mut();
-            editor.select_all();
+            if let Some(editor) = w.active_editor_mut() {
+                editor.select_all();
+            }
             cx.notify();
         });
     }
@@ -377,7 +484,9 @@ impl WindowView {
 
     fn handle_set_encoding_utf8(&mut self, _: &SetEncodingUtf8, _window: &mut Window, cx: &mut Context<Self>) {
         self.workspace.update(cx, |w, cx| {
-            w.active_editor_mut().encoding = led_core::Encoding::Utf8;
+            if let Some(editor) = w.active_editor_mut() {
+                editor.encoding = led_core::Encoding::Utf8;
+            }
             cx.notify();
         });
         cx.notify();
@@ -385,7 +494,9 @@ impl WindowView {
 
     fn handle_set_encoding_shift_jis(&mut self, _: &SetEncodingShiftJis, _window: &mut Window, cx: &mut Context<Self>) {
         self.workspace.update(cx, |w, cx| {
-            w.active_editor_mut().encoding = led_core::Encoding::ShiftJis;
+            if let Some(editor) = w.active_editor_mut() {
+                editor.encoding = led_core::Encoding::ShiftJis;
+            }
             cx.notify();
         });
         cx.notify();
@@ -393,7 +504,9 @@ impl WindowView {
 
     fn handle_set_encoding_euc_jp(&mut self, _: &SetEncodingEucJp, _window: &mut Window, cx: &mut Context<Self>) {
         self.workspace.update(cx, |w, cx| {
-            w.active_editor_mut().encoding = led_core::Encoding::EucJp;
+            if let Some(editor) = w.active_editor_mut() {
+                editor.encoding = led_core::Encoding::EucJp;
+            }
             cx.notify();
         });
         cx.notify();
@@ -401,7 +514,9 @@ impl WindowView {
 
     fn handle_set_encoding_utf8_bom(&mut self, _: &SetEncodingUtf8Bom, _window: &mut Window, cx: &mut Context<Self>) {
         self.workspace.update(cx, |w, cx| {
-            w.active_editor_mut().encoding = led_core::Encoding::Utf8Bom;
+            if let Some(editor) = w.active_editor_mut() {
+                editor.encoding = led_core::Encoding::Utf8Bom;
+            }
             cx.notify();
         });
         cx.notify();
@@ -409,7 +524,9 @@ impl WindowView {
 
     fn handle_set_encoding_utf16_le(&mut self, _: &SetEncodingUtf16Le, _window: &mut Window, cx: &mut Context<Self>) {
         self.workspace.update(cx, |w, cx| {
-            w.active_editor_mut().encoding = led_core::Encoding::Utf16Le;
+            if let Some(editor) = w.active_editor_mut() {
+                editor.encoding = led_core::Encoding::Utf16Le;
+            }
             cx.notify();
         });
         cx.notify();
@@ -417,7 +534,9 @@ impl WindowView {
 
     fn handle_set_encoding_utf16_be(&mut self, _: &SetEncodingUtf16Be, _window: &mut Window, cx: &mut Context<Self>) {
         self.workspace.update(cx, |w, cx| {
-            w.active_editor_mut().encoding = led_core::Encoding::Utf16Be;
+            if let Some(editor) = w.active_editor_mut() {
+                editor.encoding = led_core::Encoding::Utf16Be;
+            }
             cx.notify();
         });
         cx.notify();
@@ -425,7 +544,9 @@ impl WindowView {
 
     fn handle_set_encoding_iso_2022_jp(&mut self, _: &SetEncodingIso2022Jp, _window: &mut Window, cx: &mut Context<Self>) {
         self.workspace.update(cx, |w, cx| {
-            w.active_editor_mut().encoding = led_core::Encoding::Iso2022Jp;
+            if let Some(editor) = w.active_editor_mut() {
+                editor.encoding = led_core::Encoding::Iso2022Jp;
+            }
             cx.notify();
         });
         cx.notify();
@@ -433,7 +554,9 @@ impl WindowView {
 
     fn handle_set_encoding_latin1(&mut self, _: &SetEncodingLatin1, _window: &mut Window, cx: &mut Context<Self>) {
         self.workspace.update(cx, |w, cx| {
-            w.active_editor_mut().encoding = led_core::Encoding::Latin1;
+            if let Some(editor) = w.active_editor_mut() {
+                editor.encoding = led_core::Encoding::Latin1;
+            }
             cx.notify();
         });
         cx.notify();
@@ -441,7 +564,9 @@ impl WindowView {
 
     fn handle_set_line_ending_lf(&mut self, _: &SetLineEndingLf, _window: &mut Window, cx: &mut Context<Self>) {
         self.workspace.update(cx, |w, cx| {
-            w.active_editor_mut().line_ending = led_core::LineEnding::Lf;
+            if let Some(editor) = w.active_editor_mut() {
+                editor.line_ending = led_core::LineEnding::Lf;
+            }
             cx.notify();
         });
         cx.notify();
@@ -449,7 +574,9 @@ impl WindowView {
 
     fn handle_set_line_ending_crlf(&mut self, _: &SetLineEndingCrlf, _window: &mut Window, cx: &mut Context<Self>) {
         self.workspace.update(cx, |w, cx| {
-            w.active_editor_mut().line_ending = led_core::LineEnding::Crlf;
+            if let Some(editor) = w.active_editor_mut() {
+                editor.line_ending = led_core::LineEnding::Crlf;
+            }
             cx.notify();
         });
         cx.notify();
@@ -457,7 +584,9 @@ impl WindowView {
 
     fn handle_set_line_ending_cr(&mut self, _: &SetLineEndingCr, _window: &mut Window, cx: &mut Context<Self>) {
         self.workspace.update(cx, |w, cx| {
-            w.active_editor_mut().line_ending = led_core::LineEnding::Cr;
+            if let Some(editor) = w.active_editor_mut() {
+                editor.line_ending = led_core::LineEnding::Cr;
+            }
             cx.notify();
         });
         cx.notify();
@@ -469,40 +598,69 @@ impl WindowView {
 
     fn handle_set_syntax(&mut self, action: &SetSyntax, _window: &mut Window, cx: &mut Context<Self>) {
         self.workspace.update(cx, |w, cx| {
-            let _buffer = w.active_editor_mut();
-            // In a real app we'd find the syntax definition by name
-            // For now we'll just log or stub it
-            println!("Setting syntax to {}", action.name);
+            if let Some(_buffer) = w.active_editor_mut() {
+                println!("Setting syntax to {}", action.name);
+            }
             cx.notify();
         });
         cx.notify();
     }
 
     fn set_theme(&mut self, name: &str, cx: &mut Context<Self>) {
-        let theme = led_core::theme::Theme::builtins().into_iter()
-            .find(|t| t.meta.name == name)
+        let theme = led_core::theme::Theme::find_by_name(name)
             .unwrap_or_default();
         
         self.workspace.update(cx, |w, cx| {
-            w.theme = theme;
+            w.theme = theme.clone();
             cx.notify();
         });
         
-        let theme_file_name = match name {
-            "Tokyo Night" => "tokyo-night",
-            "Solarized Dark" => "solarized-dark",
-            "Solarized Light" => "solarized-light",
-            "Catppuccin Mocha" => "catppuccin-mocha",
-            "Catppuccin Latte" => "catppuccin-latte",
-            "Light" => "light",
-            _ => "tokyo-night",
-        };
-        let _ = Config::write_key("theme", theme_file_name);
+        let theme_slug = theme.meta.name.to_lowercase().replace(' ', "-");
+        let _ = Config::write_key("theme", &theme_slug);
         cx.notify();
     }
 
     fn handle_go_to_line(&mut self, _: &GoToLine, window: &mut Window, cx: &mut Context<Self>) {
-        self.show_dialog(DialogType::GoToLine, window, cx);
+        self.show_dialog(DialogType::GoToLine, Some(window), cx);
+    }
+
+    fn handle_open_settings(&mut self, _: &OpenSettings, window: &mut Window, cx: &mut Context<Self>) {
+        self.show_dialog(DialogType::Settings, Some(window), cx);
+    }
+
+    fn handle_zoom_in(&mut self, _: &ZoomIn, _window: &mut Window, cx: &mut Context<Self>) {
+        self.workspace.update(cx, |w, cx| {
+            let size = (w.config.font_size + 1.0).min(48.0);
+            w.config.font_size = size;
+            w.config.line_height = (size * 1.55).round();
+            let _ = Config::write_key("font_size", &format!("{:.1}", size));
+            let _ = Config::write_key("line_height", &format!("{:.1}", w.config.line_height));
+            cx.notify();
+        });
+        cx.notify();
+    }
+
+    fn handle_zoom_out(&mut self, _: &ZoomOut, _window: &mut Window, cx: &mut Context<Self>) {
+        self.workspace.update(cx, |w, cx| {
+            let size = (w.config.font_size - 1.0).max(8.0);
+            w.config.font_size = size;
+            w.config.line_height = (size * 1.55).round();
+            let _ = Config::write_key("font_size", &format!("{:.1}", size));
+            let _ = Config::write_key("line_height", &format!("{:.1}", w.config.line_height));
+            cx.notify();
+        });
+        cx.notify();
+    }
+
+    fn handle_reset_zoom(&mut self, _: &ResetZoom, _window: &mut Window, cx: &mut Context<Self>) {
+        self.workspace.update(cx, |w, cx| {
+            w.config.font_size = 14.0;
+            w.config.line_height = 22.0;
+            let _ = Config::write_key("font_size", "14.0");
+            let _ = Config::write_key("line_height", "22.0");
+            cx.notify();
+        });
+        cx.notify();
     }
 
     pub fn has_modified_buffers(&self, cx: &App) -> bool {
@@ -510,7 +668,7 @@ impl WindowView {
     }
 
     pub fn handle_about(&mut self, _: &About, window: &mut Window, cx: &mut Context<Self>) {
-        self.show_dialog(DialogType::About, window, cx);
+        self.show_dialog(DialogType::About, Some(window), cx);
     }
 
     pub fn handle_quit(&mut self, _action: &Quit, window: &mut Window, cx: &mut Context<Self>) {
@@ -531,7 +689,7 @@ impl WindowView {
         });
 
         if let Some(filename) = modified_file {
-            self.show_dialog(DialogType::UnsavedChanges { filename, intent: UnsavedChangesIntent::Quit }, window, cx);
+            self.show_dialog(DialogType::UnsavedChanges { filename, intent: UnsavedChangesIntent::Quit }, Some(window), cx);
         } else {
             cx.propagate();
         }
@@ -548,12 +706,13 @@ impl WindowView {
     fn handle_reopen_with_encoding(&mut self, action: &ReopenWithEncoding, _window: &mut Window, cx: &mut Context<Self>) {
         let enc = self.parse_encoding(&action.encoding);
         self.workspace.update(cx, |w, cx| {
-            let buffer = w.active_editor();
-            if let Some(path) = buffer.path.clone() {
-                if let Ok(mut new_buffer) = Editor::from_file(&path) {
-                    new_buffer.encoding = enc;
-                    w.editors[w.active_editor_index] = new_buffer;
-                    cx.notify();
+            if let Some(buffer) = w.active_editor() {
+                if let Some(path) = buffer.path.clone() {
+                    if let Ok(mut new_buffer) = Editor::from_file(&path) {
+                        new_buffer.encoding = enc;
+                        w.editors[w.active_editor_index] = new_buffer;
+                        cx.notify();
+                    }
                 }
             }
         });
@@ -563,7 +722,9 @@ impl WindowView {
     fn handle_convert_to_encoding(&mut self, action: &ConvertToEncoding, _window: &mut Window, cx: &mut Context<Self>) {
         let enc = self.parse_encoding(&action.encoding);
         self.workspace.update(cx, |w, cx| {
-            w.active_editor_mut().encoding = enc;
+            if let Some(editor) = w.active_editor_mut() {
+                editor.encoding = enc;
+            }
             cx.notify();
         });
         cx.notify();
@@ -637,6 +798,8 @@ impl Render for WindowView {
             .bg(bg)
             .track_focus(&self.focus_handle)
             .on_action(cx.listener(Self::handle_new))
+            .on_action(cx.listener(Self::handle_new_tab))
+            .on_action(cx.listener(Self::handle_new_window))
             .on_action(cx.listener(Self::handle_open))
             .on_action(cx.listener(Self::handle_save))
             .on_action(cx.listener(Self::handle_save_as))
@@ -670,6 +833,10 @@ impl Render for WindowView {
             .on_action(cx.listener(Self::handle_set_theme))
             .on_action(cx.listener(Self::handle_set_syntax))
             .on_action(cx.listener(Self::handle_go_to_line))
+            .on_action(cx.listener(Self::handle_open_settings))
+            .on_action(cx.listener(Self::handle_zoom_in))
+            .on_action(cx.listener(Self::handle_zoom_out))
+            .on_action(cx.listener(Self::handle_reset_zoom))
             .on_action(cx.listener(Self::handle_about))
             .on_action(cx.listener(Self::handle_quit))
             .on_action(cx.listener(Self::handle_exit))

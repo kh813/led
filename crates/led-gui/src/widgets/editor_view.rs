@@ -1,8 +1,7 @@
 use gpui::*;
 use crate::workspace::Workspace;
 use led_core::syntax::TokenType;
-use led_core::theme::{Theme};
-use unicode_width::UnicodeWidthChar;
+use led_core::theme::Theme;
 use crate::widgets::{led_color_to_gpui, mono_font_family, with_alpha};
 
 pub struct EditorView {
@@ -50,11 +49,22 @@ impl EditorView {
     fn handle_key_down(&mut self, event: &KeyDownEvent, _window: &mut Window, cx: &mut Context<Self>) {
         let key = &event.keystroke.key;
         let shift = event.keystroke.modifiers.shift;
-        let _control = event.keystroke.modifiers.control;
-        let _cmd = event.keystroke.modifiers.platform;
+        let control = event.keystroke.modifiers.control;
+        let cmd = event.keystroke.modifiers.platform;
+        let alt = event.keystroke.modifiers.alt;
+
+        // If Cmd/Ctrl is pressed, key combinations are handled as shortcuts/actions
+        if control || cmd {
+            return;
+        }
 
         self.workspace.update(cx, |w, cx| {
-            let editor = w.active_editor_mut();
+            let expand_tab = w.config.expand_tab;
+            let tab_size = w.config.tab_size as usize;
+            let editor = match w.active_editor_mut() {
+                Some(e) => e,
+                None => return,
+            };
             match key.as_str() {
                 "up" => editor.move_cursor_up(shift),
                 "down" => editor.move_cursor_down(shift),
@@ -62,6 +72,27 @@ impl EditorView {
                 "right" => editor.move_cursor_right(shift),
                 "home" => editor.move_cursor_home(shift),
                 "end" => editor.move_cursor_end(shift),
+                "pageup" => {
+                    for _ in 0..20 {
+                        editor.move_cursor_up(shift);
+                    }
+                }
+                "pagedown" => {
+                    for _ in 0..20 {
+                        editor.move_cursor_down(shift);
+                    }
+                }
+                "tab" => {
+                    let text = if expand_tab {
+                        " ".repeat(tab_size)
+                    } else {
+                        "\t".to_string()
+                    };
+                    if let Some(range) = editor.selection.clone() {
+                        editor.delete(range);
+                    }
+                    editor.insert(editor.cursor, &text);
+                }
                 "backspace" => {
                     if let Some(range) = editor.selection.clone() {
                         editor.delete(range);
@@ -69,11 +100,30 @@ impl EditorView {
                         editor.delete(editor.cursor - 1..editor.cursor);
                     }
                 }
+                "delete" => {
+                    if let Some(range) = editor.selection.clone() {
+                        editor.delete(range);
+                    } else if editor.cursor < editor.rope.len_chars() {
+                        editor.delete(editor.cursor..editor.cursor + 1);
+                    }
+                }
                 "enter" => {
                     if let Some(range) = editor.selection.clone() {
                         editor.delete(range);
                     }
                     editor.insert(editor.cursor, "\n");
+                }
+                "space" => {
+                    if let Some(range) = editor.selection.clone() {
+                        editor.delete(range);
+                    }
+                    editor.insert(editor.cursor, " ");
+                }
+                k if !alt && k.chars().count() == 1 => {
+                    if let Some(range) = editor.selection.clone() {
+                        editor.delete(range);
+                    }
+                    editor.insert(editor.cursor, k);
                 }
                 _ => {}
             }
@@ -83,17 +133,21 @@ impl EditorView {
 
     fn mouse_pos_to_char_pos(&self, position: Point<Pixels>, cx: &mut Context<Self>) -> usize {
         let workspace = self.workspace.read(cx);
-        let editor = workspace.active_editor();
+        let editor = match workspace.active_editor() {
+            Some(e) => e,
+            None => return 0,
+        };
         
-        let line_height = px(20.0);
-        let gutter_width = if workspace.config.line_numbers { px(50.0) } else { px(0.0) };
-        let char_width = px(8.4); // Rough estimate for system monospace 14pt
+        let line_height = px(workspace.config.line_height);
+        let font_size = workspace.config.font_size;
+        let gutter_width = if workspace.config.line_numbers { px(52.0) } else { px(0.0) };
+        let char_width = px(font_size * 0.6);
 
-        let relative_y = position.y - px(32.0) - px(32.0); // Offset by menu and tab bar
+        let relative_y = position.y - px(36.0); // Offset by tab bar (36px)
         let line_idx = (relative_y / line_height).floor() as i32 + editor.scroll_row as i32;
         let line_idx = line_idx.max(0).min(editor.line_count() as i32 - 1) as usize;
 
-        let relative_x = position.x - gutter_width + px(editor.scroll_col as f32 * 8.4);
+        let relative_x = position.x - gutter_width + px(editor.scroll_col as f32 * font_size * 0.6);
         let col_idx = (relative_x / char_width).round() as i32;
         let col_idx = col_idx.max(0) as usize;
 
@@ -116,11 +170,14 @@ impl EditorView {
 
         let char_pos = self.mouse_pos_to_char_pos(event.position, cx);
         let workspace_read = self.workspace.read(cx);
-        let gutter_width = if workspace_read.config.line_numbers { px(50.0) } else { px(0.0) };
+        let gutter_width = if workspace_read.config.line_numbers { px(52.0) } else { px(0.0) };
         let is_gutter_click = event.position.x < gutter_width;
 
         self.workspace.update(cx, |w, cx| {
-            let editor = w.active_editor_mut();
+            let editor = match w.active_editor_mut() {
+                Some(e) => e,
+                None => return,
+            };
             if is_gutter_click {
                 let (line, _) = editor.char_to_line_col(char_pos);
                 editor.select_line(line);
@@ -156,7 +213,10 @@ impl EditorView {
         if event.pressed_button.is_some() {
             let char_pos = self.mouse_pos_to_char_pos(event.position, cx);
             self.workspace.update(cx, |w, cx| {
-                let editor = w.active_editor_mut();
+                let editor = match w.active_editor_mut() {
+                    Some(e) => e,
+                    None => return,
+                };
                 editor.cursor = char_pos;
                 editor.ensure_selection();
                 editor.update_selection();
@@ -166,13 +226,19 @@ impl EditorView {
     }
 
     fn handle_scroll(&mut self, event: &ScrollWheelEvent, _window: &mut Window, cx: &mut Context<Self>) {
+        let line_height_px = px(self.workspace.read(cx).config.line_height);
+        let char_width_px = px(self.workspace.read(cx).config.font_size * 0.6);
+
         self.workspace.update(cx, |w, cx| {
-            let editor = w.active_editor_mut();
-            let delta = event.delta.pixel_delta(px(20.0));
+            let editor = match w.active_editor_mut() {
+                Some(e) => e,
+                None => return,
+            };
+            let delta = event.delta.pixel_delta(line_height_px);
             
             // Vertical scroll
             if delta.y != px(0.0) {
-                let rows = (delta.y / px(20.0)).floor() as i32;
+                let rows = (delta.y / line_height_px).floor() as i32;
                 if rows > 0 {
                     editor.scroll_row = editor.scroll_row.saturating_sub(rows as usize);
                 } else {
@@ -182,7 +248,7 @@ impl EditorView {
 
             // Horizontal scroll
             if delta.x != px(0.0) {
-                let cols = (delta.x / px(8.4)).floor() as i32;
+                let cols = (delta.x / char_width_px).floor() as i32;
                 if cols > 0 {
                     editor.scroll_col = editor.scroll_col.saturating_sub(cols as usize);
                 } else {
@@ -197,105 +263,100 @@ impl EditorView {
 impl EntityInputHandler for EditorView {
     fn text_for_range(&mut self, range: std::ops::Range<usize>, _actual_range: &mut Option<std::ops::Range<usize>>, _window: &mut Window, cx: &mut Context<Self>) -> Option<String> {
         let workspace = self.workspace.read(cx);
-        let editor = workspace.active_editor();
-        if range.end <= editor.rope.len_chars() {
-            Some(editor.rope.slice(range).to_string())
-        } else {
-            None
+        let editor = workspace.active_editor()?;
+        let total_chars = editor.rope.len_chars();
+        if range.start > total_chars || range.end > total_chars {
+            return None;
         }
+        Some(editor.rope.slice(range).to_string())
     }
 
-    fn selected_text_range(&mut self, _ignore_auto_selection: bool, _window: &mut Window, cx: &mut Context<Self>) -> Option<UTF16Selection> {
+    fn selected_text_range(&mut self, _ignore_disabled_input: bool, _window: &mut Window, cx: &mut Context<Self>) -> Option<UTF16Selection> {
         let workspace = self.workspace.read(cx);
-        let editor = workspace.active_editor();
-        let range = if let Some(ref r) = editor.selection {
-            r.start..r.end
-        } else {
-            editor.cursor..editor.cursor
-        };
-        Some(UTF16Selection { range, reversed: false })
+        let editor = workspace.active_editor()?;
+        
+        let range = editor.selection.clone().unwrap_or(editor.cursor..editor.cursor);
+        Some(UTF16Selection {
+            range,
+            reversed: false,
+        })
     }
 
-    fn marked_text_range(&self, _window: &mut Window, cx: &mut Context<Self>) -> Option<std::ops::Range<usize>> {
-        if self.preedit_text.is_some() {
-            let workspace = self.workspace.read(cx);
-            let editor = workspace.active_editor();
-            Some(editor.cursor..editor.cursor + self.preedit_text.as_ref().map(|t| t.chars().count()).unwrap_or(0))
-        } else {
-            None
-        }
+    fn marked_text_range(&self, _window: &mut Window, _cx: &mut Context<Self>) -> Option<std::ops::Range<usize>> {
+        self.preedit_range.clone()
     }
 
-    fn replace_text_in_range(&mut self, range: Option<std::ops::Range<usize>>, text: &str, _window: &mut Window, cx: &mut Context<Self>) {
-        self.workspace.update(cx, |w, cx| {
-            let editor = w.active_editor_mut();
-            let range = range.or(editor.selection.clone()).unwrap_or(editor.cursor..editor.cursor);
-            editor.delete(range.clone());
-            editor.insert(range.start, text);
-            editor.cursor = range.start + text.chars().count();
-            editor.selection = None;
-            cx.notify();
-        });
+    fn unmark_text(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
         self.preedit_text = None;
         self.preedit_range = None;
         cx.notify();
     }
 
-    fn replace_and_mark_text_in_range(&mut self, range: Option<std::ops::Range<usize>>, text: &str, new_selected_range: Option<std::ops::Range<usize>>, _window: &mut Window, cx: &mut Context<Self>) {
-        if let Some(range) = range {
-             self.workspace.update(cx, |w, cx| {
-                let editor = w.active_editor_mut();
+    fn replace_text_in_range(&mut self, replacement_range: Option<std::ops::Range<usize>>, text: &str, _window: &mut Window, cx: &mut Context<Self>) {
+        self.workspace.update(cx, |w, cx| {
+            let editor = match w.active_editor_mut() {
+                Some(e) => e,
+                None => return,
+            };
+            if let Some(range) = replacement_range {
                 editor.delete(range);
-                cx.notify();
-            });
-        }
-        self.preedit_text = if text.is_empty() { None } else { Some(text.to_string()) };
-        self.preedit_range = new_selected_range;
-        cx.notify();
-    }
-
-    fn unmark_text(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
-        if let Some(text) = self.preedit_text.take() {
-            self.workspace.update(cx, |w, _| {
-                let editor = w.active_editor_mut();
-                if let Some(range) = editor.selection.clone() {
-                    editor.delete(range);
-                }
-                editor.insert(editor.cursor, &text);
-                editor.cursor += text.chars().count();
-            });
-        }
-        self.preedit_range = None;
-        cx.notify();
-    }
-
-    fn bounds_for_range(&mut self, _range: std::ops::Range<usize>, element_bounds: Bounds<Pixels>, _window: &mut Window, cx: &mut Context<Self>) -> Option<Bounds<Pixels>> {
-        let workspace = self.workspace.read(cx);
-        let editor = workspace.active_editor();
-        let (line, col) = editor.char_to_line_col(editor.cursor);
-        
-        let line_height = px(20.0);
-        let char_width = px(8.4);
-        let gutter_width = if workspace.config.line_numbers { px(50.0) } else { px(0.0) };
-        
-        let mut visual_col = 0;
-        let line_slice = editor.rope.line(line);
-        let tab_size = workspace.config.tab_size as usize;
-        for (i, c) in line_slice.chars().enumerate() {
-            if i >= col { break; }
-            if c == '\t' {
-                visual_col += tab_size - (visual_col % tab_size);
+                editor.insert(editor.cursor, text);
+            } else if let Some(range) = editor.selection.clone() {
+                editor.delete(range);
+                editor.insert(editor.cursor, text);
             } else {
-                visual_col += c.width().unwrap_or(0);
+                editor.insert(editor.cursor, text);
             }
+            self.preedit_text = None;
+            self.preedit_range = None;
+            cx.notify();
+        });
+    }
+
+    fn replace_and_mark_text_in_range(&mut self, range_to_replace: Option<std::ops::Range<usize>>, text: &str, _marked_range: Option<std::ops::Range<usize>>, _window: &mut Window, cx: &mut Context<Self>) {
+        if text.is_empty() {
+            self.unmark_text(_window, cx);
+            return;
+        }
+        
+        let workspace = self.workspace.read(cx);
+        let editor = match workspace.active_editor() {
+            Some(e) => e,
+            None => return,
+        };
+        let start_pos = range_to_replace.map(|r| r.start).unwrap_or(editor.cursor);
+        
+        self.preedit_text = Some(text.to_string());
+        self.preedit_range = Some(start_pos..start_pos + text.chars().count());
+        cx.notify();
+    }
+
+    fn bounds_for_range(&mut self, range_utf16: std::ops::Range<usize>, bounds: Bounds<Pixels>, _window: &mut Window, cx: &mut Context<Self>) -> Option<Bounds<Pixels>> {
+        let workspace = self.workspace.read(cx);
+        let editor = workspace.active_editor()?;
+        
+        let line_height = px(workspace.config.line_height);
+        let gutter_width = if workspace.config.line_numbers { px(52.0) } else { px(0.0) };
+        let char_width = px(workspace.config.font_size * 0.6);
+
+        let (line, col) = editor.char_to_line_col(range_utf16.start);
+        
+        if line < editor.scroll_row {
+            return None;
+        }
+        
+        let visual_row = line - editor.scroll_row;
+        let visual_col = (col as i32) - (editor.scroll_col as i32);
+        if visual_col < 0 {
+            return None;
         }
 
-        let x = element_bounds.origin.x + gutter_width + px((visual_col as f32 - editor.scroll_col as f32) * 8.4);
-        let y = element_bounds.origin.y + px((line as f32 - editor.scroll_row as f32) * 20.0);
-        
+        let origin_x = bounds.origin.x + gutter_width + (char_width * visual_col as f32);
+        let origin_y = bounds.origin.y + (line_height * visual_row as f32);
+
         Some(Bounds {
-            origin: Point::new(x, y),
-            size: size(char_width, line_height),
+            origin: Point::new(origin_x, origin_y),
+            size: Size::new(char_width * (range_utf16.end.saturating_sub(range_utf16.start)).max(1) as f32, line_height),
         })
     }
 
@@ -308,6 +369,56 @@ impl Render for EditorView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let workspace = self.workspace.read(cx);
         let theme = &workspace.theme;
+
+        if workspace.editors.is_empty() {
+            return div()
+                .track_focus(&self.focus_handle)
+                .key_context("Editor")
+                .w_full()
+                .h_full()
+                .flex()
+                .flex_col()
+                .items_center()
+                .justify_center()
+                .bg(led_color_to_gpui(theme.editor.background))
+                .text_color(with_alpha(led_color_to_gpui(theme.editor.foreground), 0.4))
+                .font_family(crate::widgets::ui_font_family())
+                .child(
+                    div()
+                        .flex()
+                        .flex_col()
+                        .items_center()
+                        .gap_3()
+                        .child(
+                            div()
+                                .text_size(px(18.0))
+                                .font_weight(FontWeight::SEMIBOLD)
+                                .text_color(with_alpha(led_color_to_gpui(theme.editor.foreground), 0.6))
+                                .child("led")
+                        )
+                        .child(
+                            div()
+                                .text_size(px(13.0))
+                                .flex()
+                                .items_center()
+                                .gap_2()
+                                .child("⌘T : New Tab")
+                                .child("•")
+                                .child("⌘N : New Window")
+                                .child("•")
+                                .child("⌘O : Open File")
+                        )
+                )
+                .into_any_element();
+        }
+
+        let editor = workspace.active_editor().unwrap();
+        let font_family: SharedString = match &workspace.config.font_family {
+            Some(f) => SharedString::from(f.clone()),
+            None => SharedString::from(mono_font_family()),
+        };
+        let font_size = px(workspace.config.font_size);
+        let line_height = px(workspace.config.line_height);
 
         let focus_handle = self.focus_handle.clone();
         let entity = cx.entity().clone();
@@ -332,9 +443,9 @@ impl Render for EditorView {
             .relative()
             .bg(led_color_to_gpui(theme.editor.background))
             .text_color(led_color_to_gpui(theme.editor.foreground))
-            .text_size(px(14.0))
-            .line_height(px(22.0))
-            .font_family(mono_font_family())
+            .text_size(font_size)
+            .line_height(line_height)
+            .font_family(font_family.clone())
             .child(
                 canvas(
                     move |_bounds, _window, _cx| {
@@ -356,16 +467,16 @@ impl Render for EditorView {
                 div()
                     .w_full()
                     .h_full()
-                    .font_family(mono_font_family())
-                    .child(self.render_lines(workspace))
+                    .font_family(font_family)
+                    .child(self.render_lines(workspace, editor))
             )
-            .child(self.render_scrollbar(workspace))
+            .child(self.render_scrollbar(workspace, editor))
+            .into_any_element()
     }
 }
 
 impl EditorView {
-    fn render_scrollbar(&self, workspace: &Workspace) -> impl IntoElement {
-        let editor = workspace.active_editor();
+    fn render_scrollbar(&self, workspace: &Workspace, editor: &led_core::buffer::Editor) -> impl IntoElement {
         let line_count = editor.line_count().max(1);
         let scroll_row = editor.scroll_row;
         let theme = &workspace.theme;
@@ -411,8 +522,7 @@ impl EditorView {
             .into_any_element()
     }
 
-    fn render_lines(&self, workspace: &Workspace) -> impl IntoElement {
-        let editor = workspace.active_editor();
+    fn render_lines(&self, workspace: &Workspace, editor: &led_core::buffer::Editor) -> impl IntoElement {
         let line_count = editor.line_count();
         let scroll_row = editor.scroll_row;
         
@@ -426,27 +536,32 @@ impl EditorView {
             .children(
                 (scroll_row..line_count.min(scroll_row + 100)).map(|idx| {
                     if word_wrap {
-                        self.render_wrapped_line(idx, workspace).into_any_element()
+                        self.render_wrapped_line(idx, workspace, editor).into_any_element()
                     } else {
-                        self.render_line(idx, workspace).into_any_element()
+                        self.render_line(idx, workspace, editor).into_any_element()
                     }
                 })
             )
     }
 
-    fn render_wrapped_line(&self, line_idx: usize, workspace: &Workspace) -> impl IntoElement {
-        let editor = workspace.active_editor();
+    fn render_wrapped_line(&self, line_idx: usize, workspace: &Workspace, editor: &led_core::buffer::Editor) -> impl IntoElement {
         let theme = &workspace.theme;
         let line = editor.rope.line(line_idx);
-        let line_str = line.to_string();
+        let line_chars: Vec<char> = line.chars().collect();
 
         let wraps = editor.wrap_line(line_idx, 80, 4); 
 
         div()
             .w_full()
             .flex_col()
-            .children(wraps.into_iter().enumerate().map(|(vidx, range)| {
-                let chunk = &line_str[range.start..range.end];
+            .children(wraps.into_iter().enumerate().map(move |(vidx, range)| {
+                let start = range.start.min(line_chars.len());
+                let end = range.end.min(line_chars.len());
+                let chunk: String = if end > start {
+                    line_chars[start..end].iter().collect()
+                } else {
+                    String::new()
+                };
                 div()
                     .w_full()
                     .flex()
@@ -470,13 +585,12 @@ impl EditorView {
                             .flex()
                             .items_center()
                             .font_family(mono_font_family())
-                            .child(chunk.to_string())
+                            .child(chunk)
                     )
             }))
     }
 
-    fn render_line(&self, line_idx: usize, workspace: &Workspace) -> impl IntoElement {
-        let editor = workspace.active_editor();
+    fn render_line(&self, line_idx: usize, workspace: &Workspace, editor: &led_core::buffer::Editor) -> impl IntoElement {
         let theme = &workspace.theme;
 
         let line = editor.rope.line(line_idx);
@@ -541,13 +655,12 @@ impl EditorView {
                             .h_full()
                             .flex()
                             .items_center()
-                            .children(self.render_line_content(line_idx, &line_str, workspace, is_cursor_line))
+                            .children(self.render_line_content(line_idx, &line_str, workspace, editor, is_cursor_line))
                     )
             )
     }
 
-    fn render_line_content(&self, line_idx: usize, line_str: &str, workspace: &Workspace, is_cursor_line: bool) -> Vec<AnyElement> {
-        let editor = workspace.active_editor();
+    fn render_line_content(&self, line_idx: usize, line_str: &str, workspace: &Workspace, editor: &led_core::buffer::Editor, is_cursor_line: bool) -> Vec<AnyElement> {
         let theme = &workspace.theme;
 
         let selection = editor.selection.clone();
@@ -607,20 +720,36 @@ impl EditorView {
 
         if let Some(Some(tokens)) = editor.line_tokens.get(line_idx) {
             let mut last_offset = 0;
+            let str_len = line_str.len();
             for token in tokens {
-                if token.byte_range.start > last_offset {
-                    let text = &line_str[last_offset..token.byte_range.start];
-                    let start_char = line_start_char + line_str[..last_offset].chars().count();
-                    render_chunk(text, start_char, None, &mut elements);
+                let mut start = token.byte_range.start.min(str_len);
+                let mut end = token.byte_range.end.min(str_len);
+
+                // Ensure start and end are on valid UTF-8 character boundaries
+                while start > 0 && !line_str.is_char_boundary(start) {
+                    start -= 1;
                 }
-                let text = &line_str[token.byte_range.clone()];
-                let start_char = start_char_from_byte_offset(&line_str, token.byte_range.start, line_start_char);
-                render_chunk(text, start_char, Some(self.token_color(token.token, theme)), &mut elements);
-                last_offset = token.byte_range.end;
+                while end > 0 && !line_str.is_char_boundary(end) {
+                    end -= 1;
+                }
+
+                if start > last_offset {
+                    let text = &line_str[last_offset..start];
+                    let start_char = start_char_from_byte_offset(line_str, last_offset, line_start_char);
+                    render_chunk(text, start_char, None, &mut elements);
+                    last_offset = start;
+                }
+
+                if end > last_offset {
+                    let text = &line_str[last_offset..end];
+                    let start_char = start_char_from_byte_offset(line_str, last_offset, line_start_char);
+                    render_chunk(text, start_char, Some(self.token_color(token.token, theme)), &mut elements);
+                    last_offset = end;
+                }
             }
-            if last_offset < line_str.len() {
+            if last_offset < str_len {
                 let text = &line_str[last_offset..];
-                let start_char = start_char_from_byte_offset(&line_str, last_offset, line_start_char);
+                let start_char = start_char_from_byte_offset(line_str, last_offset, line_start_char);
                 render_chunk(text, start_char, None, &mut elements);
             }
         } else {
@@ -719,5 +848,9 @@ impl EditorView {
 }
 
 fn start_char_from_byte_offset(s: &str, byte_offset: usize, line_start_char: usize) -> usize {
-    line_start_char + s[..byte_offset].chars().count()
+    let mut safe_offset = byte_offset.min(s.len());
+    while safe_offset > 0 && !s.is_char_boundary(safe_offset) {
+        safe_offset -= 1;
+    }
+    line_start_char + s[..safe_offset].chars().count()
 }
