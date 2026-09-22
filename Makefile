@@ -29,8 +29,8 @@ else
 endif
 
 DIST_DIR := dist
-LED_TUI_BIN := led$(EXE_EXT)
-LED_GUI_BIN := led-gui$(EXE_EXT)
+LED_TUI_BIN := led-cli$(EXE_EXT)
+LED_GUI_BIN := led$(EXE_EXT)
 
 # Default: build both TUI and GUI for the current OS
 default: local
@@ -79,9 +79,9 @@ macos-gui:
 	@echo '    <key>CFBundlePackageType</key>' >> $(DIST_DIR)/led.app/Contents/Info.plist
 	@echo '    <string>APPL</string>' >> $(DIST_DIR)/led.app/Contents/Info.plist
 	@echo '    <key>CFBundleShortVersionString</key>' >> $(DIST_DIR)/led.app/Contents/Info.plist
-	@echo '    <string>0.1.0</string>' >> $(DIST_DIR)/led.app/Contents/Info.plist
+	@echo '    <string>0.0.2</string>' >> $(DIST_DIR)/led.app/Contents/Info.plist
 	@echo '    <key>CFBundleVersion</key>' >> $(DIST_DIR)/led.app/Contents/Info.plist
-	@echo '    <string>0.1.0</string>' >> $(DIST_DIR)/led.app/Contents/Info.plist
+	@echo '    <string>0.0.2</string>' >> $(DIST_DIR)/led.app/Contents/Info.plist
 	@echo '    <key>CFBundleIconFile</key>' >> $(DIST_DIR)/led.app/Contents/Info.plist
 	@echo '    <string>led.icns</string>' >> $(DIST_DIR)/led.app/Contents/Info.plist
 	@echo '    <key>NSHighResolutionCapable</key>' >> $(DIST_DIR)/led.app/Contents/Info.plist

@@ -11,6 +11,8 @@ use led_core::buffer::Editor;
 
 #[cfg(not(target_os = "macos"))]
 use crate::widgets::menu_bar::MenuBar;
+#[cfg(not(target_os = "macos"))]
+use crate::widgets::{led_color_to_gpui, ui_font_family, with_alpha};
 
 use crate::widgets::dialog::{Dialog, DialogType, DialogEvent, UnsavedChangesIntent};
 
@@ -45,6 +47,11 @@ impl WindowView {
         });
 
         cx.observe(&workspace, |_, _, cx| {
+            cx.notify();
+        }).detach();
+
+        #[cfg(not(target_os = "macos"))]
+        cx.observe(&menu_bar, |_, _, cx| {
             cx.notify();
         }).detach();
 
@@ -791,7 +798,7 @@ impl Render for WindowView {
         let theme = &workspace.theme;
         let bg = self.led_color_to_gpui(theme.editor.background);
 
-        div()
+        let root = div()
             .w_full()
             .h_full()
             .relative() // So dialog can be absolute
@@ -855,18 +862,22 @@ impl Render for WindowView {
                     cx.notify();
                 }
             }))
-            .child(self.render_layout())
-            .child(if let Some(ref dialog) = self.dialog {
-                div()
-                    .absolute()
-                    .top_0()
-                    .left_0()
-                    .w_full()
-                    .h_full()
-                    .child(dialog.clone())
-            } else {
-                div()
-            })
+            .child(self.render_layout());
+
+        #[cfg(not(target_os = "macos"))]
+        let root = root.child(self.render_menu_dropdown(cx));
+
+        root.child(if let Some(ref dialog) = self.dialog {
+            div()
+                .absolute()
+                .top_0()
+                .left_0()
+                .w_full()
+                .h_full()
+                .child(dialog.clone())
+        } else {
+            div()
+        })
     }
 }
 
@@ -882,5 +893,168 @@ impl WindowView {
             .child(self.find_panel.clone())
             .child(div().flex_grow().child(self.editor.clone()))
             .child(self.status_bar.clone())
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+impl WindowView {
+    fn render_menu_dropdown(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let menu_bar = self.menu_bar.read(cx);
+        let open_menu = menu_bar.open_menu;
+
+        if let Some(idx) = open_menu {
+            let workspace = self.workspace.read(cx);
+            let theme = &workspace.theme;
+            let bg = led_color_to_gpui(theme.ui.menu_bar_bg);
+            let fg = led_color_to_gpui(theme.ui.menu_bar_fg);
+            let border = with_alpha(led_color_to_gpui(theme.editor.line_number), 0.35);
+            let hover_bg = with_alpha(fg, 0.15);
+            let muted_fg = with_alpha(fg, 0.55);
+
+            let left_pos = match idx {
+                0 => px(8.0),
+                1 => px(48.0),
+                2 => px(90.0),
+                _ => px(136.0),
+            };
+
+            let menu_content = match idx {
+                0 => self.render_file_menu(fg, hover_bg, muted_fg, border, cx).into_any_element(),
+                1 => self.render_edit_menu(fg, hover_bg, muted_fg, border, cx).into_any_element(),
+                2 => self.render_view_menu(fg, hover_bg, muted_fg, border, cx).into_any_element(),
+                _ => self.render_help_menu(fg, hover_bg, muted_fg, cx).into_any_element(),
+            };
+
+            div()
+                .absolute()
+                .top_0()
+                .left_0()
+                .w_full()
+                .h_full()
+                .child(
+                    div()
+                        .absolute()
+                        .top(px(28.0))
+                        .left_0()
+                        .w_full()
+                        .h_full()
+                        .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, cx| {
+                            this.menu_bar.update(cx, |m, cx| m.close_menu(cx));
+                        }))
+                )
+                .child(
+                    div()
+                        .absolute()
+                        .top(px(28.0))
+                        .left(left_pos)
+                        .w(px(230.0))
+                        .bg(bg)
+                        .text_color(fg)
+                        .font_family(ui_font_family())
+                        .text_size(px(12.5))
+                        .border_1()
+                        .border_color(border)
+                        .rounded_sm()
+                        .shadow_lg()
+                        .py_1()
+                        .child(menu_content)
+                )
+        } else {
+            div()
+        }
+    }
+
+    fn render_menu_item<A: Action + Clone + 'static>(
+        &self,
+        label: String,
+        shortcut: Option<&'static str>,
+        action: A,
+        _fg: Rgba,
+        hover_bg: Rgba,
+        muted_fg: Rgba,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
+        let action = action.clone();
+        div()
+            .h(px(26.0))
+            .px_3()
+            .mx_1()
+            .flex()
+            .items_center()
+            .justify_between()
+            .rounded_sm()
+            .cursor_pointer()
+            .hover(move |s| s.bg(hover_bg))
+            .on_mouse_down(MouseButton::Left, cx.listener(move |this, _, window, cx| {
+                this.menu_bar.update(cx, |m, cx| m.close_menu(cx));
+                window.dispatch_action(Box::new(action.clone()), cx);
+            }))
+            .child(div().child(label))
+            .child(if let Some(sc) = shortcut {
+                div().text_size(px(11.0)).text_color(muted_fg).child(sc)
+            } else {
+                div()
+            })
+    }
+
+    fn render_menu_sep(&self, border: Rgba) -> impl IntoElement {
+        div().h(px(1.0)).bg(border).my_1().mx_2()
+    }
+
+    fn render_file_menu(&self, fg: Rgba, hover_bg: Rgba, muted_fg: Rgba, border: Rgba, cx: &mut Context<Self>) -> impl IntoElement {
+        div()
+            .flex()
+            .flex_col()
+            .child(self.render_menu_item(self.i18n.get("menu.file.new_tab").to_string(), Some("Ctrl+T"), NewTab {}, fg, hover_bg, muted_fg, cx))
+            .child(self.render_menu_item(self.i18n.get("menu.file.new_window").to_string(), Some("Ctrl+N"), NewWindow {}, fg, hover_bg, muted_fg, cx))
+            .child(self.render_menu_item(self.i18n.get("menu.file.open").to_string(), Some("Ctrl+O"), Open {}, fg, hover_bg, muted_fg, cx))
+            .child(self.render_menu_sep(border))
+            .child(self.render_menu_item(self.i18n.get("menu.file.save").to_string(), Some("Ctrl+S"), Save {}, fg, hover_bg, muted_fg, cx))
+            .child(self.render_menu_item(self.i18n.get("menu.file.save_as").to_string(), Some("Ctrl+Shift+S"), SaveAs {}, fg, hover_bg, muted_fg, cx))
+            .child(self.render_menu_sep(border))
+            .child(self.render_menu_item(self.i18n.get("menu.file.close").to_string(), Some("Ctrl+W"), CloseTab {}, fg, hover_bg, muted_fg, cx))
+            .child(self.render_menu_sep(border))
+            .child(self.render_menu_item(self.i18n.get("menu.file.exit").to_string(), Some("Ctrl+Q"), Exit {}, fg, hover_bg, muted_fg, cx))
+    }
+
+    fn render_edit_menu(&self, fg: Rgba, hover_bg: Rgba, muted_fg: Rgba, border: Rgba, cx: &mut Context<Self>) -> impl IntoElement {
+        div()
+            .flex()
+            .flex_col()
+            .child(self.render_menu_item(self.i18n.get("menu.edit.undo").to_string(), Some("Ctrl+Z"), Undo {}, fg, hover_bg, muted_fg, cx))
+            .child(self.render_menu_item(self.i18n.get("menu.edit.redo").to_string(), Some("Ctrl+Y"), Redo {}, fg, hover_bg, muted_fg, cx))
+            .child(self.render_menu_sep(border))
+            .child(self.render_menu_item(self.i18n.get("menu.edit.cut").to_string(), Some("Ctrl+X"), Cut {}, fg, hover_bg, muted_fg, cx))
+            .child(self.render_menu_item(self.i18n.get("menu.edit.copy").to_string(), Some("Ctrl+C"), Copy {}, fg, hover_bg, muted_fg, cx))
+            .child(self.render_menu_item(self.i18n.get("menu.edit.paste").to_string(), Some("Ctrl+V"), Paste {}, fg, hover_bg, muted_fg, cx))
+            .child(self.render_menu_sep(border))
+            .child(self.render_menu_item(self.i18n.get("menu.edit.find").to_string(), Some("Ctrl+F"), Find {}, fg, hover_bg, muted_fg, cx))
+            .child(self.render_menu_item(self.i18n.get("menu.edit.replace").to_string(), Some("Ctrl+H"), Replace {}, fg, hover_bg, muted_fg, cx))
+            .child(self.render_menu_sep(border))
+            .child(self.render_menu_item(self.i18n.get("menu.edit.select_all").to_string(), Some("Ctrl+A"), SelectAll {}, fg, hover_bg, muted_fg, cx))
+    }
+
+    fn render_view_menu(&self, fg: Rgba, hover_bg: Rgba, muted_fg: Rgba, border: Rgba, cx: &mut Context<Self>) -> impl IntoElement {
+        div()
+            .flex()
+            .flex_col()
+            .child(self.render_menu_item(self.i18n.get("menu.view.go_to_line").to_string(), None, GoToLine {}, fg, hover_bg, muted_fg, cx))
+            .child(self.render_menu_sep(border))
+            .child(self.render_menu_item(self.i18n.get("menu.view.zoom_in").to_string(), Some("Ctrl+="), ZoomIn {}, fg, hover_bg, muted_fg, cx))
+            .child(self.render_menu_item(self.i18n.get("menu.view.zoom_out").to_string(), Some("Ctrl+-"), ZoomOut {}, fg, hover_bg, muted_fg, cx))
+            .child(self.render_menu_item(self.i18n.get("menu.view.reset_zoom").to_string(), Some("Ctrl+0"), ResetZoom {}, fg, hover_bg, muted_fg, cx))
+            .child(self.render_menu_sep(border))
+            .child(self.render_menu_item(self.i18n.get("menu.view.line_numbers").to_string(), None, ToggleLineNumbers {}, fg, hover_bg, muted_fg, cx))
+            .child(self.render_menu_item(self.i18n.get("menu.view.word_wrap").to_string(), None, ToggleWordWrap {}, fg, hover_bg, muted_fg, cx))
+            .child(self.render_menu_item(self.i18n.get("menu.view.vi_mode").to_string(), None, ToggleViMode {}, fg, hover_bg, muted_fg, cx))
+            .child(self.render_menu_sep(border))
+            .child(self.render_menu_item(self.i18n.get("menu.app.preferences").to_string(), Some("Ctrl+,"), OpenSettings {}, fg, hover_bg, muted_fg, cx))
+    }
+
+    fn render_help_menu(&self, fg: Rgba, hover_bg: Rgba, muted_fg: Rgba, cx: &mut Context<Self>) -> impl IntoElement {
+        div()
+            .flex()
+            .flex_col()
+            .child(self.render_menu_item(self.i18n.get("menu.help.about").to_string(), None, About {}, fg, hover_bg, muted_fg, cx))
     }
 }

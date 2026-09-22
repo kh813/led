@@ -3,15 +3,13 @@ use crate::workspace::Workspace;
 use led_core::i18n::I18n;
 use crate::widgets::{led_color_to_gpui, ui_font_family, with_alpha};
 
-#[allow(dead_code)]
 pub struct MenuBar {
     workspace: Entity<Workspace>,
     i18n: I18n,
-    open_menu: Option<usize>,
+    pub open_menu: Option<usize>,
 }
 
 impl MenuBar {
-    #[allow(dead_code)]
     pub fn new(workspace: Entity<Workspace>, i18n: I18n, _cx: &mut Context<Self>) -> Self {
         Self {
             workspace,
@@ -20,14 +18,27 @@ impl MenuBar {
         }
     }
 
-    #[allow(dead_code)]
-    fn toggle_menu(&mut self, idx: usize, _window: &mut Window, cx: &mut Context<Self>) {
+    pub fn toggle_menu(&mut self, idx: usize, _window: &mut Window, cx: &mut Context<Self>) {
         if self.open_menu == Some(idx) {
             self.open_menu = None;
         } else {
             self.open_menu = Some(idx);
         }
         cx.notify();
+    }
+
+    pub fn hover_menu(&mut self, idx: usize, _window: &mut Window, cx: &mut Context<Self>) {
+        if self.open_menu.is_some() && self.open_menu != Some(idx) {
+            self.open_menu = Some(idx);
+            cx.notify();
+        }
+    }
+
+    pub fn close_menu(&mut self, cx: &mut Context<Self>) {
+        if self.open_menu.is_some() {
+            self.open_menu = None;
+            cx.notify();
+        }
     }
 }
 
@@ -39,8 +50,16 @@ impl Render for MenuBar {
         let fg = led_color_to_gpui(theme.ui.menu_bar_fg);
         let border = with_alpha(led_color_to_gpui(theme.editor.line_number), 0.35);
         let hover_bg = with_alpha(fg, 0.12);
+        let active_bg = with_alpha(fg, 0.22);
 
-        div()
+        let menu_titles = [
+            (0, self.i18n.get("menu.file").to_string()),
+            (1, self.i18n.get("menu.edit").to_string()),
+            (2, self.i18n.get("menu.view").to_string()),
+            (3, self.i18n.get("menu.help").to_string()),
+        ];
+
+        let mut bar = div()
             .w_full()
             .h(px(28.0))
             .bg(bg)
@@ -51,9 +70,14 @@ impl Render for MenuBar {
             .border_color(border)
             .flex()
             .items_center()
-            .px_3()
-            .gap_1()
-            .child(
+            .px_2()
+            .gap_1();
+
+        for (idx, title) in menu_titles {
+            let is_open = self.open_menu == Some(idx);
+            let btn_bg = if is_open { active_bg } else { with_alpha(fg, 0.0) };
+
+            bar = bar.child(
                 div()
                     .h(px(22.0))
                     .px_2()
@@ -61,84 +85,18 @@ impl Render for MenuBar {
                     .items_center()
                     .rounded_sm()
                     .cursor_pointer()
-                    .hover(move |s| s.bg(hover_bg))
-                    .on_mouse_down(MouseButton::Left, cx.listener(|this, _, window, cx| this.toggle_menu(0, window, cx)))
-                    .child(self.i18n.get("menu.file").to_string())
-            )
-            .child(
-                div()
-                    .h(px(22.0))
-                    .px_2()
-                    .flex()
-                    .items_center()
-                    .rounded_sm()
-                    .cursor_pointer()
-                    .hover(move |s| s.bg(hover_bg))
-                    .on_mouse_down(MouseButton::Left, cx.listener(|this, _, window, cx| this.toggle_menu(1, window, cx)))
-                    .child(self.i18n.get("menu.edit").to_string())
-            )
-            .child(
-                div()
-                    .h(px(22.0))
-                    .px_2()
-                    .flex()
-                    .items_center()
-                    .rounded_sm()
-                    .cursor_pointer()
-                    .hover(move |s| s.bg(hover_bg))
-                    .on_mouse_down(MouseButton::Left, cx.listener(|this, _, window, cx| this.toggle_menu(2, window, cx)))
-                    .child(self.i18n.get("menu.view").to_string())
-            )
-            .child(
-                div()
-                    .h(px(22.0))
-                    .px_2()
-                    .flex()
-                    .items_center()
-                    .rounded_sm()
-                    .cursor_pointer()
-                    .hover(move |s| s.bg(hover_bg))
-                    .on_mouse_down(MouseButton::Left, cx.listener(|this, _, window, cx| this.toggle_menu(3, window, cx)))
-                    .child(self.i18n.get("menu.help").to_string())
-            )
-            .child(
-                div()
-                    .h_full()
-                    .flex()
-                    .items_center()
-                    .on_mouse_down(MouseButton::Left, cx.listener(|this, _, window, cx| this.toggle_menu(1, window, cx)))
-                    .child(self.i18n.get("menu.edit").to_string())
-            )
-            .child(
-                div()
-                    .h_full()
-                    .flex()
-                    .items_center()
-                    .on_mouse_down(MouseButton::Left, cx.listener(|this, _, window, cx| this.toggle_menu(2, window, cx)))
-                    .child(self.i18n.get("menu.view").to_string())
-            )
-            .child(
-                div()
-                    .h_full()
-                    .flex()
-                    .items_center()
-                    .on_mouse_down(MouseButton::Left, cx.listener(|this, _, window, cx| this.toggle_menu(3, window, cx)))
-                    .child(self.i18n.get("menu.help").to_string())
-            )
-            // Dropdowns
-            .child(if let Some(idx) = self.open_menu {
-                div()
-                    .absolute()
-                    .top(px(24.0))
-                    .left(px(idx as f32 * 50.0 + 8.0)) // Rough position
-                    .w(px(150.0))
-                    .bg(bg)
-                    .border_1()
-                    .border_color(border)
-                    .shadow_md()
-                    .child(format!("Menu {} Dropdown", idx))
-            } else {
-                div()
-            })
+                    .bg(btn_bg)
+                    .hover(move |s| if !is_open { s.bg(hover_bg) } else { s })
+                    .on_mouse_down(MouseButton::Left, cx.listener(move |this, _, window, cx| {
+                        this.toggle_menu(idx, window, cx);
+                    }))
+                    .on_mouse_move(cx.listener(move |this, _, window, cx| {
+                        this.hover_menu(idx, window, cx);
+                    }))
+                    .child(title)
+            );
+        }
+
+        bar
     }
 }

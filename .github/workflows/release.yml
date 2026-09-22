@@ -73,7 +73,8 @@ jobs:
         run: |
           cargo build --release -p led-tui --target ${{ matrix.target }}
           mkdir -p dist/${{ matrix.archive_name }}
-          cp target/${{ matrix.target }}/release/led dist/${{ matrix.archive_name }}/
+          cp target/${{ matrix.target }}/release/led-cli dist/${{ matrix.archive_name }}/
+          cp target/${{ matrix.target }}/release/led-cli dist/${{ matrix.archive_name }}/led
           cp README.md MANUAL.md LICENSE* dist/${{ matrix.archive_name }}/ 2>/dev/null || true
           tar -czvf dist/${{ matrix.archive_name }}.tar.gz -C dist ${{ matrix.archive_name }}
 
@@ -85,13 +86,15 @@ jobs:
           zip -r ${{ matrix.gui_archive_name }}.zip led.app
 
       # --- Windows Builds ---
-      - name: Build TUI (Windows)
+      - name: Build Windows (GUI & CLI)
         if: matrix.is_windows
         shell: bash
         run: |
+          cargo build --release -p led-gui --target ${{ matrix.target }}
           cargo build --release -p led-tui --target ${{ matrix.target }}
           mkdir -p dist/${{ matrix.archive_name }}
           cp target/${{ matrix.target }}/release/led.exe dist/${{ matrix.archive_name }}/
+          cp target/${{ matrix.target }}/release/led-cli.exe dist/${{ matrix.archive_name }}/
           cp README.md MANUAL.md dist/${{ matrix.archive_name }}/ 2>/dev/null || true
           cd dist
           7z a ${{ matrix.archive_name }}.zip ${{ matrix.archive_name }}
