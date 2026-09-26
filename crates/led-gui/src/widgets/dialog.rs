@@ -568,13 +568,14 @@ impl Dialog {
                                     .items_center()
                                     .justify_center()
                                     .rounded_md()
-                                    .bg(accent)
-                                    .text_color(gpui::rgb(0xffffff))
+                                    .bg(if button_idx == 0 { accent } else { button_bg })
+                                    .text_color(if button_idx == 0 { gpui::rgb(0xffffff) } else { fg })
                                     .text_size(px(12.5))
                                     .font_weight(FontWeight::MEDIUM)
                                     .cursor_pointer()
                                     .border_2()
                                     .border_color(if button_idx == 0 { gpui::rgb(0xffffff) } else { hsla(0.,0.,0.,0.).into() })
+                                    .hover(move |s| if button_idx != 0 { s.bg(button_hover) } else { s })
                                     .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, cx| {
                                         if let DialogType::UnsavedChanges { intent, .. } = &this.dialog_type {
                                             cx.emit(DialogEvent::Save(*intent));
@@ -591,13 +592,14 @@ impl Dialog {
                                     .items_center()
                                     .justify_center()
                                     .rounded_md()
-                                    .bg(gpui::rgb(0xd32f2f))
-                                    .text_color(gpui::rgb(0xffffff))
+                                    .bg(if button_idx == 1 { gpui::rgb(0xd32f2f) } else { button_bg })
+                                    .text_color(if button_idx == 1 { gpui::rgb(0xffffff) } else { fg })
                                     .text_size(px(12.5))
                                     .font_weight(FontWeight::MEDIUM)
                                     .cursor_pointer()
                                     .border_2()
                                     .border_color(if button_idx == 1 { gpui::rgb(0xffffff) } else { hsla(0.,0.,0.,0.).into() })
+                                    .hover(move |s| if button_idx != 1 { s.bg(button_hover) } else { s })
                                     .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, cx| {
                                         if let DialogType::UnsavedChanges { intent, .. } = &this.dialog_type {
                                             cx.emit(DialogEvent::DontSave(*intent));
@@ -615,6 +617,7 @@ impl Dialog {
                                     .justify_center()
                                     .rounded_md()
                                     .bg(button_bg)
+                                    .text_color(fg)
                                     .text_size(px(12.5))
                                     .cursor_pointer()
                                     .border_2()

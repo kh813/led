@@ -51,7 +51,7 @@ impl EditorView {
         let shift = event.keystroke.modifiers.shift;
         let control = event.keystroke.modifiers.control;
         let cmd = event.keystroke.modifiers.platform;
-        let alt = event.keystroke.modifiers.alt;
+        let _alt = event.keystroke.modifiers.alt;
 
         // If Cmd/Ctrl is pressed, key combinations are handled as shortcuts/actions
         if control || cmd {
@@ -118,12 +118,6 @@ impl EditorView {
                         editor.delete(range);
                     }
                     editor.insert(editor.cursor, " ");
-                }
-                k if !alt && k.chars().count() == 1 => {
-                    if let Some(range) = editor.selection.clone() {
-                        editor.delete(range);
-                    }
-                    editor.insert(editor.cursor, k);
                 }
                 _ => {}
             }
