@@ -41,7 +41,7 @@ impl Layout {
 
         // Recompute tabs
         self.tab_rects.clear();
-        let mut current_tab_x = 1;
+        let mut current_tab_x = 0;
         // We might need to handle scrolling if there are many tabs
         for (i, buffer) in buffers.iter().enumerate() {
             let name = buffer.path.as_ref()
@@ -53,7 +53,7 @@ impl Layout {
             let label = format!(" {}{}{} × ", ro, modified, name);
             let width = label.chars().count() as u16;
             
-            self.tab_rects.push((i, current_tab_x, current_tab_x + width));
+            self.tab_rects.push((i, current_tab_x, current_tab_x + width + 1));
             current_tab_x += width + 1;
         }
 

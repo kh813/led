@@ -1318,43 +1318,36 @@ impl App {
     fn handle_menu_key(&mut self, key: KeyEvent) {
         match key.code {
             KeyCode::Esc => {
-                if !self.submenu_stack.is_empty() {
-                    self.submenu_stack.pop();
+                if let Some((_, parent_selected)) = self.submenu_stack.pop() {
+                    self.selected_item = parent_selected;
                 } else {
                     self.focus = Focus::Editor;
                     self.active_menu = None;
                 }
             }
             KeyCode::Left => {
-                if self.submenu_stack.is_empty() {
+                if let Some((_, parent_selected)) = self.submenu_stack.pop() {
+                    self.selected_item = parent_selected;
+                } else {
                     if let Some(idx) = self.active_menu {
                         let next_idx = if idx == 0 { self.menus.len() - 1 } else { idx - 1 };
                         self.open_menu(next_idx);
                     }
-                } else {
-                    self.submenu_stack.pop();
                 }
             }
             KeyCode::Right => {
-                if self.submenu_stack.is_empty() {
+                // Check if current item has a submenu
+                let is_submenu = {
+                    let menu = self.get_current_active_menu();
+                    matches!(menu.items.get(self.selected_item), Some(MenuItem::Submenu { .. }))
+                };
+                if is_submenu {
+                    self.submenu_stack.push((self.active_menu.unwrap(), self.selected_item));
+                    self.selected_item = 0;
+                } else {
                     if let Some(idx) = self.active_menu {
                         let next_idx = (idx + 1) % self.menus.len();
                         self.open_menu(next_idx);
-                    }
-                } else {
-                    // Check if current item has a submenu
-                    let is_submenu = {
-                        let menu = self.get_current_active_menu();
-                        matches!(menu.items.get(self.selected_item), Some(MenuItem::Submenu { .. }))
-                    };
-                    if is_submenu {
-                        self.submenu_stack.push((self.active_menu.unwrap(), self.selected_item));
-                        self.selected_item = 0;
-                    } else {
-                        if let Some(idx) = self.active_menu {
-                            let next_idx = (idx + 1) % self.menus.len();
-                            self.open_menu(next_idx);
-                        }
                     }
                 }
             }
@@ -2203,6 +2196,7 @@ impl App {
         let active_fg = self.to_ct_color(self.theme.ui.tab_active_fg);
         let inactive_bg = self.to_ct_color(self.theme.ui.tab_inactive_bg);
         let inactive_fg = self.to_ct_color(self.theme.ui.tab_inactive_fg);
+        let border_fg = self.to_ct_color(self.theme.editor.line_number);
         
         // Background
         for dx in 0..w {
@@ -2213,7 +2207,7 @@ impl App {
             });
         }
 
-        let total_tabs_width: u16 = self.layout.tab_rects.iter().map(|(_, s, e)| e - s + 1).sum();
+        let total_tabs_width: u16 = self.layout.tab_rects.iter().map(|(_, s, e)| e - s).sum();
         let needs_scroll = total_tabs_width > w;
 
         let display_w = if needs_scroll { w.saturating_sub(4) } else { w };
@@ -2243,13 +2237,20 @@ impl App {
             let tab_width = label.chars().count() as u16;
 
             // Basic scrolling: just hide tabs that don't fit for now
-            // In a real app we'd use self.layout.tab_scroll
-            if current_tab_x + tab_width > x + offset_x + display_w {
+            if current_tab_x + tab_width + 1 > x + offset_x + display_w {
                 break;
             }
 
+            // Left vertical divider
+            self.renderer.set_cell(current_tab_x, y, Cell {
+                ch: '│',
+                bg: if is_active { active_bg } else { bg },
+                fg: border_fg,
+                ..Default::default()
+            });
+
             for (j, c) in label.chars().enumerate() {
-                self.renderer.set_cell(current_tab_x + j as u16, y, Cell {
+                self.renderer.set_cell(current_tab_x + 1 + j as u16, y, Cell {
                     ch: c,
                     bg: tab_bg,
                     fg: tab_fg,
@@ -2257,7 +2258,29 @@ impl App {
                     ..Default::default()
                 });
             }
+
             current_tab_x += tab_width + 1;
+
+            // Right vertical divider at end of tab list
+            if i == self.buffers.len() - 1 || current_tab_x + 1 > x + offset_x + display_w {
+                self.renderer.set_cell(current_tab_x, y, Cell {
+                    ch: '│',
+                    bg: if is_active { active_bg } else { bg },
+                    fg: border_fg,
+                    ..Default::default()
+                });
+                current_tab_x += 1;
+            }
+        }
+
+        // Draw horizontal line on the rest of the tab bar
+        for dx in current_tab_x..(x + display_w) {
+            self.renderer.set_cell(dx, y, Cell {
+                ch: '─',
+                bg,
+                fg: border_fg,
+                ..Default::default()
+            });
         }
     }
 
@@ -2497,6 +2520,7 @@ impl App {
                                 renderer.set_cell(num_x + i as u16, ry, Cell { ch: c, bg: gutter_bg, fg: gutter_fg, ..Default::default() });
                             }
                         }
+                        renderer.set_cell(_gx + gw - 1, ry, Cell { ch: '│', bg: gutter_bg, fg: gutter_fg, ..Default::default() });
                     }
 
                     // Render visual line content
@@ -2603,6 +2627,7 @@ impl App {
                     for dx in 0..gw {
                         renderer.set_cell(_gx + dx, ey + dy, Cell { ch: ' ', bg: gutter_bg, ..Default::default() });
                     }
+                    renderer.set_cell(_gx + gw - 1, ey + dy, Cell { ch: '│', bg: gutter_bg, fg: gutter_fg, ..Default::default() });
                 }
                 for dx in 0..ew {
                     renderer.set_cell(ex + dx, ey + dy, Cell { ch: ' ', bg: editor_bg, ..Default::default() });
@@ -2624,6 +2649,7 @@ impl App {
                             renderer.set_cell(num_x + i as u16, _gy + dy, Cell { ch: c, bg: gutter_bg, fg: gutter_fg, ..Default::default() });
                         }
                     }
+                    renderer.set_cell(_gx + gw - 1, _gy + dy, Cell { ch: '│', bg: gutter_bg, fg: gutter_fg, ..Default::default() });
                 }
             }
 
@@ -3019,5 +3045,59 @@ mod tests {
         app.handle_key(make_key(KeyCode::Esc));
         assert_eq!(app.focus, Focus::Editor);
     }
+
+    #[test]
+    fn test_menu_submenu_navigation() {
+        let mut app = App::new(vec![]).expect("Failed to init App");
+
+        // Open View menu (menu index 2: File=0, Edit=1, View=2, Help=3)
+        app.open_menu(2);
+        assert_eq!(app.focus, Focus::Menu);
+        assert_eq!(app.active_menu, Some(2));
+        assert_eq!(app.submenu_stack.len(), 0);
+
+        // Find index of Encoding submenu item in View menu
+        let encoding_idx = app.menus[2]
+            .items
+            .iter()
+            .position(|item| matches!(item, MenuItem::Submenu { label, .. } if label == "Encoding"))
+            .expect("Encoding submenu not found");
+
+        app.selected_item = encoding_idx;
+
+        // Press Right arrow on Encoding submenu -> Should open Encoding submenu
+        app.handle_key(make_key(KeyCode::Right));
+        assert_eq!(app.active_menu, Some(2));
+        assert_eq!(app.submenu_stack.len(), 1);
+        assert_eq!(app.submenu_stack[0], (2, encoding_idx));
+        assert_eq!(app.selected_item, 0);
+
+        // Current menu is now Encoding (items: Reopen with Encoding, Convert to Encoding)
+        let cur_menu = app.get_current_active_menu();
+        assert_eq!(cur_menu.label, "Encoding");
+
+        // Press Right arrow on "Reopen with Encoding" submenu
+        app.handle_key(make_key(KeyCode::Right));
+        assert_eq!(app.submenu_stack.len(), 2);
+        let cur_menu2 = app.get_current_active_menu();
+        assert_eq!(cur_menu2.label, "Reopen");
+
+        // Press Left arrow -> Should return to Encoding submenu and restore selected_item to 0
+        app.handle_key(make_key(KeyCode::Left));
+        assert_eq!(app.submenu_stack.len(), 1);
+        assert_eq!(app.selected_item, 0);
+        assert_eq!(app.get_current_active_menu().label, "Encoding");
+
+        // Press Left arrow -> Should return to View menu and restore selected_item to encoding_idx
+        app.handle_key(make_key(KeyCode::Left));
+        assert_eq!(app.submenu_stack.len(), 0);
+        assert_eq!(app.selected_item, encoding_idx);
+        assert_eq!(app.get_current_active_menu().label, app.menus[2].label);
+
+        // Press Left arrow again on top level menu -> Should move to Edit menu (index 1)
+        app.handle_key(make_key(KeyCode::Left));
+        assert_eq!(app.active_menu, Some(1));
+    }
 }
+
 
