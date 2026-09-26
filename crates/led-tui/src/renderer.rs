@@ -127,9 +127,7 @@ impl Renderer {
 
     pub fn present<W: Write>(&mut self, writer: &mut W) -> io::Result<()> {
         let mut last_style = ContentStyle::default();
-        let mut cursor_x = 0u16;
-        let mut cursor_y = 0u16;
-        let mut force_move = true;
+        let mut term_cursor: Option<(u16, u16)> = None;
 
         for y in 0..self.height {
             let mut x = 0;
@@ -145,11 +143,9 @@ impl Renderer {
 
                 let step = (curr.width as u16).max(1);
 
-                if curr != prev || force_move {
-                    if force_move || cursor_x != x || cursor_y != y {
+                if curr != prev {
+                    if term_cursor != Some((x, y)) {
                         writer.queue(cursor::MoveTo(x, y))?;
-                        cursor_x = x;
-                        cursor_y = y;
                     }
 
                     let mut style = ContentStyle::default();
@@ -169,14 +165,10 @@ impl Renderer {
                     }
 
                     writer.queue(style::Print(curr.ch))?;
-                    cursor_x += step;
-                    force_move = false;
-                } else if cursor_x == x && cursor_y == y {
-                    cursor_x += step;
+                    term_cursor = Some((x + step, y));
                 }
                 x += step;
             }
-            force_move = true; // Force move at start of next line
         }
 
         self.prev_buffer.copy_from_slice(&self.curr_buffer);
