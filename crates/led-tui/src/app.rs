@@ -2043,17 +2043,20 @@ impl App {
             } else if self.focus == Focus::Panel && self.current_dialog.is_none() {
                 // Focus hardware cursor on find panel input
                 let (px, py, _pw, _ph) = self.layout.panel_bounds();
-                let find_label = format!("{}    ", self.i18n.get("panel.find"));
-                let find_label_w = find_label.chars().map(|c| c.width().unwrap_or(0)).sum::<usize>() as u16;
-                let input_x = px + find_label_w + 1;
+                let find_label = format!("{}: ", self.i18n.get("panel.find"));
+                let rep_label = format!("{}: ", self.i18n.get("panel.replace"));
+                let find_label_w: u16 = find_label.chars().map(|c| c.width().unwrap_or(0) as u16).sum();
+                let rep_label_w: u16 = rep_label.chars().map(|c| c.width().unwrap_or(0) as u16).sum();
+                let label_w = find_label_w.max(rep_label_w);
+                let input_x = px + 1 + label_w;
                 let cursor_x = match self.find_panel.focused_field {
                     PanelField::FindInput => {
-                        let text_w: usize = self.find_panel.find_text.chars().map(|c| c.width().unwrap_or(0)).sum();
-                        input_x + text_w as u16
+                        let text_w: u16 = self.find_panel.find_text.chars().map(|c| c.width().unwrap_or(0) as u16).sum();
+                        input_x + text_w.min(30)
                     },
                     PanelField::ReplaceInput => {
-                        let text_w: usize = self.find_panel.replace_text.chars().map(|c| c.width().unwrap_or(0)).sum();
-                        input_x + text_w as u16
+                        let text_w: u16 = self.find_panel.replace_text.chars().map(|c| c.width().unwrap_or(0) as u16).sum();
+                        input_x + text_w.min(30)
                     },
                     _ => 0,
                 };
@@ -2333,18 +2336,26 @@ impl App {
             }
         }
 
-        // Row 1: Find input
-        let find_label = format!("{}    ", self.i18n.get("panel.find"));
-        for (i, c) in find_label.chars().enumerate() {
-            self.renderer.set_cell(x + i as u16 + 1, y, Cell { ch: c, bg: normal_bg, fg: normal_fg, ..Default::default() });
-        }
-        
-        let input_x = x + find_label.chars().count() as u16 + 1;
+        let find_label = format!("{}: ", self.i18n.get("panel.find"));
+        let rep_label = format!("{}: ", self.i18n.get("panel.replace"));
+        let find_label_w: u16 = find_label.chars().map(|c| c.width().unwrap_or(0) as u16).sum();
+        let rep_label_w: u16 = rep_label.chars().map(|c| c.width().unwrap_or(0) as u16).sum();
+        let label_w = find_label_w.max(rep_label_w);
+        let input_x = x + 1 + label_w;
         let input_w = 30;
+
+        // Row 1: Find label
+        let mut cur_l_x = x + 1;
+        for c in find_label.chars() {
+            let cw = c.width().unwrap_or(0) as u16;
+            self.renderer.set_cell(cur_l_x, y, Cell { ch: c, bg: normal_bg, fg: normal_fg, width: cw as u8, ..Default::default() });
+            cur_l_x += cw;
+        }
+
         let is_find_focused = self.find_panel.focused_field == PanelField::FindInput;
         let input_bg = if is_find_focused { focused_bg } else { normal_bg };
         let input_fg = if is_find_focused { focused_fg } else { normal_fg };
-        
+
         // Error color if no matches
         let buffer = &self.buffers[self.active_buffer];
         let input_fg = if !self.find_panel.find_text.is_empty() && buffer.find_results.is_empty() {
@@ -2354,87 +2365,122 @@ impl App {
         };
 
         for dx in 0..input_w {
-            let ch = self.find_panel.find_text.chars().nth(dx as usize).unwrap_or(' ');
-            self.renderer.set_cell(input_x + dx, y, Cell { ch, bg: input_bg, fg: input_fg, ..Default::default() });
+            self.renderer.set_cell(input_x + dx, y, Cell { ch: ' ', bg: input_bg, ..Default::default() });
+        }
+        let mut cur_text_x = input_x;
+        for c in self.find_panel.find_text.chars() {
+            let cw = c.width().unwrap_or(0) as u16;
+            if cur_text_x + cw <= input_x + input_w {
+                self.renderer.set_cell(cur_text_x, y, Cell { ch: c, bg: input_bg, fg: input_fg, width: cw as u8, ..Default::default() });
+                cur_text_x += cw;
+            } else {
+                break;
+            }
         }
 
         // Buttons
         let mut cur_x = input_x + input_w + 2;
-        
+
         let prev_btn = format!(" {} ", self.i18n.get("panel.prev"));
         let is_prev_focused = self.find_panel.focused_field == PanelField::Prev;
-        for (i, c) in prev_btn.chars().enumerate() {
-            self.renderer.set_cell(cur_x + i as u16, y, Cell {
+        for c in prev_btn.chars() {
+            let cw = c.width().unwrap_or(0) as u16;
+            self.renderer.set_cell(cur_x, y, Cell {
                 ch: c,
                 bg: if is_prev_focused { focused_bg } else { normal_bg },
                 fg: if is_prev_focused { focused_fg } else { normal_fg },
+                width: cw as u8,
                 ..Default::default()
             });
+            cur_x += cw;
         }
-        cur_x += prev_btn.chars().count() as u16 + 1;
+        cur_x += 1;
 
         let next_btn = format!(" {} ", self.i18n.get("panel.next"));
         let is_next_focused = self.find_panel.focused_field == PanelField::Next;
-        for (i, c) in next_btn.chars().enumerate() {
-            self.renderer.set_cell(cur_x + i as u16, y, Cell {
+        for c in next_btn.chars() {
+            let cw = c.width().unwrap_or(0) as u16;
+            self.renderer.set_cell(cur_x, y, Cell {
                 ch: c,
                 bg: if is_next_focused { focused_bg } else { normal_bg },
                 fg: if is_next_focused { focused_fg } else { normal_fg },
+                width: cw as u8,
                 ..Default::default()
             });
+            cur_x += cw;
         }
-        cur_x += next_btn.chars().count() as u16 + 1;
+        cur_x += 1;
 
         let close_btn = format!(" {} ", self.i18n.get("panel.close"));
         let is_close_focused = self.find_panel.focused_field == PanelField::Close;
-        for (i, c) in close_btn.chars().enumerate() {
-            self.renderer.set_cell(cur_x + i as u16, y, Cell {
+        for c in close_btn.chars() {
+            let cw = c.width().unwrap_or(0) as u16;
+            self.renderer.set_cell(cur_x, y, Cell {
                 ch: c,
                 bg: if is_close_focused { focused_bg } else { normal_bg },
                 fg: if is_close_focused { focused_fg } else { normal_fg },
+                width: cw as u8,
                 ..Default::default()
             });
+            cur_x += cw;
         }
 
         // Row 2: Replace or Toggles
         if self.find_panel.is_replace_mode {
             // Row 2: Replace input
-            let replace_label = format!("{} ", self.i18n.get("panel.replace"));
-            for (i, c) in replace_label.chars().enumerate() {
-                self.renderer.set_cell(x + i as u16 + 1, y + 1, Cell { ch: c, bg: normal_bg, fg: normal_fg, ..Default::default() });
+            let mut cur_rep_l_x = x + 1;
+            for c in rep_label.chars() {
+                let cw = c.width().unwrap_or(0) as u16;
+                self.renderer.set_cell(cur_rep_l_x, y + 1, Cell { ch: c, bg: normal_bg, fg: normal_fg, width: cw as u8, ..Default::default() });
+                cur_rep_l_x += cw;
             }
-            
+
             let is_replace_focused = self.find_panel.focused_field == PanelField::ReplaceInput;
             let replace_bg = if is_replace_focused { focused_bg } else { normal_bg };
             let replace_fg = if is_replace_focused { focused_fg } else { normal_fg };
-            
+
             for dx in 0..input_w {
-                let ch = self.find_panel.replace_text.chars().nth(dx as usize).unwrap_or(' ');
-                self.renderer.set_cell(input_x + dx, y + 1, Cell { ch, bg: replace_bg, fg: replace_fg, ..Default::default() });
+                self.renderer.set_cell(input_x + dx, y + 1, Cell { ch: ' ', bg: replace_bg, ..Default::default() });
+            }
+            let mut cur_rep_text_x = input_x;
+            for c in self.find_panel.replace_text.chars() {
+                let cw = c.width().unwrap_or(0) as u16;
+                if cur_rep_text_x + cw <= input_x + input_w {
+                    self.renderer.set_cell(cur_rep_text_x, y + 1, Cell { ch: c, bg: replace_bg, fg: replace_fg, width: cw as u8, ..Default::default() });
+                    cur_rep_text_x += cw;
+                } else {
+                    break;
+                }
             }
 
             let mut btn_x = input_x + input_w + 2;
             let replace_btn = format!(" {} ", self.i18n.get("panel.replace_one"));
             let is_rep_focused = self.find_panel.focused_field == PanelField::ReplaceBtn;
-            for (i, c) in replace_btn.chars().enumerate() {
-                self.renderer.set_cell(btn_x + i as u16, y + 1, Cell {
+            for c in replace_btn.chars() {
+                let cw = c.width().unwrap_or(0) as u16;
+                self.renderer.set_cell(btn_x, y + 1, Cell {
                     ch: c,
                     bg: if is_rep_focused { focused_bg } else { normal_bg },
                     fg: if is_rep_focused { focused_fg } else { normal_fg },
+                    width: cw as u8,
                     ..Default::default()
                 });
+                btn_x += cw;
             }
-            btn_x += replace_btn.chars().count() as u16 + 1;
+            btn_x += 1;
 
             let replace_all_btn = format!(" {} ", self.i18n.get("panel.replace_all"));
             let is_rep_all_focused = self.find_panel.focused_field == PanelField::ReplaceAllBtn;
-            for (i, c) in replace_all_btn.chars().enumerate() {
-                self.renderer.set_cell(btn_x + i as u16, y + 1, Cell {
+            for c in replace_all_btn.chars() {
+                let cw = c.width().unwrap_or(0) as u16;
+                self.renderer.set_cell(btn_x, y + 1, Cell {
                     ch: c,
                     bg: if is_rep_all_focused { focused_bg } else { normal_bg },
                     fg: if is_rep_all_focused { focused_fg } else { normal_fg },
+                    width: cw as u8,
                     ..Default::default()
                 });
+                btn_x += cw;
             }
 
             // Row 3: Toggles
@@ -2456,37 +2502,46 @@ impl App {
         
         let match_case = format!("[{}] {}", if self.find_panel.flags.match_case { "x" } else { " " }, self.i18n.get("panel.match_case"));
         let is_mc_focused = self.find_panel.focused_field == PanelField::MatchCase;
-        for (i, c) in match_case.chars().enumerate() {
-            self.renderer.set_cell(cur_x + i as u16, y, Cell {
+        for c in match_case.chars() {
+            let cw = c.width().unwrap_or(0) as u16;
+            self.renderer.set_cell(cur_x, y, Cell {
                 ch: c,
                 bg: if is_mc_focused { focused_bg } else { normal_bg },
                 fg: if is_mc_focused { focused_fg } else { normal_fg },
+                width: cw as u8,
                 ..Default::default()
             });
+            cur_x += cw;
         }
-        cur_x += match_case.chars().count() as u16 + 2;
+        cur_x += 2;
 
         let whole_word = format!("[{}] {}", if self.find_panel.flags.whole_word { "x" } else { " " }, self.i18n.get("panel.whole_word"));
         let is_ww_focused = self.find_panel.focused_field == PanelField::WholeWord;
-        for (i, c) in whole_word.chars().enumerate() {
-            self.renderer.set_cell(cur_x + i as u16, y, Cell {
+        for c in whole_word.chars() {
+            let cw = c.width().unwrap_or(0) as u16;
+            self.renderer.set_cell(cur_x, y, Cell {
                 ch: c,
                 bg: if is_ww_focused { focused_bg } else { normal_bg },
                 fg: if is_ww_focused { focused_fg } else { normal_fg },
+                width: cw as u8,
                 ..Default::default()
             });
+            cur_x += cw;
         }
-        cur_x += whole_word.chars().count() as u16 + 2;
+        cur_x += 2;
 
         let use_regex = format!("[{}] {}", if self.find_panel.flags.use_regex { "x" } else { " " }, self.i18n.get("panel.use_regex"));
         let is_re_focused = self.find_panel.focused_field == PanelField::Regex;
-        for (i, c) in use_regex.chars().enumerate() {
-            self.renderer.set_cell(cur_x + i as u16, y, Cell {
+        for c in use_regex.chars() {
+            let cw = c.width().unwrap_or(0) as u16;
+            self.renderer.set_cell(cur_x, y, Cell {
                 ch: c,
                 bg: if is_re_focused { focused_bg } else { normal_bg },
                 fg: if is_re_focused { focused_fg } else { normal_fg },
+                width: cw as u8,
                 ..Default::default()
             });
+            cur_x += cw;
         }
     }
 
