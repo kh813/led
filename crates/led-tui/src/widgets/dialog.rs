@@ -21,6 +21,7 @@ pub trait Dialog {
     fn handle_mouse(&mut self, mouse: MouseEvent, x: u16, y: u16, w: u16, h: u16) -> DialogResult<Action>;
     fn set_error(&mut self, _msg: String) {}
     fn cursor_pos(&self) -> Option<(u16, u16)> { None }
+    fn selected_encoding(&self) -> Option<led_core::Encoding> { None }
 }
 
 #[derive(Debug, Clone)]
@@ -60,6 +61,9 @@ pub struct FileBrowser {
     pub selected_idx: usize,
     pub show_hidden: bool,
     pub detect_encoding: bool,
+    pub is_save_mode: bool,
+    pub default_ext: &'static str,
+    pub encoding: led_core::Encoding,
     pub sort_by: SortBy,
     pub sort_order: SortOrder,
     pub input_text: String,
@@ -82,6 +86,9 @@ impl FileBrowser {
             selected_idx: 0,
             show_hidden: false,
             detect_encoding: true,
+            is_save_mode: false,
+            default_ext: ".txt",
+            encoding: led_core::Encoding::Utf8,
             sort_by: SortBy::Name,
             sort_order: SortOrder::Ascending,
             input_text: String::new(),
@@ -96,6 +103,22 @@ impl FileBrowser {
         };
         browser.refresh();
         browser
+    }
+
+    pub fn toggle_ext(&mut self) {
+        if self.default_ext == ".txt" {
+            self.default_ext = ".md";
+            if self.input_text.ends_with(".txt") {
+                self.input_text.truncate(self.input_text.len() - 4);
+                self.input_text.push_str(".md");
+            }
+        } else {
+            self.default_ext = ".txt";
+            if self.input_text.ends_with(".md") {
+                self.input_text.truncate(self.input_text.len() - 3);
+                self.input_text.push_str(".txt");
+            }
+        }
     }
 
     pub fn localize(&mut self, i18n: &led_core::I18n) {
@@ -168,6 +191,31 @@ impl FileBrowser {
     }
 
     pub fn handle_key(&mut self, key: KeyEvent) -> Option<PathBuf> {
+        if key.modifiers == KeyModifiers::ALT {
+            match key.code {
+                KeyCode::Char('h') => {
+                    self.show_hidden = !self.show_hidden;
+                    self.refresh();
+                    return None;
+                }
+                KeyCode::Char('e') => {
+                    if self.is_save_mode {
+                        self.encoding = self.encoding.next();
+                    } else {
+                        self.detect_encoding = !self.detect_encoding;
+                    }
+                    return None;
+                }
+                KeyCode::Char('x') => {
+                    if self.is_save_mode {
+                        self.toggle_ext();
+                    }
+                    return None;
+                }
+                _ => {}
+            }
+        }
+
         if self.input_focused {
             match key.code {
                 KeyCode::Char(c) => {
@@ -179,8 +227,12 @@ impl FileBrowser {
                     return None;
                 }
                 KeyCode::Enter => {
-                    if !self.input_text.is_empty() {
-                        return Some(self.current_dir.join(&self.input_text));
+                    let mut text = self.input_text.trim().to_string();
+                    if !text.is_empty() {
+                        if self.is_save_mode && !text.contains('.') {
+                            text.push_str(self.default_ext);
+                        }
+                        return Some(self.current_dir.join(&text));
                     }
                 }
                 KeyCode::Tab => {
@@ -229,7 +281,11 @@ impl FileBrowser {
                         self.selected_idx = 0;
                         None
                     } else {
-                        Some(path)
+                        let mut name = entry.name.clone();
+                        if self.is_save_mode && !name.contains('.') {
+                            name.push_str(self.default_ext);
+                        }
+                        return Some(self.current_dir.join(&name));
                     }
                 } else {
                     None
@@ -245,15 +301,6 @@ impl FileBrowser {
             }
             KeyCode::Tab => {
                 self.input_focused = true;
-                None
-            }
-            KeyCode::Char('h') if key.modifiers == KeyModifiers::ALT => {
-                self.show_hidden = !self.show_hidden;
-                self.refresh();
-                None
-            }
-            KeyCode::Char('e') if key.modifiers == KeyModifiers::ALT => {
-                self.detect_encoding = !self.detect_encoding;
                 None
             }
             KeyCode::Char(c) if c.is_alphanumeric() => {
@@ -278,20 +325,35 @@ impl FileBrowser {
 
         let (mx, my) = (mouse.column, mouse.row);
 
-        // Options bar (Show Hidden / Detect Encoding)
+        // Options bar (Show Hidden / Detect Encoding or Encoding/Ext)
         if my == y + 2 {
             let hidden_x = x + 2;
-            let hidden_w = 20;
+            let hidden_w = 24;
             if mx >= hidden_x && mx < hidden_x + hidden_w {
                 self.show_hidden = !self.show_hidden;
                 self.refresh();
                 return None;
             }
-            let enc_x = x + 25;
-            let enc_w = 25;
-            if mx >= enc_x && mx < enc_x + enc_w {
-                self.detect_encoding = !self.detect_encoding;
-                return None;
+            if self.is_save_mode {
+                let enc_x = x + 26;
+                let enc_w = 26;
+                if mx >= enc_x && mx < enc_x + enc_w {
+                    self.encoding = self.encoding.next();
+                    return None;
+                }
+                let ext_x = x + 53;
+                let ext_w = 20;
+                if mx >= ext_x && mx < ext_x + ext_w {
+                    self.toggle_ext();
+                    return None;
+                }
+            } else {
+                let enc_x = x + 28;
+                let enc_w = 26;
+                if mx >= enc_x && mx < enc_x + enc_w {
+                    self.detect_encoding = !self.detect_encoding;
+                    return None;
+                }
             }
         }
 
@@ -421,18 +483,41 @@ impl FileBrowser {
         let mut cur_opt_x = x + 2;
         for c in hidden_text.chars() {
             let cw = c.width().unwrap_or(0) as u16;
-            if cur_opt_x + cw < x + 28 {
+            if cur_opt_x + cw < x + 26 {
                 renderer.set_cell(cur_opt_x, y + 2, Cell { ch: c, bg: dialog_bg, fg: dialog_fg, width: cw as u8, ..Default::default() });
                 cur_opt_x += cw;
             }
         }
-        let enc_text = format!("[{}] {}", if self.detect_encoding { "x" } else { " " }, self.i18n_encoding);
-        let mut cur_enc_x = x + 30;
-        for c in enc_text.chars() {
-            let cw = c.width().unwrap_or(0) as u16;
-            if cur_enc_x + cw < x + w - 2 {
-                renderer.set_cell(cur_enc_x, y + 2, Cell { ch: c, bg: dialog_bg, fg: dialog_fg, width: cw as u8, ..Default::default() });
-                cur_enc_x += cw;
+
+        if self.is_save_mode {
+            let enc_text = format!("Enc: [{}] (Alt+E)", self.encoding.name());
+            let mut cur_enc_x = x + 26;
+            for c in enc_text.chars() {
+                let cw = c.width().unwrap_or(0) as u16;
+                if cur_enc_x + cw < x + 52 {
+                    renderer.set_cell(cur_enc_x, y + 2, Cell { ch: c, bg: dialog_bg, fg: dialog_fg, width: cw as u8, ..Default::default() });
+                    cur_enc_x += cw;
+                }
+            }
+
+            let ext_text = format!("Ext: [{}] (Alt+X)", self.default_ext);
+            let mut cur_ext_x = x + 53;
+            for c in ext_text.chars() {
+                let cw = c.width().unwrap_or(0) as u16;
+                if cur_ext_x + cw < x + w - 2 {
+                    renderer.set_cell(cur_ext_x, y + 2, Cell { ch: c, bg: dialog_bg, fg: dialog_fg, width: cw as u8, ..Default::default() });
+                    cur_ext_x += cw;
+                }
+            }
+        } else {
+            let enc_text = format!("[{}] {}", if self.detect_encoding { "x" } else { " " }, self.i18n_encoding);
+            let mut cur_enc_x = x + 28;
+            for c in enc_text.chars() {
+                let cw = c.width().unwrap_or(0) as u16;
+                if cur_enc_x + cw < x + w - 2 {
+                    renderer.set_cell(cur_enc_x, y + 2, Cell { ch: c, bg: dialog_bg, fg: dialog_fg, width: cw as u8, ..Default::default() });
+                    cur_enc_x += cw;
+                }
             }
         }
 
@@ -756,15 +841,22 @@ pub struct SaveAsDialog {
 }
 
 impl SaveAsDialog {
-    pub fn new(current_path: Option<&PathBuf>, i18n: &led_core::I18n) -> Self {
+    pub fn new(current_path: Option<&PathBuf>, default_ext: Option<&str>, encoding: led_core::Encoding, i18n: &led_core::I18n) -> Self {
         let mut browser = FileBrowser::new(
             current_path.and_then(|p| p.parent()).map(|p| p.to_path_buf())
                 .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from("/"))));
         
+        browser.is_save_mode = true;
+        browser.encoding = encoding;
+        let ext = default_ext.unwrap_or(".txt");
+        browser.default_ext = if ext == ".md" { ".md" } else { ".txt" };
+
         if let Some(path) = current_path {
             if let Some(name) = path.file_name() {
                 browser.input_text = name.to_string_lossy().to_string();
             }
+        } else {
+            browser.input_text = format!("untitled{}", browser.default_ext);
         }
         
         browser.input_focused = true;
@@ -835,6 +927,10 @@ impl Dialog for SaveAsDialog {
         } else {
             None
         }
+    }
+
+    fn selected_encoding(&self) -> Option<led_core::Encoding> {
+        Some(self.browser.encoding)
     }
 }
 
@@ -1296,6 +1392,36 @@ mod tests {
         match dialog.handle_key(make_key(KeyCode::Enter)) {
             DialogResult::Ok(Action::ConfirmLine(line)) => assert_eq!(line, 42),
             _ => panic!("Expected Action::ConfirmLine(42)"),
+        }
+    }
+
+    #[test]
+    fn test_save_as_dialog_extension_and_encoding() {
+        let i18n = led_core::I18n::load("en");
+        let mut dialog = SaveAsDialog::new(None, Some(".txt"), led_core::Encoding::Utf8, &i18n);
+
+        assert_eq!(dialog.browser.input_text, "untitled.txt");
+        assert_eq!(dialog.selected_encoding(), Some(led_core::Encoding::Utf8));
+
+        // Toggle extension with Alt+X
+        let mut alt_x = make_key(KeyCode::Char('x'));
+        alt_x.modifiers = KeyModifiers::ALT;
+        dialog.handle_key(alt_x);
+        assert_eq!(dialog.browser.input_text, "untitled.md");
+
+        // Cycle encoding with Alt+E
+        let mut alt_e = make_key(KeyCode::Char('e'));
+        alt_e.modifiers = KeyModifiers::ALT;
+        dialog.handle_key(alt_e);
+        assert_eq!(dialog.selected_encoding(), Some(led_core::Encoding::Utf8Bom));
+
+        // Type filename without extension, Enter should auto-append default extension
+        dialog.browser.input_text = "test_note".to_string();
+        match dialog.handle_key(make_key(KeyCode::Enter)) {
+            DialogResult::Ok(Action::ConfirmPath(path)) => {
+                assert_eq!(path.file_name().unwrap(), "test_note.md");
+            }
+            _ => panic!("Expected Action::ConfirmPath"),
         }
     }
 }

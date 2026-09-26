@@ -54,6 +54,45 @@ pub enum Encoding {
     Latin1,
 }
 
+impl Encoding {
+    pub fn name(&self) -> &'static str {
+        match self {
+            Encoding::Utf8 => "UTF-8",
+            Encoding::Utf8Bom => "UTF-8 BOM",
+            Encoding::Utf16Le => "UTF-16 LE",
+            Encoding::Utf16Be => "UTF-16 BE",
+            Encoding::ShiftJis => "Shift-JIS",
+            Encoding::EucJp => "EUC-JP",
+            Encoding::Iso2022Jp => "ISO-2022-JP",
+            Encoding::Latin1 => "Latin-1",
+        }
+    }
+
+    pub fn next(&self) -> Encoding {
+        match self {
+            Encoding::Utf8 => Encoding::Utf8Bom,
+            Encoding::Utf8Bom => Encoding::Utf16Le,
+            Encoding::Utf16Le => Encoding::Utf16Be,
+            Encoding::Utf16Be => Encoding::ShiftJis,
+            Encoding::ShiftJis => Encoding::EucJp,
+            Encoding::EucJp => Encoding::Iso2022Jp,
+            Encoding::Iso2022Jp => Encoding::Latin1,
+            Encoding::Latin1 => Encoding::Utf8,
+        }
+    }
+
+    pub const ALL: &'static [Encoding] = &[
+        Encoding::Utf8,
+        Encoding::Utf8Bom,
+        Encoding::Utf16Le,
+        Encoding::Utf16Be,
+        Encoding::ShiftJis,
+        Encoding::EucJp,
+        Encoding::Iso2022Jp,
+        Encoding::Latin1,
+    ];
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LineEnding {
     Lf,

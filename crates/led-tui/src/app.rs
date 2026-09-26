@@ -954,10 +954,16 @@ impl App {
                                 }
                             }
                             PendingOp::SaveAs => {
+                                let enc = self.current_dialog.as_ref().and_then(|d| d.selected_encoding());
                                 if path.exists() {
                                     self.focus = Focus::Dialog;
                                     self.pending_op = PendingOp::SaveAs; // Keep op
                                     self.target_path = Some(path.clone());
+                                    if let Some(enc) = enc {
+                                        if let Some(buffer) = self.buffers.get_mut(self.active_buffer) {
+                                            buffer.encoding = enc;
+                                        }
+                                    }
                                     self.current_dialog = Some(Box::new(dialog::MessageDialog::new(
                                         self.i18n.get("dialog.overwrite_prompt").to_string(),
                                         self.i18n.get("dialog.overwrite_prompt").replace("{filename}", &path.file_name().unwrap_or_default().to_string_lossy()),
@@ -969,12 +975,17 @@ impl App {
                                     return;
                                 }
                                 if let Some(buffer) = self.buffers.get_mut(self.active_buffer) {
+                                    if let Some(enc) = enc {
+                                        buffer.encoding = enc;
+                                    }
                                     if let Err(e) = buffer.save_as(&path) {
                                         if let Some(ref mut dialog) = self.current_dialog {
                                             dialog.set_error(format!("Error: {}", e));
                                         }
                                         return;
                                     }
+                                    self.menus = Self::build_menus(&self.i18n, &self.config, Some(buffer), &self.themes, &self.syntax_defs);
+                                    self.layout.recompute(&self.menus, &self.buffers, self.active_buffer, self.config.line_numbers);
                                 }
                             }
                             _ => {}
@@ -1508,8 +1519,18 @@ impl App {
             Action::SaveAs => {
                 self.focus = Focus::Dialog;
                 self.pending_op = PendingOp::SaveAs;
-                let current_path = self.buffers.get(self.active_buffer).and_then(|b| b.path.as_ref());
-                self.current_dialog = Some(Box::new(dialog::SaveAsDialog::new(current_path, &self.i18n)));
+                let buffer = self.buffers.get(self.active_buffer);
+                let current_path = buffer.and_then(|b| b.path.as_ref());
+                let current_enc = buffer.map(|b| b.encoding).unwrap_or(Encoding::Utf8);
+                let default_ext = buffer.and_then(|b| {
+                    if let Some(h) = &b.syntax_highlighter {
+                        if h.def.meta.name.to_lowercase() == "markdown" {
+                            return Some(".md");
+                        }
+                    }
+                    None
+                }).unwrap_or(".txt");
+                self.current_dialog = Some(Box::new(dialog::SaveAsDialog::new(current_path, Some(default_ext), current_enc, &self.i18n)));
             }
             Action::Close => {
                 if let Some(buffer) = self.buffers.get(self.active_buffer) {

@@ -49,11 +49,30 @@ struct FileEntry {
 impl Dialog {
     pub fn new(workspace: Entity<Workspace>, i18n: I18n, dialog_type: DialogType, cx: &mut Context<Self>) -> Self {
         let current_dir = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("/"));
+        let mut input_text = String::new();
+        if matches!(dialog_type, DialogType::SaveAs) {
+            let ws = workspace.read(cx);
+            if let Some(editor) = ws.active_editor() {
+                if let Some(path) = &editor.path {
+                    if let Some(name) = path.file_name() {
+                        input_text = name.to_string_lossy().to_string();
+                    }
+                } else {
+                    let ext = if editor.syntax_highlighter.as_ref().map(|h| h.def.meta.name.to_lowercase()).as_deref() == Some("markdown") {
+                        ".md"
+                    } else {
+                        ".txt"
+                    };
+                    input_text = format!("untitled{}", ext);
+                }
+            }
+        }
+
         let mut this = Self {
             workspace,
             i18n,
             dialog_type,
-            input_text: String::new(),
+            input_text,
             focus_handle: cx.focus_handle(),
             current_dir,
             files: Vec::new(),
@@ -192,7 +211,11 @@ impl Dialog {
                     return;
                 }
 
-                let path = self.current_dir.join(&self.input_text);
+                let mut filename = self.input_text.trim().to_string();
+                if matches!(self.dialog_type, DialogType::SaveAs) && !filename.is_empty() && !filename.contains('.') {
+                    filename.push_str(".txt");
+                }
+                let path = self.current_dir.join(&filename);
                 if matches!(self.dialog_type, DialogType::OpenFile) {
                     self.workspace.update(cx, |w, _| {
                         if let Ok(editor) = led_core::buffer::Editor::from_file(&path) {
