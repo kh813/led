@@ -2110,13 +2110,17 @@ impl App {
             let item_bg = if is_active { active_bg } else { bg };
             let item_fg = if is_active { active_fg } else { fg };
 
-            for (i, c) in label.chars().enumerate() {
-                self.renderer.set_cell(start + i as u16 + 1, y, Cell {
+            let mut cur_l_x = start + 1;
+            for c in label.chars() {
+                let cw = unicode_width::UnicodeWidthChar::width(c).unwrap_or(0);
+                self.renderer.set_cell(cur_l_x, y, Cell {
                     ch: c,
+                    width: cw as u8,
                     bg: item_bg,
                     fg: item_fg,
                     ..Default::default()
                 });
+                cur_l_x += cw as u16;
             }
             // Fill padding
             self.renderer.set_cell(*start, y, Cell { ch: ' ', bg: item_bg, ..Default::default() });
@@ -2128,10 +2132,18 @@ impl App {
         let items = &menu.items;
         let mut max_width = items.iter().map(|item| match item {
             MenuItem::Action { label, shortcut, .. } => {
-                label.chars().count() + shortcut.as_ref().map(|s| s.len() + 2).unwrap_or(0)
+                let lw: usize = label.chars().map(|c| unicode_width::UnicodeWidthChar::width(c).unwrap_or(0)).sum();
+                let sw: usize = shortcut.as_ref().map(|s| s.chars().map(|c| unicode_width::UnicodeWidthChar::width(c).unwrap_or(0)).sum::<usize>() + 2).unwrap_or(0);
+                lw + sw
             }
-            MenuItem::Toggle { label, .. } => label.chars().count() + 4,
-            MenuItem::Submenu { label, .. } => label.chars().count() + 4,
+            MenuItem::Toggle { label, .. } => {
+                let lw: usize = label.chars().map(|c| unicode_width::UnicodeWidthChar::width(c).unwrap_or(0)).sum();
+                lw + 4
+            }
+            MenuItem::Submenu { label, .. } => {
+                let lw: usize = label.chars().map(|c| unicode_width::UnicodeWidthChar::width(c).unwrap_or(0)).sum();
+                lw + 4
+            }
             MenuItem::Separator => 5,
         }).max().unwrap_or(10) as u16;
         max_width += 2; // Padding
@@ -2183,13 +2195,17 @@ impl App {
                 MenuItem::Action { label, shortcut, .. } => {
                     let mut cur_ix = x + 1;
                     for c in label.chars() {
-                        self.renderer.set_cell(cur_ix, iy, Cell { ch: c, bg: item_bg, fg: item_fg, ..Default::default() });
-                        cur_ix += 1;
+                        let cw = unicode_width::UnicodeWidthChar::width(c).unwrap_or(0);
+                        self.renderer.set_cell(cur_ix, iy, Cell { ch: c, width: cw as u8, bg: item_bg, fg: item_fg, ..Default::default() });
+                        cur_ix += cw as u16;
                     }
                     if let Some(s) = shortcut {
-                        let sx = x + max_width - s.len() as u16 - 1;
-                        for (j, c) in s.chars().enumerate() {
-                            self.renderer.set_cell(sx + j as u16, iy, Cell { ch: c, bg: item_bg, fg: item_fg, ..Default::default() });
+                        let sw: u16 = s.chars().map(|c| unicode_width::UnicodeWidthChar::width(c).unwrap_or(0) as u16).sum();
+                        let mut sx = x + max_width - sw - 1;
+                        for c in s.chars() {
+                            let cw = unicode_width::UnicodeWidthChar::width(c).unwrap_or(0);
+                            self.renderer.set_cell(sx, iy, Cell { ch: c, width: cw as u8, bg: item_bg, fg: item_fg, ..Default::default() });
+                            sx += cw as u16;
                         }
                     }
                 }
@@ -2201,15 +2217,17 @@ impl App {
                     };
                     let mut cur_ix = x + 1;
                     for c in prefix.chars().chain(label.chars()) {
-                        self.renderer.set_cell(cur_ix, iy, Cell { ch: c, bg: item_bg, fg: item_fg, ..Default::default() });
-                        cur_ix += 1;
+                        let cw = unicode_width::UnicodeWidthChar::width(c).unwrap_or(0);
+                        self.renderer.set_cell(cur_ix, iy, Cell { ch: c, width: cw as u8, bg: item_bg, fg: item_fg, ..Default::default() });
+                        cur_ix += cw as u16;
                     }
                 }
                 MenuItem::Submenu { label, menu: sub } => {
                     let mut cur_ix = x + 1;
                     for c in label.chars() {
-                        self.renderer.set_cell(cur_ix, iy, Cell { ch: c, bg: item_bg, fg: item_fg, ..Default::default() });
-                        cur_ix += 1;
+                        let cw = unicode_width::UnicodeWidthChar::width(c).unwrap_or(0);
+                        self.renderer.set_cell(cur_ix, iy, Cell { ch: c, width: cw as u8, bg: item_bg, fg: item_fg, ..Default::default() });
+                        cur_ix += cw as u16;
                     }
                     self.renderer.set_cell(x + max_width - 2, iy, Cell { ch: '▶', bg: item_bg, fg: item_fg, ..Default::default() });
 
@@ -2267,7 +2285,7 @@ impl App {
             let modified = if buffer.is_modified() { "[+] " } else { "" };
             let ro = if buffer.read_only { "[RO] " } else { "" };
             let label = format!(" {}{}{} × ", ro, modified, name);
-            let tab_width = label.chars().count() as u16;
+            let tab_width: u16 = label.chars().map(|c| unicode_width::UnicodeWidthChar::width(c).unwrap_or(0) as u16).sum();
 
             // Basic scrolling: just hide tabs that don't fit for now
             if current_tab_x + tab_width + 1 > x + offset_x + display_w {
@@ -2282,14 +2300,18 @@ impl App {
                 ..Default::default()
             });
 
-            for (j, c) in label.chars().enumerate() {
-                self.renderer.set_cell(current_tab_x + 1 + j as u16, y, Cell {
+            let mut cur_tx = current_tab_x + 1;
+            for c in label.chars() {
+                let cw = unicode_width::UnicodeWidthChar::width(c).unwrap_or(0);
+                self.renderer.set_cell(cur_tx, y, Cell {
                     ch: c,
+                    width: cw as u8,
                     bg: tab_bg,
                     fg: tab_fg,
                     bold: is_active,
                     ..Default::default()
                 });
+                cur_tx += cw as u16;
             }
 
             current_tab_x += tab_width + 1;

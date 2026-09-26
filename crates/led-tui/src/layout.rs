@@ -34,7 +34,8 @@ impl Layout {
         let mut current_x = 1;
         for menu in menus {
             let start = current_x;
-            let end = current_x + menu.label.chars().count() as u16 + 2;
+            let label_w: u16 = menu.label.chars().map(|c| unicode_width::UnicodeWidthChar::width(c).unwrap_or(0) as u16).sum();
+            let end = current_x + label_w + 2;
             self.menu_bar_items.push((menu.label.clone(), start, end));
             current_x = end;
         }
@@ -51,7 +52,7 @@ impl Layout {
             let modified = if buffer.is_modified() { "[+] " } else { "" };
             let ro = if buffer.read_only { "[RO] " } else { "" };
             let label = format!(" {}{}{} × ", ro, modified, name);
-            let width = label.chars().count() as u16;
+            let width: u16 = label.chars().map(|c| unicode_width::UnicodeWidthChar::width(c).unwrap_or(0) as u16).sum();
             
             self.tab_rects.push((i, current_tab_x, current_tab_x + width + 1));
             current_tab_x += width + 1;
