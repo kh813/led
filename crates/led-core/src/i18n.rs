@@ -9,15 +9,52 @@ pub struct I18n {
 }
 
 impl I18n {
-    pub fn load(lang: &str) -> Self {
-        let mut strings = if lang == "ja" {
-            Self::get_ja_defaults()
+    pub fn normalize_lang(lang: &str) -> String {
+        let cleaned = lang.split('.').next().unwrap_or(lang).replace('_', "-");
+        let lower = cleaned.to_lowercase();
+        if lower.starts_with("ja") {
+            "ja".to_string()
+        } else if lower.starts_with("zh-tw") || lower.starts_with("zh-hk") || lower.starts_with("zh-hant") {
+            "zh-TW".to_string()
+        } else if lower.starts_with("zh") {
+            "zh-CN".to_string()
+        } else if lower.starts_with("ko") {
+            "ko".to_string()
+        } else if lower.starts_with("es") {
+            "es".to_string()
+        } else if lower.starts_with("fr") {
+            "fr".to_string()
+        } else if lower.starts_with("de") {
+            "de".to_string()
+        } else if lower.starts_with("it") {
+            "it".to_string()
+        } else if lower.starts_with("pt") {
+            "pt".to_string()
+        } else if lower.starts_with("ru") {
+            "ru".to_string()
         } else {
-            Self::get_en_defaults()
+            "en".to_string()
+        }
+    }
+
+    pub fn load(lang: &str) -> Self {
+        let norm = Self::normalize_lang(lang);
+        let mut strings = match norm.as_str() {
+            "ja" => Self::get_ja_defaults(),
+            "zh-CN" => Self::get_zh_cn_defaults(),
+            "zh-TW" => Self::get_zh_tw_defaults(),
+            "ko" => Self::get_ko_defaults(),
+            "es" => Self::get_es_defaults(),
+            "fr" => Self::get_fr_defaults(),
+            "de" => Self::get_de_defaults(),
+            "it" => Self::get_it_defaults(),
+            "pt" => Self::get_pt_defaults(),
+            "ru" => Self::get_ru_defaults(),
+            _ => Self::get_en_defaults(),
         };
         
-        // Always load English as absolute base
-        if lang != "en" {
+        // Always load English as absolute base fallback
+        if norm != "en" {
             let en = Self::get_en_defaults();
             for (k, v) in en {
                 strings.entry(k).or_insert(v);
@@ -246,6 +283,510 @@ impl I18n {
 
         m.insert("about.version".to_string(), "バージョン".to_string());
         m.insert("about.license".to_string(), "ライセンス".to_string());
+        m
+    }
+
+    fn get_zh_cn_defaults() -> HashMap<String, String> {
+        let mut m = HashMap::new();
+        m.insert("menu.file".to_string(), "文件".to_string());
+        m.insert("menu.file.new_tab".to_string(), "新建标签页".to_string());
+        m.insert("menu.file.new_window".to_string(), "新建窗口".to_string());
+        m.insert("menu.file.new".to_string(), "新建".to_string());
+        m.insert("menu.file.open".to_string(), "打开…".to_string());
+        m.insert("menu.file.save".to_string(), "保存".to_string());
+        m.insert("menu.file.save_as".to_string(), "另存为…".to_string());
+        m.insert("menu.file.close".to_string(), "关闭".to_string());
+        m.insert("menu.file.exit".to_string(), "退出".to_string());
+
+        m.insert("menu.edit".to_string(), "编辑".to_string());
+        m.insert("menu.edit.undo".to_string(), "撤销".to_string());
+        m.insert("menu.edit.redo".to_string(), "重做".to_string());
+        m.insert("menu.edit.cut".to_string(), "剪切".to_string());
+        m.insert("menu.edit.copy".to_string(), "复制".to_string());
+        m.insert("menu.edit.paste".to_string(), "粘贴".to_string());
+        m.insert("menu.edit.find".to_string(), "查找…".to_string());
+        m.insert("menu.edit.replace".to_string(), "替换…".to_string());
+        m.insert("menu.edit.select_all".to_string(), "全选".to_string());
+
+        m.insert("menu.view".to_string(), "视图".to_string());
+        m.insert("menu.view.go_to_line".to_string(), "转到行…".to_string());
+        m.insert("menu.view.line_numbers".to_string(), "行号".to_string());
+        m.insert("menu.view.word_wrap".to_string(), "自动换行".to_string());
+        m.insert("menu.view.vi_mode".to_string(), "Vi模式".to_string());
+        m.insert("menu.view.encoding".to_string(), "编码".to_string());
+        m.insert("menu.view.line_ending".to_string(), "换行符".to_string());
+        m.insert("menu.view.theme".to_string(), "主题".to_string());
+        m.insert("menu.view.syntax".to_string(), "语法高亮".to_string());
+
+        m.insert("menu.help".to_string(), "帮助".to_string());
+        m.insert("menu.help.about".to_string(), "关于".to_string());
+
+        m.insert("panel.find".to_string(), "查找:".to_string());
+        m.insert("panel.replace".to_string(), "替换:".to_string());
+        m.insert("panel.prev".to_string(), "上一个".to_string());
+        m.insert("panel.next".to_string(), "下一个".to_string());
+        m.insert("panel.replace_one".to_string(), "替换".to_string());
+        m.insert("panel.replace_all".to_string(), "全部替换".to_string());
+        m.insert("panel.close".to_string(), "关闭".to_string());
+        m.insert("panel.match_case".to_string(), "区分大小写".to_string());
+        m.insert("panel.whole_word".to_string(), "全字匹配".to_string());
+        m.insert("panel.use_regex".to_string(), "正则表达式".to_string());
+
+        m.insert("status.no_name".to_string(), "[无标题]".to_string());
+        m.insert("status.no_matches".to_string(), "未找到匹配项".to_string());
+        m.insert("status.cursor".to_string(), "第 {line} 行, 第 {col} 列".to_string());
+        m.insert("status.selection".to_string(), "已选择 {n} 个字符".to_string());
+
+        m.insert("error".to_string(), "错误".to_string());
+        m.insert("dialog.ok".to_string(), "确定".to_string());
+        m.insert("dialog.cancel".to_string(), "取消".to_string());
+        m.insert("dialog.yes".to_string(), "是".to_string());
+        m.insert("dialog.no".to_string(), "否".to_string());
+        m.insert("dialog.save".to_string(), "保存".to_string());
+        m.insert("dialog.dont_save".to_string(), "不保存".to_string());
+        m.insert("dialog.open_file".to_string(), "打开文件…".to_string());
+        m.insert("dialog.save_as".to_string(), "另存为…".to_string());
+        m.insert("dialog.go_to_line".to_string(), "转到行".to_string());
+        m.insert("dialog.about".to_string(), "关于".to_string());
+        m.insert("dialog.show_hidden".to_string(), "显示隐藏文件".to_string());
+        m.insert("dialog.detect_encoding".to_string(), "自动检测编码".to_string());
+        m.insert("dialog.file_browser.name".to_string(), "名称".to_string());
+        m.insert("dialog.file_browser.size".to_string(), "大小".to_string());
+        m.insert("dialog.file_browser.modified".to_string(), "修改时间".to_string());
+        m.insert("dialog.file_browser.filename".to_string(), "文件名".to_string());
+        m.insert("dialog.settings.title".to_string(), "偏好设置".to_string());
+        m
+    }
+
+    fn get_zh_tw_defaults() -> HashMap<String, String> {
+        let mut m = HashMap::new();
+        m.insert("menu.file".to_string(), "檔案".to_string());
+        m.insert("menu.file.new_tab".to_string(), "新增分頁".to_string());
+        m.insert("menu.file.new_window".to_string(), "開新視窗".to_string());
+        m.insert("menu.file.new".to_string(), "新增".to_string());
+        m.insert("menu.file.open".to_string(), "開啟…".to_string());
+        m.insert("menu.file.save".to_string(), "儲存".to_string());
+        m.insert("menu.file.save_as".to_string(), "另存為…".to_string());
+        m.insert("menu.file.close".to_string(), "關閉".to_string());
+        m.insert("menu.file.exit".to_string(), "結束".to_string());
+
+        m.insert("menu.edit".to_string(), "編輯".to_string());
+        m.insert("menu.edit.undo".to_string(), "復原".to_string());
+        m.insert("menu.edit.redo".to_string(), "重做".to_string());
+        m.insert("menu.edit.cut".to_string(), "剪下".to_string());
+        m.insert("menu.edit.copy".to_string(), "複製".to_string());
+        m.insert("menu.edit.paste".to_string(), "貼上".to_string());
+        m.insert("menu.edit.find".to_string(), "尋找…".to_string());
+        m.insert("menu.edit.replace".to_string(), "取代…".to_string());
+        m.insert("menu.edit.select_all".to_string(), "全選".to_string());
+
+        m.insert("menu.view".to_string(), "檢視".to_string());
+        m.insert("menu.view.go_to_line".to_string(), "移至行…".to_string());
+        m.insert("menu.view.line_numbers".to_string(), "行號".to_string());
+        m.insert("menu.view.word_wrap".to_string(), "自動換行".to_string());
+        m.insert("menu.view.vi_mode".to_string(), "Vi模式".to_string());
+        m.insert("menu.view.encoding".to_string(), "編碼".to_string());
+        m.insert("menu.view.line_ending".to_string(), "換行字元".to_string());
+        m.insert("menu.view.theme".to_string(), "主題".to_string());
+        m.insert("menu.view.syntax".to_string(), "語法標示".to_string());
+
+        m.insert("menu.help".to_string(), "說明".to_string());
+        m.insert("menu.help.about".to_string(), "關於".to_string());
+
+        m.insert("panel.find".to_string(), "尋找:".to_string());
+        m.insert("panel.replace".to_string(), "取代:".to_string());
+        m.insert("panel.prev".to_string(), "上一個".to_string());
+        m.insert("panel.next".to_string(), "下一個".to_string());
+        m.insert("panel.replace_one".to_string(), "取代".to_string());
+        m.insert("panel.replace_all".to_string(), "全部取代".to_string());
+        m.insert("panel.close".to_string(), "關閉".to_string());
+
+        m.insert("status.no_name".to_string(), "[未命名]".to_string());
+        m.insert("status.cursor".to_string(), "第 {line} 行, 第 {col} 欄".to_string());
+        m.insert("dialog.ok".to_string(), "確定".to_string());
+        m.insert("dialog.cancel".to_string(), "取消".to_string());
+        m.insert("dialog.save".to_string(), "儲存".to_string());
+        m.insert("dialog.dont_save".to_string(), "不儲存".to_string());
+        m.insert("dialog.open_file".to_string(), "開啟檔案…".to_string());
+        m.insert("dialog.save_as".to_string(), "另存為…".to_string());
+        m.insert("dialog.go_to_line".to_string(), "移至行".to_string());
+        m.insert("dialog.file_browser.filename".to_string(), "檔案名稱".to_string());
+        m.insert("dialog.settings.title".to_string(), "偏好設定".to_string());
+        m
+    }
+
+    fn get_ko_defaults() -> HashMap<String, String> {
+        let mut m = HashMap::new();
+        m.insert("menu.file".to_string(), "파일".to_string());
+        m.insert("menu.file.new_tab".to_string(), "새 탭".to_string());
+        m.insert("menu.file.new_window".to_string(), "새 창".to_string());
+        m.insert("menu.file.new".to_string(), "새로 만들기".to_string());
+        m.insert("menu.file.open".to_string(), "열기…".to_string());
+        m.insert("menu.file.save".to_string(), "저장".to_string());
+        m.insert("menu.file.save_as".to_string(), "다른 이름으로 저장…".to_string());
+        m.insert("menu.file.close".to_string(), "닫기".to_string());
+        m.insert("menu.file.exit".to_string(), "종료".to_string());
+
+        m.insert("menu.edit".to_string(), "편집".to_string());
+        m.insert("menu.edit.undo".to_string(), "실행 취소".to_string());
+        m.insert("menu.edit.redo".to_string(), "다시 실행".to_string());
+        m.insert("menu.edit.cut".to_string(), "잘라내기".to_string());
+        m.insert("menu.edit.copy".to_string(), "복사".to_string());
+        m.insert("menu.edit.paste".to_string(), "붙여넣기".to_string());
+        m.insert("menu.edit.find".to_string(), "찾기…".to_string());
+        m.insert("menu.edit.replace".to_string(), "바꾸기…".to_string());
+        m.insert("menu.edit.select_all".to_string(), "모두 선택".to_string());
+
+        m.insert("menu.view".to_string(), "보기".to_string());
+        m.insert("menu.view.go_to_line".to_string(), "줄로 이동…".to_string());
+        m.insert("menu.view.line_numbers".to_string(), "줄 번호".to_string());
+        m.insert("menu.view.word_wrap".to_string(), "자동 줄 바꿈".to_string());
+        m.insert("menu.view.vi_mode".to_string(), "Vi 모드".to_string());
+        m.insert("menu.view.encoding".to_string(), "인코딩".to_string());
+        m.insert("menu.view.line_ending".to_string(), "줄 바꿈".to_string());
+        m.insert("menu.view.theme".to_string(), "테마".to_string());
+        m.insert("menu.view.syntax".to_string(), "구문 강조".to_string());
+
+        m.insert("menu.help".to_string(), "도움말".to_string());
+        m.insert("menu.help.about".to_string(), "정보".to_string());
+
+        m.insert("panel.find".to_string(), "찾기:".to_string());
+        m.insert("panel.replace".to_string(), "바꾸기:".to_string());
+        m.insert("panel.prev".to_string(), "이전".to_string());
+        m.insert("panel.next".to_string(), "다음".to_string());
+        m.insert("panel.replace_one".to_string(), "바꾸기".to_string());
+        m.insert("panel.replace_all".to_string(), "모두 바꾸기".to_string());
+        m.insert("panel.close".to_string(), "닫기".to_string());
+
+        m.insert("status.no_name".to_string(), "[제목 없음]".to_string());
+        m.insert("status.cursor".to_string(), "{line}행, {col}열".to_string());
+        m.insert("dialog.ok".to_string(), "확인".to_string());
+        m.insert("dialog.cancel".to_string(), "취소".to_string());
+        m.insert("dialog.save".to_string(), "저장".to_string());
+        m.insert("dialog.dont_save".to_string(), "저장 안 함".to_string());
+        m.insert("dialog.open_file".to_string(), "파일 열기…".to_string());
+        m.insert("dialog.save_as".to_string(), "다른 이름으로 저장…".to_string());
+        m.insert("dialog.go_to_line".to_string(), "줄로 이동".to_string());
+        m.insert("dialog.file_browser.filename".to_string(), "파일 이름".to_string());
+        m.insert("dialog.settings.title".to_string(), "환경설정".to_string());
+        m
+    }
+
+    fn get_es_defaults() -> HashMap<String, String> {
+        let mut m = HashMap::new();
+        m.insert("menu.file".to_string(), "Archivo".to_string());
+        m.insert("menu.file.new_tab".to_string(), "Nueva pestaña".to_string());
+        m.insert("menu.file.new_window".to_string(), "Nueva ventana".to_string());
+        m.insert("menu.file.new".to_string(), "Nuevo".to_string());
+        m.insert("menu.file.open".to_string(), "Abrir…".to_string());
+        m.insert("menu.file.save".to_string(), "Guardar".to_string());
+        m.insert("menu.file.save_as".to_string(), "Guardar como…".to_string());
+        m.insert("menu.file.close".to_string(), "Cerrar".to_string());
+        m.insert("menu.file.exit".to_string(), "Salir".to_string());
+
+        m.insert("menu.edit".to_string(), "Editar".to_string());
+        m.insert("menu.edit.undo".to_string(), "Deshacer".to_string());
+        m.insert("menu.edit.redo".to_string(), "Rehacer".to_string());
+        m.insert("menu.edit.cut".to_string(), "Cortar".to_string());
+        m.insert("menu.edit.copy".to_string(), "Copiar".to_string());
+        m.insert("menu.edit.paste".to_string(), "Pegar".to_string());
+        m.insert("menu.edit.find".to_string(), "Buscar…".to_string());
+        m.insert("menu.edit.replace".to_string(), "Reemplazar…".to_string());
+        m.insert("menu.edit.select_all".to_string(), "Seleccionar todo".to_string());
+
+        m.insert("menu.view".to_string(), "Ver".to_string());
+        m.insert("menu.view.go_to_line".to_string(), "Ir a la línea…".to_string());
+        m.insert("menu.view.line_numbers".to_string(), "Números de línea".to_string());
+        m.insert("menu.view.word_wrap".to_string(), "Ajuste de línea".to_string());
+        m.insert("menu.view.vi_mode".to_string(), "Modo Vi".to_string());
+        m.insert("menu.view.encoding".to_string(), "Codificación".to_string());
+        m.insert("menu.view.line_ending".to_string(), "Fin de línea".to_string());
+        m.insert("menu.view.theme".to_string(), "Tema".to_string());
+        m.insert("menu.view.syntax".to_string(), "Sintaxis".to_string());
+
+        m.insert("menu.help".to_string(), "Ayuda".to_string());
+        m.insert("menu.help.about".to_string(), "Acerca de".to_string());
+
+        m.insert("panel.find".to_string(), "Buscar:".to_string());
+        m.insert("panel.replace".to_string(), "Reemplazar:".to_string());
+        m.insert("panel.prev".to_string(), "Anterior".to_string());
+        m.insert("panel.next".to_string(), "Siguiente".to_string());
+        m.insert("panel.replace_one".to_string(), "Reemplazar".to_string());
+        m.insert("panel.replace_all".to_string(), "Reemplazar todo".to_string());
+        m.insert("panel.close".to_string(), "Cerrar".to_string());
+
+        m.insert("status.no_name".to_string(), "[Sin nombre]".to_string());
+        m.insert("status.cursor".to_string(), "Lín {line}, Col {col}".to_string());
+        m.insert("dialog.ok".to_string(), "Aceptar".to_string());
+        m.insert("dialog.cancel".to_string(), "Cancelar".to_string());
+        m.insert("dialog.save".to_string(), "Guardar".to_string());
+        m.insert("dialog.dont_save".to_string(), "No guardar".to_string());
+        m.insert("dialog.open_file".to_string(), "Abrir archivo…".to_string());
+        m.insert("dialog.save_as".to_string(), "Guardar como…".to_string());
+        m.insert("dialog.file_browser.filename".to_string(), "Nombre de archivo".to_string());
+        m.insert("dialog.settings.title".to_string(), "Preferencias".to_string());
+        m
+    }
+
+    fn get_fr_defaults() -> HashMap<String, String> {
+        let mut m = HashMap::new();
+        m.insert("menu.file".to_string(), "Fichier".to_string());
+        m.insert("menu.file.new_tab".to_string(), "Nouvel onglet".to_string());
+        m.insert("menu.file.new_window".to_string(), "Nouvelle fenêtre".to_string());
+        m.insert("menu.file.new".to_string(), "Nouveau".to_string());
+        m.insert("menu.file.open".to_string(), "Ouvrir…".to_string());
+        m.insert("menu.file.save".to_string(), "Enregistrer".to_string());
+        m.insert("menu.file.save_as".to_string(), "Enregistrer sous…".to_string());
+        m.insert("menu.file.close".to_string(), "Fermer".to_string());
+        m.insert("menu.file.exit".to_string(), "Quitter".to_string());
+
+        m.insert("menu.edit".to_string(), "Édition".to_string());
+        m.insert("menu.edit.undo".to_string(), "Annuler".to_string());
+        m.insert("menu.edit.redo".to_string(), "Rétablir".to_string());
+        m.insert("menu.edit.cut".to_string(), "Couper".to_string());
+        m.insert("menu.edit.copy".to_string(), "Copier".to_string());
+        m.insert("menu.edit.paste".to_string(), "Coller".to_string());
+        m.insert("menu.edit.find".to_string(), "Rechercher…".to_string());
+        m.insert("menu.edit.replace".to_string(), "Remplacer…".to_string());
+        m.insert("menu.edit.select_all".to_string(), "Tout sélectionner".to_string());
+
+        m.insert("menu.view".to_string(), "Affichage".to_string());
+        m.insert("menu.view.go_to_line".to_string(), "Aller à la ligne…".to_string());
+        m.insert("menu.view.line_numbers".to_string(), "Numéros de ligne".to_string());
+        m.insert("menu.view.word_wrap".to_string(), "Retour à la ligne".to_string());
+        m.insert("menu.view.vi_mode".to_string(), "Mode Vi".to_string());
+        m.insert("menu.view.encoding".to_string(), "Encodage".to_string());
+        m.insert("menu.view.line_ending".to_string(), "Fin de ligne".to_string());
+        m.insert("menu.view.theme".to_string(), "Thème".to_string());
+        m.insert("menu.view.syntax".to_string(), "Syntaxe".to_string());
+
+        m.insert("menu.help".to_string(), "Aide".to_string());
+        m.insert("menu.help.about".to_string(), "À propos".to_string());
+
+        m.insert("panel.find".to_string(), "Rechercher:".to_string());
+        m.insert("panel.replace".to_string(), "Remplacer:".to_string());
+        m.insert("panel.prev".to_string(), "Précédent".to_string());
+        m.insert("panel.next".to_string(), "Suivant".to_string());
+        m.insert("panel.replace_one".to_string(), "Remplacer".to_string());
+        m.insert("panel.replace_all".to_string(), "Tout remplacer".to_string());
+        m.insert("panel.close".to_string(), "Fermer".to_string());
+
+        m.insert("status.no_name".to_string(), "[Sans titre]".to_string());
+        m.insert("status.cursor".to_string(), "Lig {line}, Col {col}".to_string());
+        m.insert("dialog.ok".to_string(), "OK".to_string());
+        m.insert("dialog.cancel".to_string(), "Annuler".to_string());
+        m.insert("dialog.save".to_string(), "Enregistrer".to_string());
+        m.insert("dialog.dont_save".to_string(), "Ne pas enregistrer".to_string());
+        m.insert("dialog.open_file".to_string(), "Ouvrir un fichier…".to_string());
+        m.insert("dialog.save_as".to_string(), "Enregistrer sous…".to_string());
+        m.insert("dialog.file_browser.filename".to_string(), "Nom de fichier".to_string());
+        m.insert("dialog.settings.title".to_string(), "Préférences".to_string());
+        m
+    }
+
+    fn get_de_defaults() -> HashMap<String, String> {
+        let mut m = HashMap::new();
+        m.insert("menu.file".to_string(), "Datei".to_string());
+        m.insert("menu.file.new_tab".to_string(), "Neuer Tab".to_string());
+        m.insert("menu.file.new_window".to_string(), "Neues Fenster".to_string());
+        m.insert("menu.file.new".to_string(), "Neu".to_string());
+        m.insert("menu.file.open".to_string(), "Öffnen…".to_string());
+        m.insert("menu.file.save".to_string(), "Speichern".to_string());
+        m.insert("menu.file.save_as".to_string(), "Speichern unter…".to_string());
+        m.insert("menu.file.close".to_string(), "Schließen".to_string());
+        m.insert("menu.file.exit".to_string(), "Beenden".to_string());
+
+        m.insert("menu.edit".to_string(), "Bearbeiten".to_string());
+        m.insert("menu.edit.undo".to_string(), "Rückgängig".to_string());
+        m.insert("menu.edit.redo".to_string(), "Wiederholen".to_string());
+        m.insert("menu.edit.cut".to_string(), "Ausschneiden".to_string());
+        m.insert("menu.edit.copy".to_string(), "Kopieren".to_string());
+        m.insert("menu.edit.paste".to_string(), "Einfügen".to_string());
+        m.insert("menu.edit.find".to_string(), "Suchen…".to_string());
+        m.insert("menu.edit.replace".to_string(), "Ersetzen…".to_string());
+        m.insert("menu.edit.select_all".to_string(), "Alles auswählen".to_string());
+
+        m.insert("menu.view".to_string(), "Ansicht".to_string());
+        m.insert("menu.view.go_to_line".to_string(), "Gehe zu Zeile…".to_string());
+        m.insert("menu.view.line_numbers".to_string(), "Zeilennummern".to_string());
+        m.insert("menu.view.word_wrap".to_string(), "Zeilenumbruch".to_string());
+        m.insert("menu.view.vi_mode".to_string(), "Vi-Modus".to_string());
+        m.insert("menu.view.encoding".to_string(), "Kodierung".to_string());
+        m.insert("menu.view.line_ending".to_string(), "Zeilenende".to_string());
+        m.insert("menu.view.theme".to_string(), "Design".to_string());
+        m.insert("menu.view.syntax".to_string(), "Syntax".to_string());
+
+        m.insert("menu.help".to_string(), "Hilfe".to_string());
+        m.insert("menu.help.about".to_string(), "Über".to_string());
+
+        m.insert("panel.find".to_string(), "Suchen:".to_string());
+        m.insert("panel.replace".to_string(), "Ersetzen:".to_string());
+        m.insert("panel.prev".to_string(), "Vorherige".to_string());
+        m.insert("panel.next".to_string(), "Nächste".to_string());
+        m.insert("panel.replace_one".to_string(), "Ersetzen".to_string());
+        m.insert("panel.replace_all".to_string(), "Alle ersetzen".to_string());
+        m.insert("panel.close".to_string(), "Schließen".to_string());
+
+        m.insert("status.no_name".to_string(), "[Unbenannt]".to_string());
+        m.insert("status.cursor".to_string(), "Zl {line}, Sp {col}".to_string());
+        m.insert("dialog.ok".to_string(), "OK".to_string());
+        m.insert("dialog.cancel".to_string(), "Abbrechen".to_string());
+        m.insert("dialog.save".to_string(), "Speichern".to_string());
+        m.insert("dialog.dont_save".to_string(), "Nicht speichern".to_string());
+        m.insert("dialog.open_file".to_string(), "Datei öffnen…".to_string());
+        m.insert("dialog.save_as".to_string(), "Speichern unter…".to_string());
+        m.insert("dialog.file_browser.filename".to_string(), "Dateiname".to_string());
+        m.insert("dialog.settings.title".to_string(), "Einstellungen".to_string());
+        m
+    }
+
+    fn get_it_defaults() -> HashMap<String, String> {
+        let mut m = HashMap::new();
+        m.insert("menu.file".to_string(), "File".to_string());
+        m.insert("menu.file.new_tab".to_string(), "Nuova scheda".to_string());
+        m.insert("menu.file.new_window".to_string(), "Nuova finestra".to_string());
+        m.insert("menu.file.new".to_string(), "Nuovo".to_string());
+        m.insert("menu.file.open".to_string(), "Apri…".to_string());
+        m.insert("menu.file.save".to_string(), "Salva".to_string());
+        m.insert("menu.file.save_as".to_string(), "Salva con nome…".to_string());
+        m.insert("menu.file.close".to_string(), "Chiudi".to_string());
+        m.insert("menu.file.exit".to_string(), "Esci".to_string());
+
+        m.insert("menu.edit".to_string(), "Modifica".to_string());
+        m.insert("menu.edit.undo".to_string(), "Annulla".to_string());
+        m.insert("menu.edit.redo".to_string(), "Ripeti".to_string());
+        m.insert("menu.edit.cut".to_string(), "Taglia".to_string());
+        m.insert("menu.edit.copy".to_string(), "Copia".to_string());
+        m.insert("menu.edit.paste".to_string(), "Incolla".to_string());
+        m.insert("menu.edit.find".to_string(), "Trova…".to_string());
+        m.insert("menu.edit.replace".to_string(), "Sostituisci…".to_string());
+        m.insert("menu.edit.select_all".to_string(), "Seleziona tutto".to_string());
+
+        m.insert("menu.view".to_string(), "Visualizza".to_string());
+        m.insert("menu.view.go_to_line".to_string(), "Vai alla riga…".to_string());
+        m.insert("menu.view.line_numbers".to_string(), "Numeri di riga".to_string());
+        m.insert("menu.view.word_wrap".to_string(), "A capo automatico".to_string());
+        m.insert("menu.view.vi_mode".to_string(), "Modalità Vi".to_string());
+        m.insert("menu.view.encoding".to_string(), "Codifica".to_string());
+        m.insert("menu.view.line_ending".to_string(), "Fine riga".to_string());
+        m.insert("menu.view.theme".to_string(), "Tema".to_string());
+        m.insert("menu.view.syntax".to_string(), "Sintassi".to_string());
+
+        m.insert("menu.help".to_string(), "Aiuto".to_string());
+        m.insert("menu.help.about".to_string(), "Informazioni".to_string());
+
+        m.insert("status.no_name".to_string(), "[Senza titolo]".to_string());
+        m.insert("dialog.ok".to_string(), "OK".to_string());
+        m.insert("dialog.cancel".to_string(), "Annulla".to_string());
+        m.insert("dialog.save".to_string(), "Salva".to_string());
+        m.insert("dialog.dont_save".to_string(), "Non salvare".to_string());
+        m.insert("dialog.open_file".to_string(), "Apri file…".to_string());
+        m.insert("dialog.save_as".to_string(), "Salva con nome…".to_string());
+        m.insert("dialog.file_browser.filename".to_string(), "Nome file".to_string());
+        m.insert("dialog.settings.title".to_string(), "Preferenze".to_string());
+        m
+    }
+
+    fn get_pt_defaults() -> HashMap<String, String> {
+        let mut m = HashMap::new();
+        m.insert("menu.file".to_string(), "Arquivo".to_string());
+        m.insert("menu.file.new_tab".to_string(), "Nova aba".to_string());
+        m.insert("menu.file.new_window".to_string(), "Nova janela".to_string());
+        m.insert("menu.file.new".to_string(), "Novo".to_string());
+        m.insert("menu.file.open".to_string(), "Abrir…".to_string());
+        m.insert("menu.file.save".to_string(), "Salvar".to_string());
+        m.insert("menu.file.save_as".to_string(), "Salvar como…".to_string());
+        m.insert("menu.file.close".to_string(), "Fechar".to_string());
+        m.insert("menu.file.exit".to_string(), "Sair".to_string());
+
+        m.insert("menu.edit".to_string(), "Editar".to_string());
+        m.insert("menu.edit.undo".to_string(), "Desfazer".to_string());
+        m.insert("menu.edit.redo".to_string(), "Refazer".to_string());
+        m.insert("menu.edit.cut".to_string(), "Recortar".to_string());
+        m.insert("menu.edit.copy".to_string(), "Copiar".to_string());
+        m.insert("menu.edit.paste".to_string(), "Colar".to_string());
+        m.insert("menu.edit.find".to_string(), "Localizar…".to_string());
+        m.insert("menu.edit.replace".to_string(), "Substituir…".to_string());
+        m.insert("menu.edit.select_all".to_string(), "Selecionar tudo".to_string());
+
+        m.insert("menu.view".to_string(), "Exibir".to_string());
+        m.insert("menu.view.go_to_line".to_string(), "Ir para linha…".to_string());
+        m.insert("menu.view.line_numbers".to_string(), "Números de linha".to_string());
+        m.insert("menu.view.word_wrap".to_string(), "Quebra de linha".to_string());
+        m.insert("menu.view.vi_mode".to_string(), "Modo Vi".to_string());
+        m.insert("menu.view.encoding".to_string(), "Codificação".to_string());
+        m.insert("menu.view.line_ending".to_string(), "Fim de linha".to_string());
+        m.insert("menu.view.theme".to_string(), "Tema".to_string());
+        m.insert("menu.view.syntax".to_string(), "Sintaxe".to_string());
+
+        m.insert("menu.help".to_string(), "Ajuda".to_string());
+        m.insert("menu.help.about".to_string(), "Sobre".to_string());
+
+        m.insert("status.no_name".to_string(), "[Sem título]".to_string());
+        m.insert("dialog.ok".to_string(), "OK".to_string());
+        m.insert("dialog.cancel".to_string(), "Cancelar".to_string());
+        m.insert("dialog.save".to_string(), "Salvar".to_string());
+        m.insert("dialog.dont_save".to_string(), "Não salvar".to_string());
+        m.insert("dialog.open_file".to_string(), "Abrir arquivo…".to_string());
+        m.insert("dialog.save_as".to_string(), "Salvar como…".to_string());
+        m.insert("dialog.file_browser.filename".to_string(), "Nome do arquivo".to_string());
+        m.insert("dialog.settings.title".to_string(), "Preferências".to_string());
+        m
+    }
+
+    fn get_ru_defaults() -> HashMap<String, String> {
+        let mut m = HashMap::new();
+        m.insert("menu.file".to_string(), "Файл".to_string());
+        m.insert("menu.file.new_tab".to_string(), "Новая вкладка".to_string());
+        m.insert("menu.file.new_window".to_string(), "Новое окно".to_string());
+        m.insert("menu.file.new".to_string(), "Создать".to_string());
+        m.insert("menu.file.open".to_string(), "Открыть…".to_string());
+        m.insert("menu.file.save".to_string(), "Сохранить".to_string());
+        m.insert("menu.file.save_as".to_string(), "Сохранить как…".to_string());
+        m.insert("menu.file.close".to_string(), "Закрыть".to_string());
+        m.insert("menu.file.exit".to_string(), "Выход".to_string());
+
+        m.insert("menu.edit".to_string(), "Правка".to_string());
+        m.insert("menu.edit.undo".to_string(), "Отменить".to_string());
+        m.insert("menu.edit.redo".to_string(), "Повторить".to_string());
+        m.insert("menu.edit.cut".to_string(), "Вырезать".to_string());
+        m.insert("menu.edit.copy".to_string(), "Копировать".to_string());
+        m.insert("menu.edit.paste".to_string(), "Вставить".to_string());
+        m.insert("menu.edit.find".to_string(), "Найти…".to_string());
+        m.insert("menu.edit.replace".to_string(), "Заменить…".to_string());
+        m.insert("menu.edit.select_all".to_string(), "Выделить все".to_string());
+
+        m.insert("menu.view".to_string(), "Вид".to_string());
+        m.insert("menu.view.go_to_line".to_string(), "Перейти к строке…".to_string());
+        m.insert("menu.view.line_numbers".to_string(), "Номера строк".to_string());
+        m.insert("menu.view.word_wrap".to_string(), "Перенос строк".to_string());
+        m.insert("menu.view.vi_mode".to_string(), "Режим Vi".to_string());
+        m.insert("menu.view.encoding".to_string(), "Кодировка".to_string());
+        m.insert("menu.view.line_ending".to_string(), "Конец строки".to_string());
+        m.insert("menu.view.theme".to_string(), "Тема".to_string());
+        m.insert("menu.view.syntax".to_string(), "Синтаксис".to_string());
+
+        m.insert("menu.help".to_string(), "Справка".to_string());
+        m.insert("menu.help.about".to_string(), "О программе".to_string());
+
+        m.insert("panel.find".to_string(), "Найти:".to_string());
+        m.insert("panel.replace".to_string(), "Заменить:".to_string());
+        m.insert("panel.prev".to_string(), "Назад".to_string());
+        m.insert("panel.next".to_string(), "Далее".to_string());
+        m.insert("panel.replace_one".to_string(), "Заменить".to_string());
+        m.insert("panel.replace_all".to_string(), "Заменить все".to_string());
+        m.insert("panel.close".to_string(), "Закрыть".to_string());
+
+        m.insert("status.no_name".to_string(), "[Без имени]".to_string());
+        m.insert("status.cursor".to_string(), "Стр {line}, Кол {col}".to_string());
+        m.insert("dialog.ok".to_string(), "OK".to_string());
+        m.insert("dialog.cancel".to_string(), "Отмена".to_string());
+        m.insert("dialog.save".to_string(), "Сохранить".to_string());
+        m.insert("dialog.dont_save".to_string(), "Не сохранять".to_string());
+        m.insert("dialog.open_file".to_string(), "Открыть файл…".to_string());
+        m.insert("dialog.save_as".to_string(), "Сохранить как…".to_string());
+        m.insert("dialog.file_browser.filename".to_string(), "Имя файла".to_string());
+        m.insert("dialog.settings.title".to_string(), "Настройки".to_string());
         m
     }
 

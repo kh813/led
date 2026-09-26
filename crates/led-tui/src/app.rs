@@ -1989,9 +1989,9 @@ impl App {
         self.renderer.present(stdout)?;
 
         // Move terminal cursor to the logical cursor position for IME
-        if self.current_dialog.is_none() && self.active_menu.is_none() {
+        if self.active_menu.is_none() {
             // Hardware cursor for focused editor
-            if self.focus == Focus::Editor {
+            if self.focus == Focus::Editor && self.current_dialog.is_none() {
                 let (ex, ey, ew, eh) = self.layout.editor_bounds();
                 let buffer = &self.buffers[self.active_buffer];
                 let (line, col) = buffer.char_to_line_col(buffer.cursor);
@@ -2023,23 +2023,38 @@ impl App {
                 } else {
                     execute!(stdout, cursor::Hide)?;
                 }
-            } else if self.focus == Focus::Panel {
+            } else if self.focus == Focus::Panel && self.current_dialog.is_none() {
                 // Focus hardware cursor on find panel input
                 let (px, py, _pw, _ph) = self.layout.panel_bounds();
+                let find_label = format!("{}    ", self.i18n.get("panel.find"));
+                let find_label_w = find_label.chars().map(|c| c.width().unwrap_or(0)).sum::<usize>() as u16;
+                let input_x = px + find_label_w + 1;
                 let cursor_x = match self.find_panel.focused_field {
-                    PanelField::FindInput => px + 9 + self.find_panel.find_text.chars().count() as u16,
-                    PanelField::ReplaceInput => px + 9 + self.find_panel.replace_text.chars().count() as u16,
+                    PanelField::FindInput => {
+                        let text_w: usize = self.find_panel.find_text.chars().map(|c| c.width().unwrap_or(0)).sum();
+                        input_x + text_w as u16
+                    },
+                    PanelField::ReplaceInput => {
+                        let text_w: usize = self.find_panel.replace_text.chars().map(|c| c.width().unwrap_or(0)).sum();
+                        input_x + text_w as u16
+                    },
                     _ => 0,
                 };
+                let cursor_y = match self.find_panel.focused_field {
+                    PanelField::ReplaceInput => py + 1,
+                    _ => py,
+                };
                 if cursor_x > 0 {
-                    execute!(stdout, cursor::Show, cursor::MoveTo(cursor_x, py))?;
+                    execute!(stdout, cursor::Show, cursor::MoveTo(cursor_x, cursor_y))?;
                 } else {
                     execute!(stdout, cursor::Hide)?;
                 }
-            } else if self.focus == Focus::Dialog {
+            } else if self.focus == Focus::Dialog || self.current_dialog.is_some() {
                 if let Some(ref dialog) = self.current_dialog {
                     if let Some((dx, dy)) = dialog.cursor_pos() {
-                        let (x, y, _w, _h) = self.layout.dialog_bounds(dialog.dimensions());
+                        let (dw, dh) = dialog.dimensions();
+                        let x = (self.width.saturating_sub(dw)) / 2;
+                        let y = (self.height.saturating_sub(dh)) / 2;
                         execute!(stdout, cursor::Show, cursor::MoveTo(x + dx, y + dy))?;
                     } else {
                         execute!(stdout, cursor::Hide)?;

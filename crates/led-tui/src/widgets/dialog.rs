@@ -418,12 +418,22 @@ impl FileBrowser {
 
         // Options bar
         let hidden_text = format!("[{}] {}", if self.show_hidden { "x" } else { " " }, self.i18n_hidden);
-        for (i, c) in hidden_text.chars().enumerate() {
-            renderer.set_cell(x + 2 + i as u16, y + 2, Cell { ch: c, bg: dialog_bg, fg: dialog_fg, ..Default::default() });
+        let mut cur_opt_x = x + 2;
+        for c in hidden_text.chars() {
+            let cw = c.width().unwrap_or(0) as u16;
+            if cur_opt_x + cw < x + 28 {
+                renderer.set_cell(cur_opt_x, y + 2, Cell { ch: c, bg: dialog_bg, fg: dialog_fg, width: cw as u8, ..Default::default() });
+                cur_opt_x += cw;
+            }
         }
         let enc_text = format!("[{}] {}", if self.detect_encoding { "x" } else { " " }, self.i18n_encoding);
-        for (i, c) in enc_text.chars().enumerate() {
-            renderer.set_cell(x + 30 + i as u16, y + 2, Cell { ch: c, bg: dialog_bg, fg: dialog_fg, ..Default::default() });
+        let mut cur_enc_x = x + 30;
+        for c in enc_text.chars() {
+            let cw = c.width().unwrap_or(0) as u16;
+            if cur_enc_x + cw < x + w - 2 {
+                renderer.set_cell(cur_enc_x, y + 2, Cell { ch: c, bg: dialog_bg, fg: dialog_fg, width: cw as u8, ..Default::default() });
+                cur_enc_x += cw;
+            }
         }
 
         // Quick-nav bar
@@ -433,8 +443,9 @@ impl FileBrowser {
         for nav in navs {
             let nav_str = format!(" {} ", nav);
             for c in nav_str.chars() {
-                renderer.set_cell(nx, ny, Cell { ch: c, bg: to_ct_color(theme.ui.status_bar_bg, theme), fg: to_ct_color(theme.ui.status_bar_fg, theme), ..Default::default() });
-                nx += 1;
+                let cw = c.width().unwrap_or(0) as u16;
+                renderer.set_cell(nx, ny, Cell { ch: c, bg: to_ct_color(theme.ui.status_bar_bg, theme), fg: to_ct_color(theme.ui.status_bar_fg, theme), width: cw as u8, ..Default::default() });
+                nx += cw;
             }
             nx += 1;
         }
@@ -448,14 +459,29 @@ impl FileBrowser {
         let size_head = format!("{}{}", self.i18n_size, size_indicator);
         let mod_head = format!("{}{}", self.i18n_modified, mod_indicator);
 
-        for (i, c) in name_head.chars().enumerate() {
-            renderer.set_cell(x + 2 + i as u16, y + 4, Cell { ch: c, bg: dialog_bg, fg: dialog_fg, bold: true, ..Default::default() });
+        let mut cur_h_x = x + 2;
+        for c in name_head.chars() {
+            let cw = c.width().unwrap_or(0) as u16;
+            if cur_h_x + cw < x + w - 25 {
+                renderer.set_cell(cur_h_x, y + 4, Cell { ch: c, bg: dialog_bg, fg: dialog_fg, bold: true, width: cw as u8, ..Default::default() });
+                cur_h_x += cw;
+            }
         }
-        for (i, c) in size_head.chars().enumerate() {
-            renderer.set_cell(x + w - 25 + i as u16, y + 4, Cell { ch: c, bg: dialog_bg, fg: dialog_fg, bold: true, ..Default::default() });
+        let mut cur_s_x = x + w - 25;
+        for c in size_head.chars() {
+            let cw = c.width().unwrap_or(0) as u16;
+            if cur_s_x + cw < x + w - 14 {
+                renderer.set_cell(cur_s_x, y + 4, Cell { ch: c, bg: dialog_bg, fg: dialog_fg, bold: true, width: cw as u8, ..Default::default() });
+                cur_s_x += cw;
+            }
         }
-        for (i, c) in mod_head.chars().enumerate() {
-            renderer.set_cell(x + w - 14 + i as u16, y + 4, Cell { ch: c, bg: dialog_bg, fg: dialog_fg, bold: true, ..Default::default() });
+        let mut cur_m_x = x + w - 14;
+        for c in mod_head.chars() {
+            let cw = c.width().unwrap_or(0) as u16;
+            if cur_m_x + cw < x + w - 2 {
+                renderer.set_cell(cur_m_x, y + 4, Cell { ch: c, bg: dialog_bg, fg: dialog_fg, bold: true, width: cw as u8, ..Default::default() });
+                cur_m_x += cw;
+            }
         }
 
         // Entries
@@ -502,7 +528,7 @@ impl FileBrowser {
                 };
 
                 let mut cur_name_x = x + 2;
-                for (_j, c) in name.chars().enumerate() {
+                for c in name.chars() {
                     let cw = c.width().unwrap_or(0) as u16;
                     if (cur_name_x + cw) < x + w - 25 {
                         renderer.set_cell(cur_name_x, iy, Cell { ch: c, bg, fg, width: cw as u8, ..Default::default() });
@@ -556,18 +582,28 @@ impl FileBrowser {
         let input_bg = if self.input_focused { active_bg } else { to_ct_color(theme.ui.panel_bg, theme) };
         let input_fg = if self.input_focused { active_fg } else { to_ct_color(theme.ui.panel_fg, theme) };
         
-        for (i, c) in self.i18n_filename.chars().enumerate() {
-            renderer.set_cell(x + 2 + i as u16, iy, Cell { ch: c, bg: dialog_bg, fg: dialog_fg, ..Default::default() });
+        let mut cur_label_x = x + 2;
+        for c in self.i18n_filename.chars() {
+            let cw = c.width().unwrap_or(0) as u16;
+            if cur_label_x + cw < x + w - 2 {
+                renderer.set_cell(cur_label_x, iy, Cell { ch: c, bg: dialog_bg, fg: dialog_fg, width: cw as u8, ..Default::default() });
+                cur_label_x += cw;
+            }
         }
         
-        let input_x = x + 2 + self.i18n_filename.chars().count() as u16;
-        let input_w = w.saturating_sub(self.i18n_filename.chars().count() as u16 + 4);
+        let input_x = cur_label_x;
+        let input_w = (x + w - 2).saturating_sub(input_x);
         for dx in 0..input_w {
             renderer.set_cell(input_x + dx, iy, Cell { ch: ' ', bg: input_bg, ..Default::default() });
         }
-        for (i, c) in self.input_text.chars().enumerate() {
-            if (i as u16) < input_w {
-                renderer.set_cell(input_x + i as u16, iy, Cell { ch: c, bg: input_bg, fg: input_fg, ..Default::default() });
+        let mut cur_text_x = input_x;
+        for c in self.input_text.chars() {
+            let cw = c.width().unwrap_or(0) as u16;
+            if cur_text_x + cw <= input_x + input_w {
+                renderer.set_cell(cur_text_x, iy, Cell { ch: c, bg: input_bg, fg: input_fg, width: cw as u8, ..Default::default() });
+                cur_text_x += cw;
+            } else {
+                break;
             }
         }
     }
@@ -623,9 +659,14 @@ pub fn render_base_dialog(renderer: &mut Renderer, theme: &led_core::theme::Them
     }
 
     let title_str = format!(" {} ", title);
-    for (i, c) in title_str.chars().enumerate() {
-        if 2 + (i as u16) < w - 2 {
-            renderer.set_cell(x + 2 + (i as u16), y, Cell { ch: c, fg: border_fg, bg, ..Default::default() });
+    let mut cur_tx = x + 2;
+    for c in title_str.chars() {
+        let cw = c.width().unwrap_or(0) as u16;
+        if cur_tx + cw < x + w - 2 {
+            renderer.set_cell(cur_tx, y, Cell { ch: c, fg: border_fg, bg, width: cw as u8, ..Default::default() });
+            cur_tx += cw;
+        } else {
+            break;
         }
     }
 }
@@ -662,11 +703,15 @@ impl Dialog for OpenDialog {
         self.browser.render(renderer, theme, x, y, w, h);
 
         if let Some(ref msg) = self.error_message {
-            let msg_x = x + 2;
+            let mut cur_msg_x = x + 2;
             let msg_y = y + h - 3;
-            for (i, c) in msg.chars().enumerate() {
-                if (i as u16) < w - 4 {
-                    renderer.set_cell(msg_x + i as u16, msg_y, Cell { ch: c, bg: to_ct_color(theme.ui.dialog_bg, theme), fg: Color::Red, ..Default::default() });
+            for c in msg.chars() {
+                let cw = c.width().unwrap_or(0) as u16;
+                if cur_msg_x + cw < x + w - 2 {
+                    renderer.set_cell(cur_msg_x, msg_y, Cell { ch: c, bg: to_ct_color(theme.ui.dialog_bg, theme), fg: Color::Red, width: cw as u8, ..Default::default() });
+                    cur_msg_x += cw;
+                } else {
+                    break;
                 }
             }
         }
@@ -695,8 +740,9 @@ impl Dialog for OpenDialog {
 
     fn cursor_pos(&self) -> Option<(u16, u16)> {
         if self.browser.input_focused {
-            let label_len = self.browser.i18n_filename.chars().count() as u16;
-            Some((2 + label_len + self.browser.input_text.chars().count() as u16, 22 - 2))
+            let label_len: u16 = self.browser.i18n_filename.chars().map(|c| c.width().unwrap_or(0) as u16).sum();
+            let text_len: u16 = self.browser.input_text.chars().map(|c| c.width().unwrap_or(0) as u16).sum();
+            Some((2 + label_len + text_len, 22 - 2))
         } else {
             None
         }
@@ -746,11 +792,15 @@ impl Dialog for SaveAsDialog {
         self.browser.render(renderer, theme, x, y, w, h);
 
         if let Some(ref msg) = self.error_message {
-            let msg_x = x + 2;
+            let mut cur_msg_x = x + 2;
             let msg_y = y + h - 3;
-            for (i, c) in msg.chars().enumerate() {
-                if (i as u16) < w - 4 {
-                    renderer.set_cell(msg_x + i as u16, msg_y, Cell { ch: c, bg: to_ct_color(theme.ui.dialog_bg, theme), fg: Color::Red, ..Default::default() });
+            for c in msg.chars() {
+                let cw = c.width().unwrap_or(0) as u16;
+                if cur_msg_x + cw < x + w - 2 {
+                    renderer.set_cell(cur_msg_x, msg_y, Cell { ch: c, bg: to_ct_color(theme.ui.dialog_bg, theme), fg: Color::Red, width: cw as u8, ..Default::default() });
+                    cur_msg_x += cw;
+                } else {
+                    break;
                 }
             }
         }
@@ -779,8 +829,9 @@ impl Dialog for SaveAsDialog {
 
     fn cursor_pos(&self) -> Option<(u16, u16)> {
         if self.browser.input_focused {
-            let label_len = self.browser.i18n_filename.chars().count() as u16;
-            Some((2 + label_len + self.browser.input_text.chars().count() as u16, 22 - 2))
+            let label_len: u16 = self.browser.i18n_filename.chars().map(|c| c.width().unwrap_or(0) as u16).sum();
+            let text_len: u16 = self.browser.input_text.chars().map(|c| c.width().unwrap_or(0) as u16).sum();
+            Some((2 + label_len + text_len, 22 - 2))
         } else {
             None
         }
@@ -820,21 +871,20 @@ impl Dialog for MessageDialog {
         let dialog_bg = to_ct_color(theme.ui.dialog_bg, theme);
         let dialog_fg = to_ct_color(theme.ui.panel_fg, theme);
 
-        use unicode_width::{UnicodeWidthStr, UnicodeWidthChar};
-        let msg_w = self.message.width() as u16;
+        let msg_w: u16 = self.message.chars().map(|c| c.width().unwrap_or(0) as u16).sum();
         let lx = x + (w.saturating_sub(msg_w)) / 2;
         let ly = y + 2;
         let mut cur_lx = lx;
         for c in self.message.chars() {
             let cw = c.width().unwrap_or(0) as u16;
             if cur_lx + cw <= x + w - 1 {
-                renderer.set_cell(cur_lx, ly, Cell { ch: c, bg: dialog_bg, fg: dialog_fg, ..Default::default() });
+                renderer.set_cell(cur_lx, ly, Cell { ch: c, bg: dialog_bg, fg: dialog_fg, width: cw as u8, ..Default::default() });
             }
             cur_lx += cw;
         }
 
         // Buttons
-        let total_btns_width: u16 = self.buttons.iter().map(|(s, _)| s.len() as u16 + 4).sum::<u16>() + (self.buttons.len() as u16 - 1);
+        let total_btns_width: u16 = self.buttons.iter().map(|(s, _)| s.chars().map(|c| c.width().unwrap_or(0) as u16).sum::<u16>() + 4).sum::<u16>() + (self.buttons.len() as u16 - 1);
         let mut bx = x + (w.saturating_sub(total_btns_width)) / 2;
         let by = y + h - 2;
 
@@ -845,8 +895,9 @@ impl Dialog for MessageDialog {
             let fg = if is_selected { to_ct_color(theme.ui.button_active_fg, theme) } else { to_ct_color(theme.ui.panel_fg, theme) };
 
             for c in btn_text.chars() {
-                renderer.set_cell(bx, by, Cell { ch: c, bg, fg, ..Default::default() });
-                bx += 1;
+                let cw = c.width().unwrap_or(0) as u16;
+                renderer.set_cell(bx, by, Cell { ch: c, bg, fg, width: cw as u8, ..Default::default() });
+                bx += cw;
             }
             bx += 1; // Spacer
         }
@@ -883,10 +934,10 @@ impl Dialog for MessageDialog {
 
         let (mx, my) = (mouse.column, mouse.row);
         if my == y + h - 2 {
-            let total_btns_width: u16 = self.buttons.iter().map(|(s, _)| s.len() as u16 + 4).sum::<u16>() + (self.buttons.len() as u16 - 1);
+            let total_btns_width: u16 = self.buttons.iter().map(|(s, _)| s.chars().map(|c| c.width().unwrap_or(0) as u16).sum::<u16>() + 4).sum::<u16>() + (self.buttons.len() as u16 - 1);
             let mut bx = x + (w.saturating_sub(total_btns_width)) / 2;
             for (i, (s, _)) in self.buttons.iter().enumerate() {
-                let btn_len = s.len() as u16 + 4;
+                let btn_len = s.chars().map(|c| c.width().unwrap_or(0) as u16).sum::<u16>() + 4;
                 if mx >= bx && mx < bx + btn_len {
                     return DialogResult::Ok(self.buttons[i].1.clone());
                 }
@@ -939,30 +990,33 @@ impl Dialog for AboutDialog {
         ];
 
         for (i, line) in content.iter().enumerate() {
-            use unicode_width::{UnicodeWidthStr, UnicodeWidthChar};
-            let line_w = line.width() as u16;
+            let line_w: u16 = line.chars().map(|c| c.width().unwrap_or(0) as u16).sum();
             let lx = x + (w.saturating_sub(line_w)) / 2;
             let ly = y + 2 + i as u16;
             let mut cur_lx = lx;
             for c in line.chars() {
                 let cw = c.width().unwrap_or(0) as u16;
                 if cur_lx + cw <= x + w - 1 {
-                    renderer.set_cell(cur_lx, ly, Cell { ch: c, bg: dialog_bg, fg: dialog_fg, ..Default::default() });
+                    renderer.set_cell(cur_lx, ly, Cell { ch: c, bg: dialog_bg, fg: dialog_fg, width: cw as u8, ..Default::default() });
                 }
                 cur_lx += cw;
             }
         }
 
         let btn_text = format!("[ {} ]", self.i18n_ok);
-        let bx = x + (w.saturating_sub(btn_text.chars().count() as u16)) / 2;
+        let btn_w: u16 = btn_text.chars().map(|c| c.width().unwrap_or(0) as u16).sum();
+        let mut bx = x + (w.saturating_sub(btn_w)) / 2;
         let by = y + h - 2;
-        for (i, c) in btn_text.chars().enumerate() {
-            renderer.set_cell(bx + i as u16, by, Cell {
+        for c in btn_text.chars() {
+            let cw = c.width().unwrap_or(0) as u16;
+            renderer.set_cell(bx, by, Cell {
                 ch: c,
                 bg: to_ct_color(theme.ui.button_active_bg, theme),
                 fg: to_ct_color(theme.ui.button_active_fg, theme),
+                width: cw as u8,
                 ..Default::default()
             });
+            bx += cw;
         }
     }
 
@@ -979,9 +1033,10 @@ impl Dialog for AboutDialog {
         }
         let (mx, my) = (mouse.column, mouse.row);
         let btn_text = format!("[ {} ]", self.i18n_ok);
-        let bx = x + (w.saturating_sub(btn_text.len() as u16)) / 2;
+        let btn_w: u16 = btn_text.chars().map(|c| c.width().unwrap_or(0) as u16).sum();
+        let bx = x + (w.saturating_sub(btn_w)) / 2;
         let by = y + h - 2;
-        if my == by && mx >= bx && mx < bx + btn_text.len() as u16 {
+        if my == by && mx >= bx && mx < bx + btn_w {
             return DialogResult::Ok(Action::Confirm);
         }
         DialogResult::Pending
@@ -1023,21 +1078,20 @@ impl Dialog for ReopenConfirmationDialog {
         let dialog_bg = to_ct_color(theme.ui.dialog_bg, theme);
         let dialog_fg = to_ct_color(theme.ui.panel_fg, theme);
 
-        use unicode_width::{UnicodeWidthStr, UnicodeWidthChar};
-        let msg_w = self.i18n_message.width() as u16;
+        let msg_w: u16 = self.i18n_message.chars().map(|c| c.width().unwrap_or(0) as u16).sum();
         let lx = x + (w.saturating_sub(msg_w)) / 2;
         let ly = y + 2;
         let mut cur_lx = lx;
         for c in self.i18n_message.chars() {
             let cw = c.width().unwrap_or(0) as u16;
             if cur_lx + cw <= x + w - 1 {
-                renderer.set_cell(cur_lx, ly, Cell { ch: c, bg: dialog_bg, fg: dialog_fg, ..Default::default() });
+                renderer.set_cell(cur_lx, ly, Cell { ch: c, bg: dialog_bg, fg: dialog_fg, width: cw as u8, ..Default::default() });
             }
             cur_lx += cw;
         }
 
         let buttons = [&self.i18n_discard, &self.i18n_cancel];
-        let total_btns_width: u16 = buttons.iter().map(|s| s.len() as u16 + 4).sum::<u16>() + 1;
+        let total_btns_width: u16 = buttons.iter().map(|s| s.chars().map(|c| c.width().unwrap_or(0) as u16).sum::<u16>() + 4).sum::<u16>() + 1;
         let mut bx = x + (w.saturating_sub(total_btns_width)) / 2;
         let by = y + h - 2;
 
@@ -1048,8 +1102,9 @@ impl Dialog for ReopenConfirmationDialog {
             let fg = if is_selected { to_ct_color(theme.ui.button_active_fg, theme) } else { to_ct_color(theme.ui.panel_fg, theme) };
 
             for c in btn_text.chars() {
-                renderer.set_cell(bx, by, Cell { ch: c, bg, fg, ..Default::default() });
-                bx += 1;
+                let cw = c.width().unwrap_or(0) as u16;
+                renderer.set_cell(bx, by, Cell { ch: c, bg, fg, width: cw as u8, ..Default::default() });
+                bx += cw;
             }
             bx += 1;
         }
@@ -1080,10 +1135,10 @@ impl Dialog for ReopenConfirmationDialog {
         let (mx, my) = (mouse.column, mouse.row);
         if my == y + h - 2 {
             let buttons = [&self.i18n_discard, &self.i18n_cancel];
-            let total_btns_width: u16 = buttons.iter().map(|s| s.len() as u16 + 4).sum::<u16>() + 1;
+            let total_btns_width: u16 = buttons.iter().map(|s| s.chars().map(|c| c.width().unwrap_or(0) as u16).sum::<u16>() + 4).sum::<u16>() + 1;
             let mut bx = x + (w.saturating_sub(total_btns_width)) / 2;
             for (i, s) in buttons.iter().enumerate() {
-                let btn_len = s.len() as u16 + 4;
+                let btn_len = s.chars().map(|c| c.width().unwrap_or(0) as u16).sum::<u16>() + 4;
                 if mx >= bx && mx < bx + btn_len {
                     if i == 0 { return DialogResult::Ok(Action::Discard); }
                     else { return DialogResult::Cancel; }
@@ -1129,20 +1184,25 @@ impl Dialog for GoToLineDialog {
         let input_fg = to_ct_color(theme.ui.panel_fg, theme);
 
         let label = format!("{}: ", self.i18n_goto);
-        let lx = x + 2;
+        let mut cur_lx = x + 2;
         let ly = y + 2;
-        for (i, c) in label.chars().enumerate() {
-            renderer.set_cell(lx + i as u16, ly, Cell { ch: c, bg: dialog_bg, fg: dialog_fg, ..Default::default() });
+        for c in label.chars() {
+            let cw = c.width().unwrap_or(0) as u16;
+            renderer.set_cell(cur_lx, ly, Cell { ch: c, bg: dialog_bg, fg: dialog_fg, width: cw as u8, ..Default::default() });
+            cur_lx += cw;
         }
 
-        let input_x = lx + label.chars().count() as u16;
-        let input_w = w.saturating_sub(label.chars().count() as u16 + 4);
+        let input_x = cur_lx;
+        let input_w = (x + w - 2).saturating_sub(input_x);
         for dx in 0..input_w {
             renderer.set_cell(input_x + dx, ly, Cell { ch: ' ', bg: input_bg, ..Default::default() });
         }
-        for (i, c) in self.input_text.chars().enumerate() {
-            if (i as u16) < input_w {
-                renderer.set_cell(input_x + i as u16, ly, Cell { ch: c, bg: input_bg, fg: input_fg, ..Default::default() });
+        let mut cur_tx = input_x;
+        for c in self.input_text.chars() {
+            let cw = c.width().unwrap_or(0) as u16;
+            if cur_tx + cw <= input_x + input_w {
+                renderer.set_cell(cur_tx, ly, Cell { ch: c, bg: input_bg, fg: input_fg, width: cw as u8, ..Default::default() });
+                cur_tx += cw;
             }
         }
     }
@@ -1174,8 +1234,9 @@ impl Dialog for GoToLineDialog {
     }
 
     fn cursor_pos(&self) -> Option<(u16, u16)> {
-        let label_len = format!("{}: ", self.i18n_goto).chars().count() as u16;
-        Some((2 + label_len + self.input_text.chars().count() as u16, 2))
+        let label_len: u16 = format!("{}: ", self.i18n_goto).chars().map(|c| c.width().unwrap_or(0) as u16).sum();
+        let text_len: u16 = self.input_text.chars().map(|c| c.width().unwrap_or(0) as u16).sum();
+        Some((2 + label_len + text_len, 2))
     }
 }
 
