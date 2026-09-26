@@ -46,6 +46,8 @@ pub fn setup_app(app: &mut App, rx: futures::channel::mpsc::UnboundedReceiver<Ve
         #[cfg(target_os = "macos")]
         KeyBinding::new("cmd-h", Replace {}, None),
         #[cfg(target_os = "macos")]
+        KeyBinding::new("cmd-r", Replace {}, None),
+        #[cfg(target_os = "macos")]
         KeyBinding::new("cmd-shift-f", Replace {}, None),
         #[cfg(target_os = "macos")]
         KeyBinding::new("cmd-a", SelectAll {}, None),
@@ -82,6 +84,8 @@ pub fn setup_app(app: &mut App, rx: futures::channel::mpsc::UnboundedReceiver<Ve
         KeyBinding::new("ctrl-f", Find {}, None),
         #[cfg(not(target_os = "macos"))]
         KeyBinding::new("ctrl-h", Replace {}, None),
+        #[cfg(not(target_os = "macos"))]
+        KeyBinding::new("ctrl-r", Replace {}, None),
         #[cfg(not(target_os = "macos"))]
         KeyBinding::new("ctrl-shift-f", Replace {}, None),
         #[cfg(not(target_os = "macos"))]

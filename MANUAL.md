@@ -169,7 +169,7 @@ led file1.txt file2.txt  # Open multiple files in tabs
 | Paste | `Ctrl+V` (`⌘V` on macOS) |
 | Select All | `Ctrl+A` (`⌘A` on macOS) |
 | Find | `Ctrl+F` (`⌘F` on macOS) |
-| Find & Replace | `Ctrl+H` / `Ctrl+Shift+F` (`⌘H` / `⌘Shift+F` on macOS) |
+| Find & Replace | `Ctrl+H` / `Ctrl+R` / `Ctrl+Shift+F` (`⌘H` / `⌘R` / `⌘Shift+F` on macOS) |
 
 > **Paste behavior**: Line endings in pasted text are automatically normalized to match the current buffer's line ending setting (LF, CRLF, or CR).
 

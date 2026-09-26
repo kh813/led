@@ -416,7 +416,7 @@ impl App {
                 KeyCode::Char('z') => { self.perform_action(Action::Undo); return; }
                 KeyCode::Char('y') => { self.perform_action(Action::Redo); return; }
                 KeyCode::Char('f') => { self.perform_action(Action::Find); return; }
-                KeyCode::Char('h') => { self.perform_action(Action::Replace); return; }
+                KeyCode::Char('h') | KeyCode::Char('r') => { self.perform_action(Action::Replace); return; }
                 KeyCode::Tab => {
                     self.active_buffer = (self.active_buffer + 1) % self.buffers.len();
                     self.menus = Self::build_menus(&self.i18n, &self.config, self.buffers.get(self.active_buffer), &self.themes, &self.syntax_defs);
@@ -3169,6 +3169,15 @@ mod tests {
 
         // Open Replace panel with Ctrl+H
         app.handle_key(make_ctrl_key(KeyCode::Char('h')));
+        assert_eq!(app.focus, Focus::Panel);
+        assert!(app.find_panel.is_replace_mode);
+
+        // Close panel with Esc
+        app.handle_key(make_key(KeyCode::Esc));
+        assert_eq!(app.focus, Focus::Editor);
+
+        // Open Replace panel with Ctrl+R
+        app.handle_key(make_ctrl_key(KeyCode::Char('r')));
         assert_eq!(app.focus, Focus::Panel);
         assert!(app.find_panel.is_replace_mode);
     }
