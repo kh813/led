@@ -1810,9 +1810,7 @@ impl App {
 
         if self.focus == Focus::Dialog {
             if let Some(ref mut dialog) = self.current_dialog {
-                let (dw, dh) = dialog.dimensions();
-                let dx = (self.width.saturating_sub(dw)) / 2;
-                let dy = (self.height.saturating_sub(dh)) / 2;
+                let (dx, dy, dw, dh) = self.layout.dialog_bounds(dialog.dimensions());
                 let result = dialog.handle_mouse(mouse, dx, dy, dw, dh);
                 self.handle_dialog_result(result);
             }
@@ -2001,9 +1999,7 @@ impl App {
 
         // Render dialog if active
         if let Some(ref dialog) = self.current_dialog {
-            let (dw, dh) = dialog.dimensions();
-            let x = (self.width.saturating_sub(dw)) / 2;
-            let y = (self.height.saturating_sub(dh)) / 2;
+            let (x, y, dw, dh) = self.layout.dialog_bounds(dialog.dimensions());
             dialog.render(&mut self.renderer, &self.theme, x, y, dw, dh);
         }
 
@@ -2073,9 +2069,7 @@ impl App {
             } else if self.focus == Focus::Dialog || self.current_dialog.is_some() {
                 if let Some(ref dialog) = self.current_dialog {
                     if let Some((dx, dy)) = dialog.cursor_pos() {
-                        let (dw, dh) = dialog.dimensions();
-                        let x = (self.width.saturating_sub(dw)) / 2;
-                        let y = (self.height.saturating_sub(dh)) / 2;
+                        let (x, y, _dw, _dh) = self.layout.dialog_bounds(dialog.dimensions());
                         execute!(stdout, cursor::Show, cursor::MoveTo(x + dx, y + dy))?;
                     } else {
                         execute!(stdout, cursor::Hide)?;
