@@ -37,6 +37,7 @@ jobs:
             target: x86_64-unknown-linux-gnu
             is_linux: true
             archive_name: led-${{ github.ref_name }}-linux-x64
+            gui_archive_name: led-gui-${{ github.ref_name }}-linux-x64
           - name: windows-x64
             os: windows-latest
             target: x86_64-pc-windows-msvc
@@ -67,35 +68,101 @@ jobs:
       - name: Rust Cache
         uses: Swatinem/rust-cache@v2
 
-      # --- Unix Builds (macOS & Linux) ---
-      - name: Build TUI (Unix)
-        if: "!matrix.is_windows"
+      # --- macOS Builds (CLI as 'led', GUI as 'led.app') ---
+      - name: Build macOS CLI (led)
+        if: matrix.is_macos
         run: |
           cargo build --release -p led-tui --target ${{ matrix.target }}
           mkdir -p dist/${{ matrix.archive_name }}
-          cp target/${{ matrix.target }}/release/led-cli dist/${{ matrix.archive_name }}/
-          cp target/${{ matrix.target }}/release/led-cli dist/${{ matrix.archive_name }}/led
+          cp target/${{ matrix.target }}/release/led dist/${{ matrix.archive_name }}/
           cp README.md MANUAL.md LICENSE* dist/${{ matrix.archive_name }}/ 2>/dev/null || true
           tar -czvf dist/${{ matrix.archive_name }}.tar.gz -C dist ${{ matrix.archive_name }}
 
-      - name: Build & Package macOS GUI (.app)
+      - name: Build & Package macOS GUI (led.app)
         if: matrix.is_macos
         run: |
-          make gui
+          cargo build --release -p led-gui --target ${{ matrix.target }}
+          mkdir -p dist/led.app/Contents/MacOS
+          mkdir -p dist/led.app/Contents/Resources
+          cp target/${{ matrix.target }}/release/led-gui dist/led.app/Contents/MacOS/led
+          chmod +x dist/led.app/Contents/MacOS/led
+          if [ -f assets/icons/led.icns ]; then cp assets/icons/led.icns dist/led.app/Contents/Resources/led.icns; fi
+          cat << 'EOF' > dist/led.app/Contents/Info.plist
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleExecutable</key>
+    <string>led</string>
+    <key>CFBundleIdentifier</key>
+    <string>dev.hiroshi.led-gui</string>
+    <key>CFBundleName</key>
+    <string>led</string>
+    <key>CFBundleDisplayName</key>
+    <string>led</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>CFBundleShortVersionString</key>
+    <string>0.0.2</string>
+    <key>CFBundleVersion</key>
+    <string>0.0.2</string>
+    <key>CFBundleIconFile</key>
+    <string>led.icns</string>
+    <key>NSHighResolutionCapable</key>
+    <true/>
+    <key>NSSupportsAutomaticGraphicsSwitching</key>
+    <true/>
+    <key>CFBundleDocumentTypes</key>
+    <array>
+        <dict>
+            <key>CFBundleTypeName</key>
+            <string>All Files</string>
+            <key>CFBundleTypeRole</key>
+            <string>Editor</string>
+            <key>LSItemContentTypes</key>
+            <array>
+                <string>public.data</string>
+                <string>public.content</string>
+                <string>public.plain-text</string>
+            </array>
+        </dict>
+    </array>
+    <key>LSMinimumSystemVersion</key>
+    <string>10.15.7</string>
+</dict>
+</plist>
+EOF
           cd dist
           zip -r ${{ matrix.gui_archive_name }}.zip led.app
 
-      # --- Windows Builds ---
-      - name: Build Windows (GUI & CLI)
+      # --- Linux Builds (CLI as 'led', GUI as 'led-gui') ---
+      - name: Build Linux (CLI & GUI)
+        if: matrix.is_linux
+        run: |
+          cargo build --release -p led-tui --target ${{ matrix.target }}
+          cargo build --release -p led-gui --target ${{ matrix.target }}
+          
+          # Package CLI (led)
+          mkdir -p dist/${{ matrix.archive_name }}
+          cp target/${{ matrix.target }}/release/led dist/${{ matrix.archive_name }}/
+          cp README.md MANUAL.md LICENSE* dist/${{ matrix.archive_name }}/ 2>/dev/null || true
+          tar -czvf dist/${{ matrix.archive_name }}.tar.gz -C dist ${{ matrix.archive_name }}
+
+          # Package GUI (led-gui)
+          mkdir -p dist/${{ matrix.gui_archive_name }}
+          cp target/${{ matrix.target }}/release/led-gui dist/${{ matrix.gui_archive_name }}/
+          cp README.md MANUAL.md LICENSE* dist/${{ matrix.gui_archive_name }}/ 2>/dev/null || true
+          tar -czvf dist/${{ matrix.gui_archive_name }}.tar.gz -C dist ${{ matrix.gui_archive_name }}
+
+      # --- Windows Builds (GUI only as 'led.exe') ---
+      - name: Build Windows GUI (led.exe)
         if: matrix.is_windows
         shell: bash
         run: |
           cargo build --release -p led-gui --target ${{ matrix.target }}
-          cargo build --release -p led-tui --target ${{ matrix.target }}
           mkdir -p dist/${{ matrix.archive_name }}
-          cp target/${{ matrix.target }}/release/led.exe dist/${{ matrix.archive_name }}/
-          cp target/${{ matrix.target }}/release/led-cli.exe dist/${{ matrix.archive_name }}/
-          cp README.md MANUAL.md dist/${{ matrix.archive_name }}/ 2>/dev/null || true
+          cp target/${{ matrix.target }}/release/led-gui.exe dist/${{ matrix.archive_name }}/led.exe
+          cp README.md MANUAL.md LICENSE* dist/${{ matrix.archive_name }}/ 2>/dev/null || true
           cd dist
           7z a ${{ matrix.archive_name }}.zip ${{ matrix.archive_name }}
 

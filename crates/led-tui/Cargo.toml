@@ -4,7 +4,7 @@ version = "0.0.2"
 edition = "2021"
 
 [[bin]]
-name = "led-cli"
+name = "led"
 path = "src/main.rs"
 
 [dependencies]

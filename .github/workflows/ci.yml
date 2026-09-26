@@ -52,9 +52,9 @@ jobs:
       - name: Run workspace tests
         run: cargo test --workspace --verbose
 
-      - name: Build TUI (Release)
+      - name: Build TUI on macOS & Linux (Release)
+        if: runner.os != 'Windows'
         run: cargo build --release -p led-tui
 
-      - name: Build GUI on macOS (Release)
-        if: runner.os == 'macOS'
+      - name: Build GUI (Release)
         run: cargo build --release -p led-gui

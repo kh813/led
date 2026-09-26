@@ -10,34 +10,48 @@ ifeq ($(UNAME_S),Darwin)
     OS_TYPE := macos
     EXE_EXT :=
     GUI_TARGET := macos-gui
+    LED_GUI_BIN := led
+    LED_TUI_BIN := led
 else ifeq ($(findstring MINGW,$(UNAME_S)),MINGW)
     OS_TYPE := windows
     EXE_EXT := .exe
-    GUI_TARGET := generic-gui
+    GUI_TARGET := windows-gui
+    LED_GUI_BIN := led.exe
+    LED_TUI_BIN := led.exe
 else ifeq ($(findstring MSYS,$(UNAME_S)),MSYS)
     OS_TYPE := windows
     EXE_EXT := .exe
-    GUI_TARGET := generic-gui
+    GUI_TARGET := windows-gui
+    LED_GUI_BIN := led.exe
+    LED_TUI_BIN := led.exe
 else ifeq ($(UNAME_S),Windows_NT)
     OS_TYPE := windows
     EXE_EXT := .exe
-    GUI_TARGET := generic-gui
+    GUI_TARGET := windows-gui
+    LED_GUI_BIN := led.exe
+    LED_TUI_BIN := led.exe
 else
     OS_TYPE := linux
     EXE_EXT :=
-    GUI_TARGET := generic-gui
+    GUI_TARGET := linux-gui
+    LED_GUI_BIN := led-gui
+    LED_TUI_BIN := led
 endif
 
 DIST_DIR := dist
-LED_TUI_BIN := led-cli$(EXE_EXT)
-LED_GUI_BIN := led$(EXE_EXT)
 
-# Default: build both TUI and GUI for the current OS
+# Default: build for the current OS
 default: local
 
+ifeq ($(OS_TYPE),windows)
+local: gui
+	@echo ""
+	@echo "==> Build complete for $(OS_TYPE) ($(UNAME_M)) in $(DIST_DIR)/"
+else
 local: tui gui
 	@echo ""
 	@echo "==> Build complete for $(OS_TYPE) ($(UNAME_M)) in $(DIST_DIR)/"
+endif
 
 all: local
 
@@ -53,23 +67,22 @@ gui: $(GUI_TARGET)
 
 macos-gui:
 	@mkdir -p $(DIST_DIR)
-	@echo "==> Building macOS GUI (led-gui & led.app)..."
+	@echo "==> Building macOS GUI (led.app)..."
 	cargo build --release -p led-gui $(CARGO_FLAGS)
 	@rm -rf $(DIST_DIR)/led.app
 	@mkdir -p $(DIST_DIR)/led.app/Contents/MacOS
 	@mkdir -p $(DIST_DIR)/led.app/Contents/Resources
-	@BIN_PATH=$$(find target -name $(LED_GUI_BIN) -type f | grep release | head -n 1); \
-	if [ -z "$$BIN_PATH" ]; then BIN_PATH="target/release/$(LED_GUI_BIN)"; fi; \
-	cp "$$BIN_PATH" $(DIST_DIR)/led.app/Contents/MacOS/$(LED_GUI_BIN); \
-	cp "$$BIN_PATH" $(DIST_DIR)/$(LED_GUI_BIN)
-	@chmod +x $(DIST_DIR)/led.app/Contents/MacOS/$(LED_GUI_BIN)
+	@BIN_PATH=$$(find target -name led-gui -type f | grep release | head -n 1); \
+	if [ -z "$$BIN_PATH" ]; then BIN_PATH="target/release/led-gui"; fi; \
+	cp "$$BIN_PATH" $(DIST_DIR)/led.app/Contents/MacOS/led; \
+	chmod +x $(DIST_DIR)/led.app/Contents/MacOS/led
 	@if [ -f assets/icons/led.icns ]; then cp assets/icons/led.icns $(DIST_DIR)/led.app/Contents/Resources/led.icns; fi
 	@echo '<?xml version="1.0" encoding="UTF-8"?>' > $(DIST_DIR)/led.app/Contents/Info.plist
 	@echo '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">' >> $(DIST_DIR)/led.app/Contents/Info.plist
 	@echo '<plist version="1.0">' >> $(DIST_DIR)/led.app/Contents/Info.plist
 	@echo '<dict>' >> $(DIST_DIR)/led.app/Contents/Info.plist
 	@echo '    <key>CFBundleExecutable</key>' >> $(DIST_DIR)/led.app/Contents/Info.plist
-	@echo '    <string>$(LED_GUI_BIN)</string>' >> $(DIST_DIR)/led.app/Contents/Info.plist
+	@echo '    <string>led</string>' >> $(DIST_DIR)/led.app/Contents/Info.plist
 	@echo '    <key>CFBundleIdentifier</key>' >> $(DIST_DIR)/led.app/Contents/Info.plist
 	@echo '    <string>dev.hiroshi.led-gui</string>' >> $(DIST_DIR)/led.app/Contents/Info.plist
 	@echo '    <key>CFBundleName</key>' >> $(DIST_DIR)/led.app/Contents/Info.plist
@@ -108,14 +121,21 @@ macos-gui:
 	@echo '</dict>' >> $(DIST_DIR)/led.app/Contents/Info.plist
 	@echo '</plist>' >> $(DIST_DIR)/led.app/Contents/Info.plist
 	@touch $(DIST_DIR)/led.app
-	@echo "Built $(DIST_DIR)/led.app and $(DIST_DIR)/$(LED_GUI_BIN)"
+	@echo "Built $(DIST_DIR)/led.app"
 
-generic-gui:
+linux-gui:
 	@mkdir -p $(DIST_DIR)
-	@echo "==> Building GUI (led-gui)..."
+	@echo "==> Building Linux GUI (led-gui)..."
 	cargo build --release -p led-gui $(CARGO_FLAGS)
-	@cp target/release/$(LED_GUI_BIN) $(DIST_DIR)/$(LED_GUI_BIN)
-	@echo "Built $(DIST_DIR)/$(LED_GUI_BIN)"
+	@cp target/release/led-gui $(DIST_DIR)/led-gui
+	@echo "Built $(DIST_DIR)/led-gui"
+
+windows-gui:
+	@mkdir -p $(DIST_DIR)
+	@echo "==> Building Windows GUI (led.exe)..."
+	cargo build --release -p led-gui $(CARGO_FLAGS)
+	@cp target/release/led-gui.exe $(DIST_DIR)/led.exe
+	@echo "Built $(DIST_DIR)/led.exe"
 
 test:
 	@echo "==> Running workspace tests..."
@@ -129,8 +149,10 @@ install: local
 	@echo "==> Installing binaries..."
 	@INSTALL_DIR=$${HOME}/.local/bin; \
 	mkdir -p $$INSTALL_DIR; \
-	cp $(DIST_DIR)/$(LED_TUI_BIN) $$INSTALL_DIR/; \
-	echo "Installed $(LED_TUI_BIN) to $$INSTALL_DIR/"; \
+	if [ "$(OS_TYPE)" != "windows" ]; then \
+		cp $(DIST_DIR)/$(LED_TUI_BIN) $$INSTALL_DIR/; \
+		echo "Installed $(LED_TUI_BIN) to $$INSTALL_DIR/"; \
+	fi; \
 	if [ -f $(DIST_DIR)/$(LED_GUI_BIN) ]; then \
 		cp $(DIST_DIR)/$(LED_GUI_BIN) $$INSTALL_DIR/; \
 		echo "Installed $(LED_GUI_BIN) to $$INSTALL_DIR/"; \
@@ -149,9 +171,10 @@ package: local
 		tar -czvf led-$(OS_TYPE)-$(UNAME_M).tar.gz $(LED_TUI_BIN); \
 		if [ -d led.app ]; then zip -r led-gui-$(OS_TYPE)-$(UNAME_M).zip led.app; fi; \
 	elif [ "$(OS_TYPE)" = "windows" ]; then \
-		zip -r led-$(OS_TYPE)-$(UNAME_M).zip $(LED_TUI_BIN) $(LED_GUI_BIN); \
+		zip -r led-$(OS_TYPE)-$(UNAME_M).zip $(LED_GUI_BIN); \
 	else \
-		tar -czvf led-$(OS_TYPE)-$(UNAME_M).tar.gz $(LED_TUI_BIN) $(LED_GUI_BIN); \
+		tar -czvf led-$(OS_TYPE)-$(UNAME_M).tar.gz $(LED_TUI_BIN); \
+		if [ -f $(LED_GUI_BIN) ]; then tar -czvf led-gui-$(OS_TYPE)-$(UNAME_M).tar.gz $(LED_GUI_BIN); fi; \
 	fi
 	@echo "Created package archives in $(DIST_DIR)/"
 
@@ -161,7 +184,7 @@ clean:
 
 help:
 	@echo "led build targets:"
-	@echo "  make              - Build both TUI (led) and GUI (led-gui) for host OS into $(DIST_DIR)/"
+	@echo "  make              - Build for host OS into $(DIST_DIR)/"
 	@echo "  make tui          - Build TUI binary (led) into $(DIST_DIR)/"
 	@echo "  make gui          - Build GUI binary (and led.app on macOS) into $(DIST_DIR)/"
 	@echo "  make test         - Run workspace unit & integration tests"
