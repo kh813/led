@@ -3,12 +3,14 @@ use crate::workspace::Workspace;
 use led_core::i18n::I18n;
 use crate::widgets::{led_color_to_gpui, ui_font_family, with_alpha};
 
+#[allow(dead_code)]
 pub struct MenuBar {
     workspace: Entity<Workspace>,
     i18n: I18n,
     pub open_menu: Option<usize>,
 }
 
+#[allow(dead_code)]
 impl MenuBar {
     pub fn new(workspace: Entity<Workspace>, i18n: I18n, _cx: &mut Context<Self>) -> Self {
         Self {
