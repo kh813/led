@@ -1229,7 +1229,7 @@ impl App {
             } else {
                 buffer.current_match_idx = None;
                 if !self.find_panel.find_text.is_empty() {
-                    buffer.search_status = Some("No matches".to_string());
+                    buffer.search_status = Some(self.i18n.get("status.no_matches").to_string());
                 }
             }
         }
@@ -1255,7 +1255,8 @@ impl App {
             buffer.cursor = m.char_range.start;
             self.ensure_cursor_visible();
             if wrapped {
-                self.buffers[self.active_buffer].search_status = Some("Search wrapped to top".to_string());
+                let msg = self.i18n.get("status.search_wrapped_top").to_string();
+                self.buffers[self.active_buffer].search_status = Some(msg);
             } else {
                 self.buffers[self.active_buffer].search_status = None;
             }
@@ -1282,7 +1283,8 @@ impl App {
             buffer.cursor = m.char_range.start;
             self.ensure_cursor_visible();
             if wrapped {
-                self.buffers[self.active_buffer].search_status = Some("Search wrapped to bottom".to_string());
+                let msg = self.i18n.get("status.search_wrapped_bottom").to_string();
+                self.buffers[self.active_buffer].search_status = Some(msg);
             } else {
                 self.buffers[self.active_buffer].search_status = None;
             }
@@ -1290,14 +1292,20 @@ impl App {
     }
 
     fn replace_current(&mut self) {
+        let mut replaced = false;
         if let Some(buffer) = self.buffers.get_mut(self.active_buffer) {
             if let Some(idx) = buffer.current_match_idx {
                 let m = buffer.find_results[idx].clone();
                 buffer.delete(m.char_range.clone());
                 buffer.insert(m.char_range.start, &self.find_panel.replace_text);
+                replaced = true;
             }
         }
         self.run_search();
+        if replaced {
+            let msg = self.i18n.get("status.replaced_count").replace("{n}", "1");
+            self.buffers[self.active_buffer].search_status = Some(msg);
+        }
     }
 
     fn replace_all(&mut self) {
@@ -1311,7 +1319,7 @@ impl App {
             };
             let results = buffer.search(&query);
             if results.is_empty() {
-                buffer.search_status = Some("No matches".to_string());
+                buffer.search_status = Some(self.i18n.get("status.no_matches").to_string());
                 return;
             }
 
@@ -1320,9 +1328,14 @@ impl App {
                 buffer.insert(m.char_range.start, &replace_text);
                 count += 1;
             }
-            buffer.search_status = Some(format!("Replaced {} occurrences", count));
+            let msg = self.i18n.get("status.replaced_count").replace("{n}", &count.to_string());
+            buffer.search_status = Some(msg);
         }
         self.run_search();
+        if count > 0 {
+            let msg = self.i18n.get("status.replaced_count").replace("{n}", &count.to_string());
+            self.buffers[self.active_buffer].search_status = Some(msg);
+        }
     }
 
 
@@ -2453,6 +2466,31 @@ impl App {
             });
             cur_x += cw;
         }
+        cur_x += 2;
+
+        // Match count badge on row 1
+        let match_badge = if self.find_panel.find_text.is_empty() {
+            "".to_string()
+        } else if buffer.find_results.is_empty() {
+            self.i18n.get("status.no_matches").to_string()
+        } else if let Some(idx) = buffer.current_match_idx {
+            self.i18n.get("status.matches")
+                .replace("{current}", &(idx + 1).to_string())
+                .replace("{total}", &buffer.find_results.len().to_string())
+        } else {
+            format!("{} matches", buffer.find_results.len())
+        };
+
+        if !match_badge.is_empty() {
+            let badge_fg = if buffer.find_results.is_empty() { error_fg } else { normal_fg };
+            for c in match_badge.chars() {
+                let cw = c.width().unwrap_or(0) as u16;
+                if cur_x + cw < x + w {
+                    self.renderer.set_cell(cur_x, y, Cell { ch: c, bg: normal_bg, fg: badge_fg, width: cw as u8, ..Default::default() });
+                    cur_x += cw;
+                }
+            }
+        }
 
         // Row 2: Replace or Toggles
         if self.find_panel.is_replace_mode {
@@ -2510,6 +2548,18 @@ impl App {
                     ..Default::default()
                 });
                 btn_x += cw;
+            }
+            btn_x += 2;
+
+            // Show replace status message (e.g. "Replaced N occurrences" / "1 replacement made") next to Replace All button
+            if let Some(ref status) = buffer.search_status {
+                for c in status.chars() {
+                    let cw = c.width().unwrap_or(0) as u16;
+                    if btn_x + cw < x + w {
+                        self.renderer.set_cell(btn_x, y + 1, Cell { ch: c, bg: normal_bg, fg: normal_fg, width: cw as u8, ..Default::default() });
+                        btn_x += cw;
+                    }
+                }
             }
 
             // Row 3: Toggles
