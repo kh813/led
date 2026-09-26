@@ -169,14 +169,15 @@ led file1.txt file2.txt  # Open multiple files in tabs
 | Paste | `Ctrl+V` (`⌘V` on macOS) |
 | Select All | `Ctrl+A` (`⌘A` on macOS) |
 | Find | `Ctrl+F` (`⌘F` on macOS) |
-| Find & Replace | `Ctrl+H` / `Ctrl+R` / `Ctrl+Shift+F` (`⌘H` / `⌘R` / `⌘Shift+F` on macOS) |
+| Find & Replace | `Ctrl+R` / `Ctrl+Shift+F` (`⌘R` / `⌘Shift+F` on macOS) |
 
 > **Paste behavior**: Line endings in pasted text are automatically normalized to match the current buffer's line ending setting (LF, CRLF, or CR).
 
 ### Navigation & View
- 
+
 | Action | Shortcut |
 | :--- | :--- |
+| Help / About | `Ctrl+H` (`⌘H` on macOS) |
 | Preferences / Settings | `Ctrl+,` (`⌘,` on macOS) |
 | Zoom In | `Ctrl+=` / `Ctrl++` (`⌘=` on macOS) |
 | Zoom Out | `Ctrl+-` (`⌘-` on macOS) |

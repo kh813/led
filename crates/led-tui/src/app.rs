@@ -305,7 +305,7 @@ impl App {
                 MenuItem::Action { label: i18n.get("menu.edit.paste").to_string(), action: Action::Paste, shortcut: Some("Ctrl+V".to_string()) },
                 MenuItem::Separator,
                 MenuItem::Action { label: i18n.get("menu.edit.find").to_string(), action: Action::Find, shortcut: Some("Ctrl+F".to_string()) },
-                MenuItem::Action { label: i18n.get("menu.edit.replace").to_string(), action: Action::Replace, shortcut: Some("Ctrl+H".to_string()) },
+                MenuItem::Action { label: i18n.get("menu.edit.replace").to_string(), action: Action::Replace, shortcut: Some("Ctrl+R".to_string()) },
                 MenuItem::Separator,
                 MenuItem::Action { label: i18n.get("menu.edit.select_all").to_string(), action: Action::SelectAll, shortcut: Some("Ctrl+A".to_string()) },
             ]),
@@ -326,7 +326,7 @@ impl App {
                 MenuItem::Submenu { label: "Syntax".to_string(), menu: Menu::new("Syntax", syntax_items)},
             ]),
             Menu::new(i18n.get("menu.help"), vec![
-                MenuItem::Action { label: i18n.get("menu.help.about").to_string(), action: Action::About, shortcut: None },
+                MenuItem::Action { label: i18n.get("menu.help.about").to_string(), action: Action::About, shortcut: Some("Ctrl+H".to_string()) },
             ]),
         ]
     }
@@ -416,7 +416,8 @@ impl App {
                 KeyCode::Char('z') => { self.perform_action(Action::Undo); return; }
                 KeyCode::Char('y') => { self.perform_action(Action::Redo); return; }
                 KeyCode::Char('f') => { self.perform_action(Action::Find); return; }
-                KeyCode::Char('h') | KeyCode::Char('r') => { self.perform_action(Action::Replace); return; }
+                KeyCode::Char('r') => { self.perform_action(Action::Replace); return; }
+                KeyCode::Char('h') => { self.perform_action(Action::About); return; }
                 KeyCode::Tab => {
                     self.active_buffer = (self.active_buffer + 1) % self.buffers.len();
                     self.menus = Self::build_menus(&self.i18n, &self.config, self.buffers.get(self.active_buffer), &self.themes, &self.syntax_defs);
@@ -3163,23 +3164,19 @@ mod tests {
         assert_eq!(app.focus, Focus::Panel);
         assert!(app.find_panel.is_replace_mode);
 
-        // Close panel with Esc
-        app.handle_key(make_key(KeyCode::Esc));
-        assert_eq!(app.focus, Focus::Editor);
-
-        // Open Replace panel with Ctrl+H
-        app.handle_key(make_ctrl_key(KeyCode::Char('h')));
-        assert_eq!(app.focus, Focus::Panel);
-        assert!(app.find_panel.is_replace_mode);
-
-        // Close panel with Esc
-        app.handle_key(make_key(KeyCode::Esc));
-        assert_eq!(app.focus, Focus::Editor);
-
         // Open Replace panel with Ctrl+R
         app.handle_key(make_ctrl_key(KeyCode::Char('r')));
         assert_eq!(app.focus, Focus::Panel);
         assert!(app.find_panel.is_replace_mode);
+
+        // Close panel with Esc
+        app.handle_key(make_key(KeyCode::Esc));
+        assert_eq!(app.focus, Focus::Editor);
+
+        // Open About/Help with Ctrl+H
+        app.handle_key(make_ctrl_key(KeyCode::Char('h')));
+        assert_eq!(app.focus, Focus::Dialog);
+        assert!(app.current_dialog.is_some());
     }
 
     #[test]
