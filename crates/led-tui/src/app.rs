@@ -426,6 +426,7 @@ impl App {
         }
         if self.focus != Focus::Dialog && key.modifiers == (KeyModifiers::CONTROL | KeyModifiers::SHIFT) {
             match key.code {
+                KeyCode::Char('F') | KeyCode::Char('f') => { self.perform_action(Action::Replace); return; }
                 KeyCode::Char('S') | KeyCode::Char('s') => { self.perform_action(Action::SaveAs); return; }
                 KeyCode::Tab | KeyCode::BackTab => {
                     self.active_buffer = if self.active_buffer == 0 { self.buffers.len() - 1 } else { self.active_buffer - 1 };
@@ -3151,6 +3152,20 @@ mod tests {
         // Close panel with Esc
         app.handle_key(make_key(KeyCode::Esc));
         assert_eq!(app.focus, Focus::Editor);
+
+        // Open Replace panel with Ctrl+Shift+F
+        app.handle_key(KeyEvent::new(KeyCode::Char('f'), KeyModifiers::CONTROL | KeyModifiers::SHIFT));
+        assert_eq!(app.focus, Focus::Panel);
+        assert!(app.find_panel.is_replace_mode);
+
+        // Close panel with Esc
+        app.handle_key(make_key(KeyCode::Esc));
+        assert_eq!(app.focus, Focus::Editor);
+
+        // Open Replace panel with Ctrl+H
+        app.handle_key(make_ctrl_key(KeyCode::Char('h')));
+        assert_eq!(app.focus, Focus::Panel);
+        assert!(app.find_panel.is_replace_mode);
     }
 
     #[test]

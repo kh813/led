@@ -162,14 +162,14 @@ led file1.txt file2.txt  # Open multiple files in tabs
 
 | Action | Shortcut |
 | :--- | :--- |
-| Undo | `Ctrl+Z` |
-| Redo | `Ctrl+Y` |
-| Cut | `Ctrl+X` |
-| Copy | `Ctrl+C` |
-| Paste | `Ctrl+V` |
-| Select All | `Ctrl+A` |
-| Find | `Ctrl+F` |
-| Find & Replace | `Ctrl+H` |
+| Undo | `Ctrl+Z` (`⌘Z` on macOS) |
+| Redo | `Ctrl+Y` (`⌘Shift+Z` / `⌘Y` on macOS) |
+| Cut | `Ctrl+X` (`⌘X` on macOS) |
+| Copy | `Ctrl+C` (`⌘C` on macOS) |
+| Paste | `Ctrl+V` (`⌘V` on macOS) |
+| Select All | `Ctrl+A` (`⌘A` on macOS) |
+| Find | `Ctrl+F` (`⌘F` on macOS) |
+| Find & Replace | `Ctrl+H` / `Ctrl+Shift+F` (`⌘H` / `⌘Shift+F` on macOS) |
 
 > **Paste behavior**: Line endings in pasted text are automatically normalized to match the current buffer's line ending setting (LF, CRLF, or CR).
 
