@@ -369,12 +369,16 @@ impl App {
             stdout,
             EnterAlternateScreen,
             event::EnableMouseCapture,
+            event::PushKeyboardEnhancementFlags(
+                event::KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES
+            ),
             cursor::Hide
         )?;
         
         let original_hook = std::panic::take_hook();
         std::panic::set_hook(Box::new(move |panic_info| {
             let mut stdout = io::stdout();
+            let _ = execute!(stdout, event::PopKeyboardEnhancementFlags);
             let _ = terminal::disable_raw_mode();
             let _ = execute!(
                 stdout,
@@ -389,6 +393,7 @@ impl App {
     }
 
     fn cleanup_terminal(&self, stdout: &mut Stdout) -> Result<()> {
+        let _ = execute!(stdout, event::PopKeyboardEnhancementFlags);
         terminal::disable_raw_mode()?;
         execute!(
             stdout,
