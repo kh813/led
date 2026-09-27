@@ -4,6 +4,9 @@ pub mod buffer;
 pub mod search;
 pub mod syntax;
 pub mod theme;
+pub mod file_tree;
+pub mod outline;
+pub mod plugin;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Action {
@@ -30,6 +33,8 @@ pub enum Action {
     ToggleLineNumbers,
     ToggleWordWrap,
     ToggleViMode,
+    ToggleSidebar,
+    ToggleOutline,
     ReopenWithEncoding(Encoding),
     ConvertToEncoding(Encoding),
     SetLineEnding(LineEnding),
@@ -105,6 +110,8 @@ pub enum ViMode {
     Normal,
     Insert,
     Visual,
+    VisualLine,
+    VisualBlock,
 }
 
 pub use config::Config;

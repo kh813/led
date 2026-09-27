@@ -14,6 +14,7 @@ pub struct FindPanel {
     whole_word: bool,
     use_regex: bool,
     is_visible: bool,
+    replace_status: Option<String>,
 }
 
 impl FindPanel {
@@ -29,12 +30,14 @@ impl FindPanel {
             whole_word: false,
             use_regex: false,
             is_visible: false,
+            replace_status: None,
         }
     }
 
     pub fn show(&mut self, replace: bool, window: &mut Window, cx: &mut Context<Self>) {
         self.is_visible = true;
         self.is_replace_mode = replace;
+        self.replace_status = None;
         if replace {
             self.replace_focus.focus(window, cx);
         } else {
@@ -121,33 +124,51 @@ impl FindPanel {
     }
 
     fn handle_search_replace(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
+        let mut replaced = false;
         self.workspace.update(cx, |w, _| {
             let editor = match w.active_editor_mut() {
                 Some(e) => e,
                 None => return,
             };
             if let Some(idx) = editor.current_match_idx {
-                let m = editor.find_results[idx].clone();
-                editor.delete(m.char_range);
-                editor.insert(editor.cursor, &self.replace_text);
+                if idx < editor.find_results.len() {
+                    let m = editor.find_results[idx].clone();
+                    editor.delete(m.char_range);
+                    editor.insert(editor.cursor, &self.replace_text);
+                    replaced = true;
+                }
             }
         });
+        if replaced {
+            self.replace_status = Some("Replaced 1 occurrence".to_string());
+        } else {
+            self.replace_status = Some("No match to replace".to_string());
+        }
         self.run_search(cx);
         cx.notify();
     }
 
     fn handle_search_replace_all(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
+        let mut count = 0;
         self.workspace.update(cx, |w, _| {
             let editor = match w.active_editor_mut() {
                 Some(e) => e,
                 None => return,
             };
             let results = editor.find_results.clone();
+            count = results.len();
             for m in results.into_iter().rev() {
                 editor.delete(m.char_range);
                 editor.insert(editor.cursor, &self.replace_text);
             }
         });
+        if count == 0 {
+            self.replace_status = Some("No matches found".to_string());
+        } else if count == 1 {
+            self.replace_status = Some("Replaced 1 occurrence".to_string());
+        } else {
+            self.replace_status = Some(format!("Replaced {} occurrences", count));
+        }
         self.run_search(cx);
         cx.notify();
     }
@@ -416,6 +437,7 @@ impl Render for FindPanel {
                             .h(px(28.0))
                             .flex()
                             .items_center()
+                            .justify_between()
                             .bg(input_bg)
                             .border_1()
                             .border_color(if is_replace_focused { accent } else { border })
@@ -430,6 +452,16 @@ impl Render for FindPanel {
                                     div().text_size(px(12.0)).child(self.replace_text.clone())
                                 }
                             )
+                            .children(if let Some(ref status) = self.replace_status {
+                                Some(
+                                    div()
+                                        .text_size(px(10.5))
+                                        .text_color(with_alpha(fg, 0.7))
+                                        .child(status.clone())
+                                )
+                            } else {
+                                None
+                            })
                     )
                     .child(
                         div()

@@ -568,13 +568,131 @@ impl Editor {
 
     pub fn update_selection(&mut self) {
         if let Some(anchor) = self.selection_anchor {
-            let start = anchor.min(self.cursor);
-            let end = anchor.max(self.cursor);
-            self.selection = Some(start..end);
-            if start == end {
-                self.selection = None;
-                self.selection_anchor = None;
+            match self.vi_mode {
+                crate::ViMode::VisualLine => {
+                    let (anchor_line, _) = self.char_to_line_col(anchor);
+                    let (cursor_line, _) = self.char_to_line_col(self.cursor);
+                    let start_line = anchor_line.min(cursor_line);
+                    let end_line = anchor_line.max(cursor_line);
+                    let start_char = self.rope.line_to_char(start_line);
+                    let end_char = if end_line + 1 < self.rope.len_lines() {
+                        self.rope.line_to_char(end_line + 1)
+                    } else {
+                        self.rope.len_chars()
+                    };
+                    self.selection = Some(start_char..end_char);
+                }
+                _ => {
+                    let start = anchor.min(self.cursor);
+                    let end = anchor.max(self.cursor);
+                    self.selection = Some(start..end);
+                    if start == end && self.vi_mode != crate::ViMode::Visual && self.vi_mode != crate::ViMode::VisualBlock {
+                        self.selection = None;
+                        self.selection_anchor = None;
+                    }
+                }
             }
+        }
+    }
+
+    pub fn get_visual_block_ranges(&self) -> Vec<Range<usize>> {
+        if let Some(anchor) = self.selection_anchor {
+            let (anchor_line, anchor_col) = self.char_to_line_col(anchor);
+            let (cursor_line, cursor_col) = self.char_to_line_col(self.cursor);
+
+            let start_line = anchor_line.min(cursor_line);
+            let end_line = anchor_line.max(cursor_line);
+            let min_col = anchor_col.min(cursor_col);
+            let max_col = anchor_col.max(cursor_col);
+
+            let mut ranges = Vec::new();
+            for l in start_line..=end_line {
+                if l >= self.rope.len_lines() { break; }
+                let line_max_col = self.get_line_max_col(l);
+                let l_start_col = min_col.min(line_max_col);
+                let l_end_col = (max_col + 1).min(line_max_col); // inclusive of cursor column
+                if l_start_col <= l_end_col {
+                    let start_char = self.line_col_to_char(l, l_start_col);
+                    let end_char = self.line_col_to_char(l, l_end_col);
+                    ranges.push(start_char..end_char);
+                }
+            }
+            ranges
+        } else {
+            vec![]
+        }
+    }
+
+    pub fn get_visual_block_text(&self) -> String {
+        let ranges = self.get_visual_block_ranges();
+        let mut text = String::new();
+        for (i, r) in ranges.into_iter().enumerate() {
+            if i > 0 {
+                text.push('\n');
+            }
+            if !r.is_empty() {
+                text.push_str(&self.rope.slice(r).to_string());
+            }
+        }
+        text
+    }
+
+    pub fn delete_visual_block(&mut self) -> Option<EditDelta> {
+        let ranges = self.get_visual_block_ranges();
+        if ranges.is_empty() { return None; }
+
+        let mut deleted_text = String::new();
+        // Delete from bottom to top to preserve character offsets of earlier lines
+        for (i, r) in ranges.iter().rev().enumerate() {
+            if i > 0 {
+                deleted_text.insert(0, '\n');
+            }
+            if !r.is_empty() {
+                let piece = self.rope.slice(r.clone()).to_string();
+                deleted_text.insert_str(0, &piece);
+                self.delete(r.clone());
+            }
+        }
+
+        if let Some(anchor) = self.selection_anchor {
+            let (anchor_line, anchor_col) = self.char_to_line_col(anchor);
+            let (cursor_line, cursor_col) = self.char_to_line_col(self.cursor);
+            let target_line = anchor_line.min(cursor_line);
+            let target_col = anchor_col.min(cursor_col);
+            self.cursor = self.line_col_to_char(target_line, target_col);
+        }
+
+        self.selection = None;
+        self.selection_anchor = None;
+        self.vi_mode = crate::ViMode::Normal;
+        None
+    }
+
+    pub fn insert_visual_block(&mut self, text: &str, is_append: bool) {
+        if let Some(anchor) = self.selection_anchor {
+            let (anchor_line, anchor_col) = self.char_to_line_col(anchor);
+            let (cursor_line, cursor_col) = self.char_to_line_col(self.cursor);
+            let start_line = anchor_line.min(cursor_line);
+            let end_line = anchor_line.max(cursor_line);
+            let target_col = if is_append {
+                anchor_col.max(cursor_col) + 1
+            } else {
+                anchor_col.min(cursor_col)
+            };
+
+            // Insert from bottom to top
+            for l in (start_line..=end_line).rev() {
+                if l >= self.rope.len_lines() { continue; }
+                let line_max = self.get_line_max_col(l);
+                let col = target_col.min(line_max);
+                let char_pos = self.line_col_to_char(l, col);
+                self.insert(char_pos, text);
+            }
+
+            self.cursor = self.line_col_to_char(start_line, target_col + text.chars().count());
+            self.selection = None;
+            self.selection_anchor = None;
+            self.vi_mode = crate::ViMode::Normal;
         }
     }
 
@@ -903,5 +1021,55 @@ mod tests {
         assert_eq!(editor.get_char_at_vcol(0, 0..4, 1, 4), 1);
         assert_eq!(editor.get_char_at_vcol(0, 0..4, 2, 4), 1); // during tab
         assert_eq!(editor.get_char_at_vcol(0, 0..4, 4, 4), 2); // after tab
+    }
+
+    #[test]
+    fn test_visual_line_selection() {
+        let mut editor = Editor::new();
+        editor.insert(0, "line 1\nline 2\nline 3\n");
+        editor.vi_mode = crate::ViMode::VisualLine;
+        editor.cursor = 0;
+        editor.ensure_selection();
+        editor.cursor = 8; // on line 2
+        editor.update_selection();
+        assert_eq!(editor.selection, Some(0..14)); // covers line 1 and line 2
+    }
+
+    #[test]
+    fn test_visual_block_selection_and_deletion() {
+        let mut editor = Editor::new();
+        editor.insert(0, "apple\nbanana\ncherry\n");
+        editor.vi_mode = crate::ViMode::VisualBlock;
+        editor.cursor = 0; // line 0, col 0
+        editor.ensure_selection();
+        // move to line 2, col 2 ('c')
+        let pos = editor.line_col_to_char(2, 2);
+        editor.cursor = pos;
+        
+        let ranges = editor.get_visual_block_ranges();
+        assert_eq!(ranges.len(), 3);
+        assert_eq!(ranges[0], 0..3); // "app"
+        assert_eq!(ranges[1], 6..9); // "ban"
+        assert_eq!(ranges[2], 13..16); // "che"
+        
+        let block_text = editor.get_visual_block_text();
+        assert_eq!(block_text, "app\nban\nche");
+
+        editor.delete_visual_block();
+        assert_eq!(editor.rope.to_string(), "le\nana\nrry\n");
+    }
+
+    #[test]
+    fn test_visual_block_insert() {
+        let mut editor = Editor::new();
+        editor.insert(0, "one\ntwo\nthree\n");
+        editor.vi_mode = crate::ViMode::VisualBlock;
+        editor.cursor = 0; // line 0, col 0
+        editor.ensure_selection();
+        let pos = editor.line_col_to_char(2, 0);
+        editor.cursor = pos; // line 2, col 0
+
+        editor.insert_visual_block("// ", false);
+        assert_eq!(editor.rope.to_string(), "// one\n// two\n// three\n");
     }
 }

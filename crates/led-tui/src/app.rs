@@ -24,6 +24,7 @@ pub enum Focus {
     Menu,
     Panel,
     Dialog,
+    Sidebar,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -70,11 +71,14 @@ pub struct App {
     pub syntax_defs: Vec<led_core::syntax::SyntaxDefinition>,
 
     pub find_panel: crate::widgets::find_panel::FindPanel,
+    pub sidebar: crate::widgets::sidebar::Sidebar,
     pub vi_cmd: String,
     pub is_vi_cmd_mode: bool,
     pub pending_g: bool,
     pub pending_d: bool,
     pub pending_y: bool,
+    pub pending_c: bool,
+    pub pending_r: bool,
 }
 
 impl App {
@@ -130,7 +134,10 @@ impl App {
         let menus = Self::build_menus(&i18n, &config, buffers.get(active_buffer), &themes, &syntax_defs);
 
         let mut layout = Layout::new(width, height);
-        layout.recompute(&menus, &buffers, active_buffer, config.line_numbers);
+        layout.recompute(&menus, &buffers, active_buffer, config.line_numbers, config.sidebar);
+
+        let root_dir = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+        let sidebar = crate::widgets::sidebar::Sidebar::new(root_dir, config.sidebar);
 
         let mut app = App {
             focus: Focus::Editor,
@@ -165,12 +172,17 @@ impl App {
             syntax_defs,
 
             find_panel: crate::widgets::find_panel::FindPanel::new(),
+            sidebar,
             vi_cmd: String::new(),
             is_vi_cmd_mode: false,
             pending_g: false,
             pending_d: false,
             pending_y: false,
+            pending_c: false,
+            pending_r: false,
         };
+
+        app.update_active_outline();
 
         if !errors.is_empty() {
             let message = errors.join("\n");
@@ -312,6 +324,9 @@ impl App {
             Menu::new(i18n.get("menu.view"), vec![
                 MenuItem::Action { label: i18n.get("menu.view.go_to_line").to_string(), action: Action::GoToLine, shortcut: Some("Ctrl+G".to_string()) },
                 MenuItem::Separator,
+                MenuItem::Toggle { label: "Sidebar (Ctrl+B)".to_string(), action: Action::ToggleSidebar, checked: config.sidebar, is_radio: false },
+                MenuItem::Action { label: "Outline".to_string(), action: Action::ToggleOutline, shortcut: Some("Alt+2".to_string()) },
+                MenuItem::Separator,
                 MenuItem::Toggle { label: i18n.get("menu.view.line_numbers").to_string(), action: Action::ToggleLineNumbers, checked: config.line_numbers, is_radio: false },
                 MenuItem::Toggle { label: i18n.get("menu.view.word_wrap").to_string(), action: Action::ToggleWordWrap, checked: config.word_wrap, is_radio: false },
                 MenuItem::Toggle { label: i18n.get("menu.view.vi_mode").to_string(), action: Action::ToggleViMode, checked: config.vi_mode, is_radio: false },
@@ -329,6 +344,139 @@ impl App {
                 MenuItem::Action { label: i18n.get("menu.help.about").to_string(), action: Action::About, shortcut: Some("Ctrl+H".to_string()) },
             ]),
         ]
+    }
+
+    pub fn recompute_layout(&mut self) {
+        self.layout.recompute(
+            &self.menus,
+            &self.buffers,
+            self.active_buffer,
+            self.config.line_numbers,
+            self.sidebar.visible,
+        );
+    }
+
+    pub fn update_active_outline(&mut self) {
+        if let Some(buffer) = self.buffers.get(self.active_buffer) {
+            let content = buffer.rope.to_string();
+            let lang = buffer.path.as_ref()
+                .and_then(|p| p.extension())
+                .and_then(|e| e.to_str())
+                .unwrap_or("markdown");
+            self.sidebar.update_outline(&content, lang);
+        }
+    }
+
+    pub fn open_or_switch_to_file(&mut self, path: PathBuf) {
+        if let Some(idx) = self.buffers.iter().position(|b| b.path.as_ref() == Some(&path)) {
+            self.active_buffer = idx;
+        } else {
+            match Editor::from_file(&path) {
+                Ok(mut editor) => {
+                    let ext = path.extension().and_then(|e| e.to_str());
+                    if let Some(ext) = ext {
+                        if let Some(def) = self.syntax_defs.iter().find(|s| s.meta.extensions.iter().any(|e| e == ext)) {
+                            if let Ok(highlighter) = led_core::syntax::SyntaxHighlighter::new(def.clone()) {
+                                editor.update_syntax(Some(highlighter));
+                            }
+                        }
+                    }
+                    if self.buffers.len() == 1
+                        && self.buffers[0].path.is_none()
+                        && !self.buffers[0].is_modified()
+                        && self.buffers[0].rope.len_chars() == 0
+                    {
+                        self.buffers[0] = editor;
+                        self.active_buffer = 0;
+                    } else {
+                        self.buffers.push(editor);
+                        self.active_buffer = self.buffers.len() - 1;
+                    }
+                }
+                Err(e) => {
+                    self.current_dialog = Some(Box::new(dialog::MessageDialog::new(
+                        self.i18n.get("error").to_string(),
+                        e.to_string(),
+                        vec![(self.i18n.get("dialog.ok").to_string(), dialog::Action::Confirm)],
+                    )));
+                    self.focus = Focus::Dialog;
+                    return;
+                }
+            }
+        }
+        self.update_active_outline();
+        self.menus = Self::build_menus(&self.i18n, &self.config, self.buffers.get(self.active_buffer), &self.themes, &self.syntax_defs);
+        self.recompute_layout();
+    }
+
+    fn handle_sidebar_key(&mut self, key: KeyEvent) {
+        let (_sx, _sy, _sw, sh) = self.layout.sidebar_bounds();
+        let viewport_h = sh.saturating_sub(1) as usize;
+
+        match key.code {
+            KeyCode::Esc => {
+                self.focus = Focus::Editor;
+            }
+            KeyCode::Tab => {
+                self.sidebar.active_tab = match self.sidebar.active_tab {
+                    crate::widgets::sidebar::SidebarTab::Files => crate::widgets::sidebar::SidebarTab::Outline,
+                    crate::widgets::sidebar::SidebarTab::Outline => crate::widgets::sidebar::SidebarTab::Files,
+                };
+            }
+            KeyCode::Char('1') => {
+                self.sidebar.active_tab = crate::widgets::sidebar::SidebarTab::Files;
+            }
+            KeyCode::Char('2') => {
+                self.sidebar.active_tab = crate::widgets::sidebar::SidebarTab::Outline;
+            }
+            KeyCode::Up => {
+                self.sidebar.select_prev(viewport_h);
+            }
+            KeyCode::Down => {
+                self.sidebar.select_next(viewport_h);
+            }
+            KeyCode::Left => {
+                self.sidebar.handle_left();
+            }
+            KeyCode::Right => {
+                self.sidebar.handle_right();
+            }
+            KeyCode::Enter | KeyCode::Char(' ') => {
+                let action = self.sidebar.activate_current();
+                match action {
+                    crate::widgets::sidebar::SidebarAction::OpenFile(path) => {
+                        self.open_or_switch_to_file(path);
+                        self.focus = Focus::Editor;
+                    }
+                    crate::widgets::sidebar::SidebarAction::JumpToLine(line) => {
+                        if let Some(buf) = self.buffers.get_mut(self.active_buffer) {
+                            let line_idx = line.min(buf.line_count().saturating_sub(1));
+                            buf.cursor = buf.rope.line_to_char(line_idx);
+                            buf.scroll_row = line_idx.saturating_sub(5);
+                            buf.selection = None;
+                            buf.selection_anchor = None;
+                        }
+                        self.ensure_cursor_visible();
+                        self.focus = Focus::Editor;
+                    }
+                    crate::widgets::sidebar::SidebarAction::None => {}
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn render_sidebar(&mut self) {
+        let bounds = self.layout.sidebar_bounds();
+        let is_focused = self.focus == Focus::Sidebar;
+        let active_path = self.buffers.get(self.active_buffer).and_then(|b| b.path.as_deref());
+        self.sidebar.render(
+            &mut self.renderer,
+            bounds,
+            is_focused,
+            &self.theme,
+            active_path,
+        );
     }
 
     pub fn run(&mut self) -> Result<()> {
@@ -352,7 +500,7 @@ impl App {
                         self.renderer.resize(w, h);
                         self.layout.width = w;
                         self.layout.height = h;
-                        self.layout.recompute(&self.menus, &self.buffers, self.active_buffer, self.config.line_numbers);
+                        self.recompute_layout();
                     }
                     _ => {}
                 }
@@ -417,11 +565,24 @@ impl App {
                 KeyCode::Char('y') => { self.perform_action(Action::Redo); return; }
                 KeyCode::Char('f') => { self.perform_action(Action::Find); return; }
                 KeyCode::Char('r') => { self.perform_action(Action::Replace); return; }
+                KeyCode::Char('b') => { self.perform_action(Action::ToggleSidebar); return; }
                 KeyCode::Char('h') => { self.perform_action(Action::About); return; }
-                KeyCode::Tab => {
+                KeyCode::Char('i') => { self.perform_action(Action::ToggleViMode); return; }
+                KeyCode::Tab | KeyCode::PageDown | KeyCode::Char(']') => {
                     self.active_buffer = (self.active_buffer + 1) % self.buffers.len();
+                    self.update_active_outline();
                     self.menus = Self::build_menus(&self.i18n, &self.config, self.buffers.get(self.active_buffer), &self.themes, &self.syntax_defs);
-                    self.layout.recompute(&self.menus, &self.buffers, self.active_buffer, self.config.line_numbers);
+                    self.recompute_layout();
+                    if self.layout.panel_height > 0 {
+                        self.run_search();
+                    }
+                    return;
+                }
+                KeyCode::PageUp | KeyCode::Char('[') => {
+                    self.active_buffer = if self.active_buffer == 0 { self.buffers.len() - 1 } else { self.active_buffer - 1 };
+                    self.update_active_outline();
+                    self.menus = Self::build_menus(&self.i18n, &self.config, self.buffers.get(self.active_buffer), &self.themes, &self.syntax_defs);
+                    self.recompute_layout();
                     if self.layout.panel_height > 0 {
                         self.run_search();
                     }
@@ -434,10 +595,21 @@ impl App {
             match key.code {
                 KeyCode::Char('F') | KeyCode::Char('f') => { self.perform_action(Action::Replace); return; }
                 KeyCode::Char('S') | KeyCode::Char('s') => { self.perform_action(Action::SaveAs); return; }
-                KeyCode::Tab | KeyCode::BackTab => {
+                KeyCode::Tab | KeyCode::BackTab | KeyCode::Char('[') | KeyCode::Char('{') => {
                     self.active_buffer = if self.active_buffer == 0 { self.buffers.len() - 1 } else { self.active_buffer - 1 };
+                    self.update_active_outline();
                     self.menus = Self::build_menus(&self.i18n, &self.config, self.buffers.get(self.active_buffer), &self.themes, &self.syntax_defs);
-                    self.layout.recompute(&self.menus, &self.buffers, self.active_buffer, self.config.line_numbers);
+                    self.recompute_layout();
+                    if self.layout.panel_height > 0 {
+                        self.run_search();
+                    }
+                    return;
+                }
+                KeyCode::Char(']') | KeyCode::Char('}') => {
+                    self.active_buffer = (self.active_buffer + 1) % self.buffers.len();
+                    self.update_active_outline();
+                    self.menus = Self::build_menus(&self.i18n, &self.config, self.buffers.get(self.active_buffer), &self.themes, &self.syntax_defs);
+                    self.recompute_layout();
                     if self.layout.panel_height > 0 {
                         self.run_search();
                     }
@@ -447,13 +619,53 @@ impl App {
             }
         }
 
-        // Handle Alt shortcuts for menus (only if not in a dialog)
+        // Handle Alt shortcuts for menus, sidebar, and tabs (only if not in a dialog)
         if self.focus != Focus::Dialog && key.modifiers == KeyModifiers::ALT {
             match key.code {
                 KeyCode::Char('f') => { self.open_menu(0); return; }
                 KeyCode::Char('e') => { self.open_menu(1); return; }
                 KeyCode::Char('v') => { self.open_menu(2); return; }
                 KeyCode::Char('h') => { self.open_menu(3); return; }
+                KeyCode::Left => {
+                    self.active_buffer = if self.active_buffer == 0 { self.buffers.len() - 1 } else { self.active_buffer - 1 };
+                    self.update_active_outline();
+                    self.menus = Self::build_menus(&self.i18n, &self.config, self.buffers.get(self.active_buffer), &self.themes, &self.syntax_defs);
+                    self.recompute_layout();
+                    if self.layout.panel_height > 0 {
+                        self.run_search();
+                    }
+                    return;
+                }
+                KeyCode::Right => {
+                    self.active_buffer = (self.active_buffer + 1) % self.buffers.len();
+                    self.update_active_outline();
+                    self.menus = Self::build_menus(&self.i18n, &self.config, self.buffers.get(self.active_buffer), &self.themes, &self.syntax_defs);
+                    self.recompute_layout();
+                    if self.layout.panel_height > 0 {
+                        self.run_search();
+                    }
+                    return;
+                }
+                KeyCode::Char('1') => {
+                    if !self.sidebar.visible {
+                        self.sidebar.visible = true;
+                        self.config.sidebar = true;
+                        self.recompute_layout();
+                    }
+                    self.sidebar.active_tab = crate::widgets::sidebar::SidebarTab::Files;
+                    self.focus = Focus::Sidebar;
+                    return;
+                }
+                KeyCode::Char('2') => {
+                    if !self.sidebar.visible {
+                        self.sidebar.visible = true;
+                        self.config.sidebar = true;
+                        self.recompute_layout();
+                    }
+                    self.sidebar.active_tab = crate::widgets::sidebar::SidebarTab::Outline;
+                    self.focus = Focus::Sidebar;
+                    return;
+                }
                 _ => {}
             }
         }
@@ -463,6 +675,7 @@ impl App {
             Focus::Menu => self.handle_menu_key(key),
             Focus::Dialog => self.handle_dialog_key(key),
             Focus::Panel => self.handle_panel_key(key),
+            Focus::Sidebar => self.handle_sidebar_key(key),
             Focus::Editor => {
                 if self.config.vi_mode {
                     self.handle_vi_key(key);
@@ -485,6 +698,22 @@ impl App {
             return;
         };
 
+        // Handle Ctrl+V / KeyCode::Char('v') with CONTROL modifier for Visual Block mode
+        if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('v') {
+            if buffer.vi_mode != led_core::ViMode::Insert {
+                if buffer.vi_mode == led_core::ViMode::VisualBlock {
+                    buffer.vi_mode = led_core::ViMode::Normal;
+                    buffer.selection = None;
+                    buffer.selection_anchor = None;
+                } else {
+                    buffer.vi_mode = led_core::ViMode::VisualBlock;
+                    buffer.ensure_selection();
+                }
+                self.ensure_cursor_visible();
+                return;
+            }
+        }
+
         match buffer.vi_mode {
             led_core::ViMode::Normal => self.handle_vi_normal_key(key),
             led_core::ViMode::Insert => {
@@ -496,12 +725,241 @@ impl App {
                     self.handle_editor_key(key);
                 }
             }
-            led_core::ViMode::Visual => self.handle_vi_visual_key(key),
+            led_core::ViMode::Visual | led_core::ViMode::VisualLine | led_core::ViMode::VisualBlock => self.handle_vi_visual_key(key),
         }
     }
 
     fn handle_vi_normal_key(&mut self, key: KeyEvent) {
         let code = key.code;
+
+        if self.pending_r {
+            if let KeyCode::Char(c) = code {
+                if let Some(buffer) = self.buffers.get_mut(self.active_buffer) {
+                    if buffer.cursor < buffer.rope.len_chars() {
+                        let (line, col) = buffer.char_to_line_col(buffer.cursor);
+                        let max_col = buffer.get_line_max_col(line);
+                        if col < max_col {
+                            buffer.delete(buffer.cursor..buffer.cursor + 1);
+                            buffer.insert(buffer.cursor, &c.to_string());
+                            buffer.cursor = buffer.cursor.saturating_sub(1);
+                        }
+                    }
+                }
+            }
+            self.pending_r = false;
+            self.ensure_cursor_visible();
+            return;
+        }
+
+        if self.pending_d {
+            let mut handled = true;
+            if let Some(buffer) = self.buffers.get_mut(self.active_buffer) {
+                let start_pos = buffer.cursor;
+                let target_pos = match code {
+                    KeyCode::Char('d') => {
+                        let (line, _) = buffer.char_to_line_col(buffer.cursor);
+                        buffer.select_line(line);
+                        if let Some(range) = buffer.selection.clone() {
+                            let text = buffer.rope.slice(range.clone()).to_string();
+                            let _ = clipboard::set_clipboard(&text);
+                            buffer.delete(range);
+                            buffer.selection = None;
+                            buffer.selection_anchor = None;
+                        }
+                        None
+                    }
+                    KeyCode::Char('w') => {
+                        buffer.move_word_forward(false);
+                        Some(buffer.cursor)
+                    }
+                    KeyCode::Char('e') => {
+                        buffer.move_word_end(false);
+                        Some((buffer.cursor + 1).min(buffer.rope.len_chars()))
+                    }
+                    KeyCode::Char('b') => {
+                        buffer.move_word_backward(false);
+                        Some(buffer.cursor)
+                    }
+                    KeyCode::Char('$') => {
+                        let (line, _) = buffer.char_to_line_col(buffer.cursor);
+                        let line_end = buffer.line_col_to_char(line, buffer.get_line_max_col(line));
+                        Some(line_end)
+                    }
+                    KeyCode::Char('0') | KeyCode::Char('^') => {
+                        let line = buffer.rope.char_to_line(buffer.cursor);
+                        let line_start = buffer.rope.line_to_char(line);
+                        Some(line_start)
+                    }
+                    KeyCode::Char('h') => Some(buffer.cursor.saturating_sub(1)),
+                    KeyCode::Char('l') => Some((buffer.cursor + 1).min(buffer.rope.len_chars())),
+                    _ => {
+                        handled = false;
+                        None
+                    }
+                };
+
+                if let Some(end_pos) = target_pos {
+                    let range = if start_pos <= end_pos {
+                        start_pos..end_pos
+                    } else {
+                        end_pos..start_pos
+                    };
+                    if !range.is_empty() {
+                        let text = buffer.rope.slice(range.clone()).to_string();
+                        let _ = clipboard::set_clipboard(&text);
+                        buffer.delete(range.clone());
+                        buffer.cursor = range.start;
+                        buffer.selection = None;
+                        buffer.selection_anchor = None;
+                    }
+                }
+            }
+            self.pending_d = false;
+            if handled {
+                self.ensure_cursor_visible();
+                return;
+            }
+        }
+
+        if self.pending_c {
+            let mut handled = true;
+            if let Some(buffer) = self.buffers.get_mut(self.active_buffer) {
+                let start_pos = buffer.cursor;
+                let target_pos = match code {
+                    KeyCode::Char('c') => {
+                        let (line, _) = buffer.char_to_line_col(buffer.cursor);
+                        let line_start = buffer.rope.line_to_char(line);
+                        let line_end = buffer.line_col_to_char(line, buffer.get_line_max_col(line));
+                        let range = line_start..line_end;
+                        if !range.is_empty() {
+                            let text = buffer.rope.slice(range.clone()).to_string();
+                            let _ = clipboard::set_clipboard(&text);
+                            buffer.delete(range);
+                            buffer.cursor = line_start;
+                        }
+                        buffer.vi_mode = led_core::ViMode::Insert;
+                        None
+                    }
+                    KeyCode::Char('w') => {
+                        buffer.move_word_forward(false);
+                        Some(buffer.cursor)
+                    }
+                    KeyCode::Char('e') => {
+                        buffer.move_word_end(false);
+                        Some((buffer.cursor + 1).min(buffer.rope.len_chars()))
+                    }
+                    KeyCode::Char('b') => {
+                        buffer.move_word_backward(false);
+                        Some(buffer.cursor)
+                    }
+                    KeyCode::Char('$') => {
+                        let (line, _) = buffer.char_to_line_col(buffer.cursor);
+                        let line_end = buffer.line_col_to_char(line, buffer.get_line_max_col(line));
+                        Some(line_end)
+                    }
+                    KeyCode::Char('0') | KeyCode::Char('^') => {
+                        let line = buffer.rope.char_to_line(buffer.cursor);
+                        let line_start = buffer.rope.line_to_char(line);
+                        Some(line_start)
+                    }
+                    _ => {
+                        handled = false;
+                        None
+                    }
+                };
+
+                if let Some(end_pos) = target_pos {
+                    let range = if start_pos <= end_pos {
+                        start_pos..end_pos
+                    } else {
+                        end_pos..start_pos
+                    };
+                    if !range.is_empty() {
+                        let text = buffer.rope.slice(range.clone()).to_string();
+                        let _ = clipboard::set_clipboard(&text);
+                        buffer.delete(range.clone());
+                        buffer.cursor = range.start;
+                        buffer.selection = None;
+                        buffer.selection_anchor = None;
+                    }
+                    buffer.vi_mode = led_core::ViMode::Insert;
+                }
+            }
+            self.pending_c = false;
+            if handled {
+                self.ensure_cursor_visible();
+                return;
+            }
+        }
+
+        if self.pending_y {
+            let mut handled = true;
+            if let Some(buffer) = self.buffers.get_mut(self.active_buffer) {
+                let start_pos = buffer.cursor;
+                let target_pos = match code {
+                    KeyCode::Char('y') => {
+                        let (line, _) = buffer.char_to_line_col(buffer.cursor);
+                        buffer.select_line(line);
+                        if let Some(range) = buffer.selection.clone() {
+                            let text = buffer.rope.slice(range).to_string();
+                            let _ = clipboard::set_clipboard(&text);
+                            buffer.selection = None;
+                            buffer.selection_anchor = None;
+                        }
+                        None
+                    }
+                    KeyCode::Char('w') => {
+                        buffer.move_word_forward(false);
+                        let pos = buffer.cursor;
+                        buffer.cursor = start_pos;
+                        Some(pos)
+                    }
+                    KeyCode::Char('e') => {
+                        buffer.move_word_end(false);
+                        let pos = (buffer.cursor + 1).min(buffer.rope.len_chars());
+                        buffer.cursor = start_pos;
+                        Some(pos)
+                    }
+                    KeyCode::Char('b') => {
+                        buffer.move_word_backward(false);
+                        let pos = buffer.cursor;
+                        buffer.cursor = start_pos;
+                        Some(pos)
+                    }
+                    KeyCode::Char('$') => {
+                        let (line, _) = buffer.char_to_line_col(buffer.cursor);
+                        let line_end = buffer.line_col_to_char(line, buffer.get_line_max_col(line));
+                        Some(line_end)
+                    }
+                    KeyCode::Char('0') | KeyCode::Char('^') => {
+                        let line = buffer.rope.char_to_line(buffer.cursor);
+                        let line_start = buffer.rope.line_to_char(line);
+                        Some(line_start)
+                    }
+                    _ => {
+                        handled = false;
+                        None
+                    }
+                };
+
+                if let Some(end_pos) = target_pos {
+                    let range = if start_pos <= end_pos {
+                        start_pos..end_pos
+                    } else {
+                        end_pos..start_pos
+                    };
+                    if !range.is_empty() {
+                        let text = buffer.rope.slice(range).to_string();
+                        let _ = clipboard::set_clipboard(&text);
+                    }
+                }
+            }
+            self.pending_y = false;
+            if handled {
+                self.ensure_cursor_visible();
+                return;
+            }
+        }
         
         match code {
             KeyCode::Char('i') => {
@@ -509,9 +967,25 @@ impl App {
                     buffer.vi_mode = led_core::ViMode::Insert;
                 }
             }
+            KeyCode::Char('I') => {
+                if let Some(buffer) = self.buffers.get_mut(self.active_buffer) {
+                    let line = buffer.rope.char_to_line(buffer.cursor);
+                    let line_str = buffer.rope.line(line).to_string();
+                    let indent = line_str.chars().take_while(|c| c.is_whitespace() && *c != '\n' && *c != '\r').count();
+                    buffer.cursor = buffer.line_col_to_char(line, indent);
+                    buffer.vi_mode = led_core::ViMode::Insert;
+                }
+            }
             KeyCode::Char('a') => {
                 if let Some(buffer) = self.buffers.get_mut(self.active_buffer) {
                     buffer.move_cursor_right(false);
+                    buffer.vi_mode = led_core::ViMode::Insert;
+                }
+            }
+            KeyCode::Char('A') => {
+                if let Some(buffer) = self.buffers.get_mut(self.active_buffer) {
+                    let (line, _) = buffer.char_to_line_col(buffer.cursor);
+                    buffer.cursor = buffer.line_col_to_char(line, buffer.get_line_max_col(line));
                     buffer.vi_mode = led_core::ViMode::Insert;
                 }
             }
@@ -522,10 +996,25 @@ impl App {
                     buffer.vi_mode = led_core::ViMode::Insert;
                 }
             }
+            KeyCode::Char('O') => {
+                if let Some(buffer) = self.buffers.get_mut(self.active_buffer) {
+                    buffer.move_cursor_home(false);
+                    buffer.insert(buffer.cursor, "\n");
+                    buffer.move_cursor_up(false);
+                    buffer.vi_mode = led_core::ViMode::Insert;
+                }
+            }
             KeyCode::Char('v') => {
                 if let Some(buffer) = self.buffers.get_mut(self.active_buffer) {
                     buffer.vi_mode = led_core::ViMode::Visual;
                     buffer.ensure_selection();
+                }
+            }
+            KeyCode::Char('V') => {
+                if let Some(buffer) = self.buffers.get_mut(self.active_buffer) {
+                    buffer.vi_mode = led_core::ViMode::VisualLine;
+                    buffer.ensure_selection();
+                    buffer.update_selection();
                 }
             }
             KeyCode::Char('h') => {
@@ -567,6 +1056,26 @@ impl App {
                     buffer.move_word_end(false);
                 }
             }
+            KeyCode::Char('0') => {
+                if let Some(buffer) = self.buffers.get_mut(self.active_buffer) {
+                    let line = buffer.rope.char_to_line(buffer.cursor);
+                    buffer.cursor = buffer.rope.line_to_char(line);
+                }
+            }
+            KeyCode::Char('^') => {
+                if let Some(buffer) = self.buffers.get_mut(self.active_buffer) {
+                    let line = buffer.rope.char_to_line(buffer.cursor);
+                    let line_str = buffer.rope.line(line).to_string();
+                    let indent = line_str.chars().take_while(|c| c.is_whitespace() && *c != '\n' && *c != '\r').count();
+                    buffer.cursor = buffer.line_col_to_char(line, indent);
+                }
+            }
+            KeyCode::Char('$') => {
+                if let Some(buffer) = self.buffers.get_mut(self.active_buffer) {
+                    let (line, _) = buffer.char_to_line_col(buffer.cursor);
+                    buffer.cursor = buffer.line_col_to_char(line, buffer.get_line_max_col(line));
+                }
+            }
             KeyCode::Char('u') => self.perform_action(Action::Undo),
             KeyCode::Char('x') => {
                 if let Some(buffer) = self.buffers.get_mut(self.active_buffer) {
@@ -575,38 +1084,138 @@ impl App {
                     }
                 }
             }
-            KeyCode::Char('d') => {
-                if self.pending_d {
-                    if let Some(buffer) = self.buffers.get_mut(self.active_buffer) {
-                        let line = buffer.rope.char_to_line(buffer.cursor);
-                        buffer.select_line(line);
+            KeyCode::Char('r') => {
+                self.pending_r = true;
+                return;
+            }
+            KeyCode::Char('s') => {
+                if let Some(buffer) = self.buffers.get_mut(self.active_buffer) {
+                    if buffer.cursor < buffer.rope.len_chars() {
+                        buffer.delete(buffer.cursor..buffer.cursor + 1);
                     }
-                    self.perform_action(Action::Cut);
-                    self.pending_d = false;
-                } else {
-                    self.pending_d = true;
+                    buffer.vi_mode = led_core::ViMode::Insert;
                 }
+            }
+            KeyCode::Char('S') => {
+                if let Some(buffer) = self.buffers.get_mut(self.active_buffer) {
+                    let (line, _) = buffer.char_to_line_col(buffer.cursor);
+                    let line_start = buffer.rope.line_to_char(line);
+                    let line_end = buffer.line_col_to_char(line, buffer.get_line_max_col(line));
+                    let range = line_start..line_end;
+                    if !range.is_empty() {
+                        let text = buffer.rope.slice(range.clone()).to_string();
+                        let _ = clipboard::set_clipboard(&text);
+                        buffer.delete(range);
+                        buffer.cursor = line_start;
+                    }
+                    buffer.vi_mode = led_core::ViMode::Insert;
+                }
+            }
+            KeyCode::Char('C') => {
+                if let Some(buffer) = self.buffers.get_mut(self.active_buffer) {
+                    let (line, _) = buffer.char_to_line_col(buffer.cursor);
+                    let line_end = buffer.line_col_to_char(line, buffer.get_line_max_col(line));
+                    let range = buffer.cursor..line_end;
+                    if !range.is_empty() {
+                        let text = buffer.rope.slice(range.clone()).to_string();
+                        let _ = clipboard::set_clipboard(&text);
+                        buffer.delete(range);
+                    }
+                    buffer.vi_mode = led_core::ViMode::Insert;
+                }
+            }
+            KeyCode::Char('D') => {
+                if let Some(buffer) = self.buffers.get_mut(self.active_buffer) {
+                    let (line, _) = buffer.char_to_line_col(buffer.cursor);
+                    let line_end = buffer.line_col_to_char(line, buffer.get_line_max_col(line));
+                    let range = buffer.cursor..line_end;
+                    if !range.is_empty() {
+                        let text = buffer.rope.slice(range.clone()).to_string();
+                        let _ = clipboard::set_clipboard(&text);
+                        buffer.delete(range);
+                    }
+                }
+            }
+            KeyCode::Char('Y') => {
+                if let Some(buffer) = self.buffers.get_mut(self.active_buffer) {
+                    let (line, _) = buffer.char_to_line_col(buffer.cursor);
+                    buffer.select_line(line);
+                    self.perform_action(Action::Copy);
+                    if let Some(b) = self.buffers.get_mut(self.active_buffer) {
+                        b.selection = None;
+                        b.selection_anchor = None;
+                    }
+                }
+            }
+            KeyCode::Char('J') => {
+                if let Some(buffer) = self.buffers.get_mut(self.active_buffer) {
+                    let (line, _) = buffer.char_to_line_col(buffer.cursor);
+                    if line + 1 < buffer.line_count() {
+                        let line_end = buffer.line_col_to_char(line, buffer.get_line_max_col(line));
+                        let next_line_start = buffer.rope.line_to_char(line + 1);
+                        let next_line_str = buffer.rope.line(line + 1).to_string();
+                        let next_indent = next_line_str.chars().take_while(|c| c.is_whitespace() && *c != '\n' && *c != '\r').count();
+                        let next_text_start = next_line_start + next_indent;
+                        buffer.delete(line_end..next_text_start);
+                        buffer.insert(line_end, " ");
+                        buffer.cursor = line_end;
+                    }
+                }
+            }
+            KeyCode::Char('d') => {
+                self.pending_d = true;
+                return;
+            }
+            KeyCode::Char('c') => {
+                self.pending_c = true;
                 return;
             }
             KeyCode::Char('y') => {
-                if self.pending_y {
-                    if let Some(buffer) = self.buffers.get_mut(self.active_buffer) {
-                        let line = buffer.rope.char_to_line(buffer.cursor);
-                        buffer.select_line(line);
-                    }
-                    self.perform_action(Action::Copy);
-                    if let Some(buffer) = self.buffers.get_mut(self.active_buffer) {
-                        buffer.selection = None;
-                        buffer.selection_anchor = None;
-                    }
-                    self.pending_y = false;
-                } else {
-                    self.pending_y = true;
-                }
+                self.pending_y = true;
                 return;
             }
             KeyCode::Char('p') => {
-                self.perform_action(Action::Paste);
+                if let Some(text) = clipboard::get_clipboard() {
+                    if let Some(buffer) = self.buffers.get_mut(self.active_buffer) {
+                        if let Some(range) = buffer.selection.clone() {
+                            buffer.delete(range);
+                        }
+                        if text.ends_with('\n') {
+                            let (line, _) = buffer.char_to_line_col(buffer.cursor);
+                            let next_line_start = if line + 1 < buffer.line_count() {
+                                buffer.rope.line_to_char(line + 1)
+                            } else {
+                                buffer.rope.len_chars()
+                            };
+                            buffer.insert(next_line_start, &text);
+                            buffer.cursor = next_line_start;
+                        } else {
+                            buffer.move_cursor_right(false);
+                            buffer.insert(buffer.cursor, &text);
+                        }
+                        buffer.selection = None;
+                        buffer.selection_anchor = None;
+                    }
+                }
+            }
+            KeyCode::Char('P') => {
+                if let Some(text) = clipboard::get_clipboard() {
+                    if let Some(buffer) = self.buffers.get_mut(self.active_buffer) {
+                        if let Some(range) = buffer.selection.clone() {
+                            buffer.delete(range);
+                        }
+                        if text.ends_with('\n') {
+                            let (line, _) = buffer.char_to_line_col(buffer.cursor);
+                            let line_start = buffer.rope.line_to_char(line);
+                            buffer.insert(line_start, &text);
+                            buffer.cursor = line_start;
+                        } else {
+                            buffer.insert(buffer.cursor, &text);
+                        }
+                        buffer.selection = None;
+                        buffer.selection_anchor = None;
+                    }
+                }
             }
             KeyCode::Char('/') => self.perform_action(Action::Find),
             KeyCode::Char(':') => {
@@ -617,6 +1226,8 @@ impl App {
                 if self.pending_g {
                     if let Some(buffer) = self.buffers.get_mut(self.active_buffer) {
                         buffer.cursor = 0;
+                        buffer.selection = None;
+                        buffer.selection_anchor = None;
                     }
                     self.pending_g = false;
                 } else {
@@ -630,6 +1241,8 @@ impl App {
                     let line = buffer.rope.len_lines().saturating_sub(1);
                     let col = buffer.get_line_max_col(line);
                     buffer.cursor = buffer.line_col_to_char(line, col);
+                    buffer.selection = None;
+                    buffer.selection_anchor = None;
                 }
             }
             KeyCode::Esc => {
@@ -639,12 +1252,16 @@ impl App {
                 }
                 self.pending_d = false;
                 self.pending_y = false;
+                self.pending_c = false;
                 self.pending_g = false;
+                self.pending_r = false;
             }
             _ => {
                 self.pending_d = false;
                 self.pending_y = false;
+                self.pending_c = false;
                 self.pending_g = false;
+                self.pending_r = false;
                 // Allow arrows and some other keys even in normal mode
                 match code {
                     KeyCode::Left | KeyCode::Right | KeyCode::Up | KeyCode::Down |
@@ -660,13 +1277,38 @@ impl App {
 
     fn handle_vi_visual_key(&mut self, key: KeyEvent) {
         let code = key.code;
+        let is_block = self.buffers.get(self.active_buffer).map(|b| b.vi_mode == led_core::ViMode::VisualBlock).unwrap_or(false);
         
         match code {
-            KeyCode::Esc | KeyCode::Char('v') => {
+            KeyCode::Esc => {
                 if let Some(buffer) = self.buffers.get_mut(self.active_buffer) {
                     buffer.vi_mode = led_core::ViMode::Normal;
                     buffer.selection = None;
                     buffer.selection_anchor = None;
+                }
+            }
+            KeyCode::Char('v') => {
+                if let Some(buffer) = self.buffers.get_mut(self.active_buffer) {
+                    if buffer.vi_mode == led_core::ViMode::Visual {
+                        buffer.vi_mode = led_core::ViMode::Normal;
+                        buffer.selection = None;
+                        buffer.selection_anchor = None;
+                    } else {
+                        buffer.vi_mode = led_core::ViMode::Visual;
+                        buffer.update_selection();
+                    }
+                }
+            }
+            KeyCode::Char('V') => {
+                if let Some(buffer) = self.buffers.get_mut(self.active_buffer) {
+                    if buffer.vi_mode == led_core::ViMode::VisualLine {
+                        buffer.vi_mode = led_core::ViMode::Normal;
+                        buffer.selection = None;
+                        buffer.selection_anchor = None;
+                    } else {
+                        buffer.vi_mode = led_core::ViMode::VisualLine;
+                        buffer.update_selection();
+                    }
                 }
             }
             KeyCode::Char('h') => {
@@ -708,22 +1350,104 @@ impl App {
                     buffer.move_word_end(true);
                 }
             }
-            KeyCode::Char('d') | KeyCode::Char('x') => {
-                self.perform_action(Action::Cut);
+            KeyCode::Char('0') => {
                 if let Some(buffer) = self.buffers.get_mut(self.active_buffer) {
-                    buffer.vi_mode = led_core::ViMode::Normal;
+                    buffer.move_cursor_home(true);
+                }
+            }
+            KeyCode::Char('$') => {
+                if let Some(buffer) = self.buffers.get_mut(self.active_buffer) {
+                    buffer.move_cursor_end(true);
+                }
+            }
+            KeyCode::Char('d') | KeyCode::Char('x') => {
+                if is_block {
+                    if let Some(buffer) = self.buffers.get_mut(self.active_buffer) {
+                        let text = buffer.get_visual_block_text();
+                        let _ = clipboard::set_clipboard(&text);
+                        buffer.delete_visual_block();
+                    }
+                } else {
+                    self.perform_action(Action::Cut);
+                    if let Some(buffer) = self.buffers.get_mut(self.active_buffer) {
+                        buffer.vi_mode = led_core::ViMode::Normal;
+                    }
+                }
+            }
+            KeyCode::Char('c') | KeyCode::Char('s') => {
+                if is_block {
+                    if let Some(buffer) = self.buffers.get_mut(self.active_buffer) {
+                        let text = buffer.get_visual_block_text();
+                        let _ = clipboard::set_clipboard(&text);
+                        buffer.delete_visual_block();
+                        buffer.vi_mode = led_core::ViMode::Insert;
+                    }
+                } else {
+                    self.perform_action(Action::Cut);
+                    if let Some(buffer) = self.buffers.get_mut(self.active_buffer) {
+                        buffer.vi_mode = led_core::ViMode::Insert;
+                    }
                 }
             }
             KeyCode::Char('y') => {
-                self.perform_action(Action::Copy);
+                if is_block {
+                    if let Some(buffer) = self.buffers.get_mut(self.active_buffer) {
+                        let text = buffer.get_visual_block_text();
+                        let _ = clipboard::set_clipboard(&text);
+                        buffer.selection = None;
+                        buffer.selection_anchor = None;
+                        buffer.vi_mode = led_core::ViMode::Normal;
+                    }
+                } else {
+                    self.perform_action(Action::Copy);
+                    if let Some(buffer) = self.buffers.get_mut(self.active_buffer) {
+                        buffer.vi_mode = led_core::ViMode::Normal;
+                        buffer.selection = None;
+                        buffer.selection_anchor = None;
+                    }
+                }
+            }
+            KeyCode::Char('p') => {
+                if let Some(text) = clipboard::get_clipboard() {
+                    if let Some(buffer) = self.buffers.get_mut(self.active_buffer) {
+                        if buffer.vi_mode == led_core::ViMode::VisualBlock {
+                            buffer.delete_visual_block();
+                        } else if let Some(range) = buffer.selection.clone() {
+                            buffer.delete(range);
+                        }
+                        buffer.insert(buffer.cursor, &text);
+                        buffer.selection = None;
+                        buffer.selection_anchor = None;
+                        buffer.vi_mode = led_core::ViMode::Normal;
+                    }
+                }
+            }
+            KeyCode::Char('I') if is_block => {
                 if let Some(buffer) = self.buffers.get_mut(self.active_buffer) {
-                    buffer.vi_mode = led_core::ViMode::Normal;
-                    buffer.selection = None;
-                    buffer.selection_anchor = None;
+                    if let Some(anchor) = buffer.selection_anchor {
+                        let (anchor_line, anchor_col) = buffer.char_to_line_col(anchor);
+                        let (cursor_line, cursor_col) = buffer.char_to_line_col(buffer.cursor);
+                        let target_line = anchor_line.min(cursor_line);
+                        let target_col = anchor_col.min(cursor_col);
+                        buffer.cursor = buffer.line_col_to_char(target_line, target_col);
+                    }
+                    buffer.vi_mode = led_core::ViMode::Insert;
+                }
+            }
+            KeyCode::Char('A') if is_block => {
+                if let Some(buffer) = self.buffers.get_mut(self.active_buffer) {
+                    if let Some(anchor) = buffer.selection_anchor {
+                        let (anchor_line, anchor_col) = buffer.char_to_line_col(anchor);
+                        let (cursor_line, cursor_col) = buffer.char_to_line_col(buffer.cursor);
+                        let target_line = anchor_line.min(cursor_line);
+                        let target_col = anchor_col.max(cursor_col) + 1;
+                        buffer.cursor = buffer.line_col_to_char(target_line, target_col);
+                    }
+                    buffer.vi_mode = led_core::ViMode::Insert;
                 }
             }
             _ => {
-                 match code {
+                match code {
                     KeyCode::Left | KeyCode::Right | KeyCode::Up | KeyCode::Down |
                     KeyCode::Home | KeyCode::End | KeyCode::PageUp | KeyCode::PageDown => {
                         self.handle_editor_key(key);
@@ -949,12 +1673,13 @@ impl App {
                                         buffer.update_syntax(syntax);
                                         self.buffers.push(buffer);
                                         self.active_buffer = self.buffers.len() - 1;
+                                        self.update_active_outline();
                                         self.menus = Self::build_menus(&self.i18n, &self.config, self.buffers.get(self.active_buffer), &self.themes, &self.syntax_defs);
-                                        self.layout.recompute(&self.menus, &self.buffers, self.active_buffer, self.config.line_numbers);
+                                        self.recompute_layout();
                                     }
                                     Err(e) => {
                                         if let Some(ref mut dialog) = self.current_dialog {
-                                            dialog.set_error(format!("Error: {}", e));
+                                             dialog.set_error(format!("Error: {}", e));
                                         }
                                         return; // Keep dialog open
                                     }
@@ -992,7 +1717,7 @@ impl App {
                                         return;
                                     }
                                     self.menus = Self::build_menus(&self.i18n, &self.config, Some(buffer), &self.themes, &self.syntax_defs);
-                                    self.layout.recompute(&self.menus, &self.buffers, self.active_buffer, self.config.line_numbers);
+                                    self.recompute_layout();
                                 }
                             }
                             _ => {}
@@ -1022,7 +1747,8 @@ impl App {
                                                 self.buffers.push(Editor::new());
                                             }
                                             self.active_buffer = self.active_buffer.min(self.buffers.len() - 1);
-                                            self.layout.recompute(&self.menus, &self.buffers, self.active_buffer, self.config.line_numbers);
+                                            self.update_active_outline();
+                                            self.recompute_layout();
                                         }
                                     }
                                 }
@@ -1031,7 +1757,7 @@ impl App {
                                 if let Some(path) = self.target_path.take() {
                                     if let Some(buffer) = self.buffers.get_mut(self.active_buffer) {
                                         let _ = buffer.save_as(&path);
-                                        self.layout.recompute(&self.menus, &self.buffers, self.active_buffer, self.config.line_numbers);
+                                        self.recompute_layout();
                                     }
                                 }
                             }
@@ -1058,7 +1784,8 @@ impl App {
                                     self.buffers.push(Editor::new());
                                 }
                                 self.active_buffer = self.active_buffer.min(self.buffers.len() - 1);
-                                self.layout.recompute(&self.menus, &self.buffers, self.active_buffer, self.config.line_numbers);
+                                self.update_active_outline();
+                                self.recompute_layout();
                             }
                             PendingOp::None => {
                                 // Probably a Reopen or other immediate operation
@@ -1069,8 +1796,9 @@ impl App {
                                                 let mut b = new_buffer;
                                                 b.encoding = enc;
                                                 self.buffers[self.active_buffer] = b;
+                                                self.update_active_outline();
                                                 self.menus = Self::build_menus(&self.i18n, &self.config, self.buffers.get(self.active_buffer), &self.themes, &self.syntax_defs);
-                                                self.layout.recompute(&self.menus, &self.buffers, self.active_buffer, self.config.line_numbers);
+                                                self.recompute_layout();
                                             }
                                         }
                                     }
@@ -1101,7 +1829,7 @@ impl App {
             KeyCode::Esc => {
                 self.layout.panel_height = 0;
                 self.focus = Focus::Editor;
-                self.layout.recompute(&self.menus, &self.buffers, self.active_buffer, self.config.line_numbers);
+                self.recompute_layout();
                 if let Some(buffer) = self.buffers.get_mut(self.active_buffer) {
                     buffer.search_status = None;
                 }
@@ -1137,7 +1865,7 @@ impl App {
                     PanelField::Close => {
                         self.layout.panel_height = 0;
                         self.focus = Focus::Editor;
-                        self.layout.recompute(&self.menus, &self.buffers, self.active_buffer, self.config.line_numbers);
+                        self.recompute_layout();
                         if let Some(buffer) = self.buffers.get_mut(self.active_buffer) {
                             buffer.search_status = None;
                             if self.config.vi_mode {
@@ -1514,7 +2242,8 @@ impl App {
             Action::New => {
                 self.buffers.push(Editor::new());
                 self.active_buffer = self.buffers.len() - 1;
-                self.layout.recompute(&self.menus, &self.buffers, self.active_buffer, self.config.line_numbers);
+                self.update_active_outline();
+                self.recompute_layout();
             }
             Action::Open => {
                 self.focus = Focus::Dialog;
@@ -1575,14 +2304,15 @@ impl App {
                     self.buffers.push(Editor::new());
                 }
                 self.active_buffer = self.active_buffer.min(self.buffers.len() - 1);
-                self.layout.recompute(&self.menus, &self.buffers, self.active_buffer, self.config.line_numbers);
+                self.update_active_outline();
+                self.recompute_layout();
             }
             Action::Find => {
                 self.find_panel.is_replace_mode = false;
                 self.layout.panel_height = 2;
                 self.focus = Focus::Panel;
                 self.find_panel.focused_field = crate::widgets::find_panel::PanelField::FindInput;
-                self.layout.recompute(&self.menus, &self.buffers, self.active_buffer, self.config.line_numbers);
+                self.recompute_layout();
                 self.run_search();
             }
             Action::Replace => {
@@ -1590,7 +2320,7 @@ impl App {
                 self.layout.panel_height = 3;
                 self.focus = Focus::Panel;
                 self.find_panel.focused_field = crate::widgets::find_panel::PanelField::FindInput;
-                self.layout.recompute(&self.menus, &self.buffers, self.active_buffer, self.config.line_numbers);
+                self.recompute_layout();
                 self.run_search();
             }
             Action::GoToLine => {
@@ -1613,7 +2343,7 @@ impl App {
                             (self.i18n.get("dialog.cancel").to_string(), dialog::Action::Cancel),
                         ]
                     )));
-                    self.layout.recompute(&self.menus, &self.buffers, self.active_buffer, self.config.line_numbers);
+                    self.recompute_layout();
                     return;
                 }
                 self.running = false;
@@ -1669,11 +2399,32 @@ impl App {
                 }
                 self.ensure_cursor_visible();
             }
+            Action::ToggleSidebar => {
+                self.sidebar.toggle_visibility();
+                self.config.sidebar = self.sidebar.visible;
+                let _ = Config::write_key("sidebar", &self.config.sidebar.to_string());
+                if !self.sidebar.visible && self.focus == Focus::Sidebar {
+                    self.focus = Focus::Editor;
+                }
+                self.menus = Self::build_menus(&self.i18n, &self.config, self.buffers.get(self.active_buffer), &self.themes, &self.syntax_defs);
+                self.recompute_layout();
+            }
+            Action::ToggleOutline => {
+                if !self.sidebar.visible {
+                    self.sidebar.visible = true;
+                    self.config.sidebar = true;
+                    let _ = Config::write_key("sidebar", "true");
+                }
+                self.sidebar.active_tab = crate::widgets::sidebar::SidebarTab::Outline;
+                self.focus = Focus::Sidebar;
+                self.menus = Self::build_menus(&self.i18n, &self.config, self.buffers.get(self.active_buffer), &self.themes, &self.syntax_defs);
+                self.recompute_layout();
+            }
             Action::ToggleLineNumbers => {
                 self.config.line_numbers = !self.config.line_numbers;
                 let _ = Config::write_key("line_numbers", &self.config.line_numbers.to_string());
                 self.menus = Self::build_menus(&self.i18n, &self.config, self.buffers.get(self.active_buffer), &self.themes, &self.syntax_defs);
-                self.layout.recompute(&self.menus, &self.buffers, self.active_buffer, self.config.line_numbers);
+                self.recompute_layout();
             }
             Action::ToggleWordWrap => {
                 self.config.word_wrap = !self.config.word_wrap;
@@ -1712,8 +2463,9 @@ impl App {
                                 let mut b = new_buffer;
                                 b.encoding = enc;
                                 self.buffers[self.active_buffer] = b;
+                                self.update_active_outline();
                                 self.menus = Self::build_menus(&self.i18n, &self.config, self.buffers.get(self.active_buffer), &self.themes, &self.syntax_defs);
-                                self.layout.recompute(&self.menus, &self.buffers, self.active_buffer, self.config.line_numbers);
+                                self.recompute_layout();
                             }
                         }
                     }
@@ -1903,8 +2655,9 @@ impl App {
                                     self.perform_action(Action::Close);
                                 } else {
                                     self.active_buffer = *idx;
+                                    self.update_active_outline();
                                     self.menus = Self::build_menus(&self.i18n, &self.config, self.buffers.get(self.active_buffer), &self.themes, &self.syntax_defs);
-                                    self.layout.recompute(&self.menus, &self.buffers, self.active_buffer, self.config.line_numbers);
+                                    self.recompute_layout();
                                     if self.layout.panel_height > 0 {
                                         self.run_search();
                                     }
@@ -1916,13 +2669,41 @@ impl App {
                 } else if y == self.height - 1 {
                     // Status Bar
                 } else {
+                    // Sidebar
+                    let (sx, sy, sw, sh) = self.layout.sidebar_bounds();
+                    if sw > 0 && x >= sx && x < sx + sw && y >= sy && y < sy + sh {
+                        let rel_x = x - sx;
+                        let rel_y = y - sy;
+                        self.focus = Focus::Sidebar;
+                        let action = self.sidebar.handle_click(rel_x, rel_y, sh.saturating_sub(1) as usize);
+                        match action {
+                            crate::widgets::sidebar::SidebarAction::OpenFile(path) => {
+                                self.open_or_switch_to_file(path);
+                                self.focus = Focus::Editor;
+                            }
+                            crate::widgets::sidebar::SidebarAction::JumpToLine(line) => {
+                                if let Some(buf) = self.buffers.get_mut(self.active_buffer) {
+                                    let line_idx = line.min(buf.line_count().saturating_sub(1));
+                                    buf.cursor = buf.rope.line_to_char(line_idx);
+                                    buf.scroll_row = line_idx.saturating_sub(5);
+                                    buf.selection = None;
+                                    buf.selection_anchor = None;
+                                }
+                                self.ensure_cursor_visible();
+                                self.focus = Focus::Editor;
+                            }
+                            crate::widgets::sidebar::SidebarAction::None => {}
+                        }
+                        return;
+                    }
+
                     // Editor or Panel
                     if self.focus == Focus::Menu {
                         self.focus = Focus::Editor;
                         self.active_menu = None;
                     } else {
-                        let (_gx, gy, gw, gh) = self.layout.gutter_bounds();
-                        if x < gw && y >= gy && y < gy + gh {
+                        let (gx, gy, gw, gh) = self.layout.gutter_bounds();
+                        if x >= gx && x < gx + gw && y >= gy && y < gy + gh {
                             // Gutter click
                             let buffer = &mut self.buffers[self.active_buffer];
                             let line_idx = buffer.scroll_row + (y - gy) as usize;
@@ -1966,6 +2747,11 @@ impl App {
                 }
             }
             MouseEventKind::ScrollUp => {
+                let (sx, sy, sw, sh) = self.layout.sidebar_bounds();
+                if sw > 0 && x >= sx && x < sx + sw && y >= sy && y < sy + sh {
+                    self.sidebar.select_prev(sh.saturating_sub(1) as usize);
+                    return;
+                }
                 let is_shift = mouse.modifiers.contains(KeyModifiers::SHIFT);
                 let buffer = &mut self.buffers[self.active_buffer];
                 if is_shift {
@@ -1979,6 +2765,11 @@ impl App {
                 }
             }
             MouseEventKind::ScrollDown => {
+                let (sx, sy, sw, sh) = self.layout.sidebar_bounds();
+                if sw > 0 && x >= sx && x < sx + sw && y >= sy && y < sy + sh {
+                    self.sidebar.select_next(sh.saturating_sub(1) as usize);
+                    return;
+                }
                 let is_shift = mouse.modifiers.contains(KeyModifiers::SHIFT);
                 let (_ex, _ey, _ew, eh) = self.layout.editor_bounds();
                 let buffer = &mut self.buffers[self.active_buffer];
@@ -2005,8 +2796,10 @@ impl App {
         if self.layout.panel_height > 0 {
             self.render_panel();
         }
+        if self.sidebar.visible && self.layout.sidebar_width > 0 {
+            self.render_sidebar();
+        }
         self.render_editor();
-
         self.render_status();
 
         // Render open dropdowns
@@ -2720,11 +3513,17 @@ impl App {
                             fg = *token_colors.get(&tokens[current_token_idx].token).unwrap_or(&editor_fg);
                         }
 
-                        if let Some(ref r) = buffer.selection {
-                            if char_idx >= r.start && char_idx < r.end {
-                                bg = selection_bg;
-                                fg = selection_fg;
-                            }
+                        let in_selection = if buffer.vi_mode == led_core::ViMode::VisualBlock {
+                            buffer.get_visual_block_ranges().into_iter().any(|r| char_idx >= r.start && char_idx < r.end)
+                        } else if let Some(ref r) = buffer.selection {
+                            char_idx >= r.start && char_idx < r.end
+                        } else {
+                            false
+                        };
+
+                        if in_selection {
+                            bg = selection_bg;
+                            fg = selection_fg;
                         }
                         
                         // Search matches
@@ -2865,11 +3664,17 @@ impl App {
                             fg = *token_colors.get(&tokens[current_token_idx].token).unwrap_or(&editor_fg);
                         }
 
-                        if let Some(ref range) = buffer.selection {
-                            if char_idx >= range.start && char_idx < range.end {
-                                bg = selection_bg;
-                                fg = selection_fg;
-                            }
+                        let in_selection = if buffer.vi_mode == led_core::ViMode::VisualBlock {
+                            buffer.get_visual_block_ranges().into_iter().any(|r| char_idx >= r.start && char_idx < r.end)
+                        } else if let Some(ref range) = buffer.selection {
+                            char_idx >= range.start && char_idx < range.end
+                        } else {
+                            false
+                        };
+
+                        if in_selection {
+                            bg = selection_bg;
+                            fg = selection_fg;
                         }
 
                         // Search matches
@@ -3041,6 +3846,8 @@ impl App {
                 led_core::ViMode::Normal => " NORMAL",
                 led_core::ViMode::Insert => " INSERT",
                 led_core::ViMode::Visual => " VISUAL",
+                led_core::ViMode::VisualLine => " V-LINE",
+                led_core::ViMode::VisualBlock => " V-BLOCK",
             }
         } else {
             ""

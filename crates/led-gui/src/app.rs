@@ -50,6 +50,8 @@ pub fn setup_app(app: &mut App, rx: futures::channel::mpsc::UnboundedReceiver<Ve
         #[cfg(target_os = "macos")]
         KeyBinding::new("cmd-h", About {}, None),
         #[cfg(target_os = "macos")]
+        KeyBinding::new("cmd-i", ToggleViMode {}, None),
+        #[cfg(target_os = "macos")]
         KeyBinding::new("cmd-a", SelectAll {}, None),
         #[cfg(target_os = "macos")]
         KeyBinding::new("cmd-,", OpenSettings {}, None),
@@ -61,6 +63,22 @@ pub fn setup_app(app: &mut App, rx: futures::channel::mpsc::UnboundedReceiver<Ve
         KeyBinding::new("cmd--", ZoomOut {}, None),
         #[cfg(target_os = "macos")]
         KeyBinding::new("cmd-0", ResetZoom {}, None),
+        #[cfg(target_os = "macos")]
+        KeyBinding::new("cmd-shift-[", PrevTab {}, None),
+        #[cfg(target_os = "macos")]
+        KeyBinding::new("cmd-shift-]", NextTab {}, None),
+        #[cfg(target_os = "macos")]
+        KeyBinding::new("cmd-{", PrevTab {}, None),
+        #[cfg(target_os = "macos")]
+        KeyBinding::new("cmd-}", NextTab {}, None),
+        #[cfg(target_os = "macos")]
+        KeyBinding::new("ctrl-tab", NextTab {}, None),
+        #[cfg(target_os = "macos")]
+        KeyBinding::new("ctrl-shift-tab", PrevTab {}, None),
+        #[cfg(target_os = "macos")]
+        KeyBinding::new("ctrl-pageup", PrevTab {}, None),
+        #[cfg(target_os = "macos")]
+        KeyBinding::new("ctrl-pagedown", NextTab {}, None),
 
         #[cfg(not(target_os = "macos"))]
         KeyBinding::new("ctrl-t", NewTab {}, None),
@@ -89,6 +107,8 @@ pub fn setup_app(app: &mut App, rx: futures::channel::mpsc::UnboundedReceiver<Ve
         #[cfg(not(target_os = "macos"))]
         KeyBinding::new("ctrl-h", About {}, None),
         #[cfg(not(target_os = "macos"))]
+        KeyBinding::new("ctrl-i", ToggleViMode {}, None),
+        #[cfg(not(target_os = "macos"))]
         KeyBinding::new("ctrl-a", SelectAll {}, None),
         #[cfg(not(target_os = "macos"))]
         KeyBinding::new("ctrl-,", OpenSettings {}, None),
@@ -100,6 +120,18 @@ pub fn setup_app(app: &mut App, rx: futures::channel::mpsc::UnboundedReceiver<Ve
         KeyBinding::new("ctrl--", ZoomOut {}, None),
         #[cfg(not(target_os = "macos"))]
         KeyBinding::new("ctrl-0", ResetZoom {}, None),
+        #[cfg(not(target_os = "macos"))]
+        KeyBinding::new("ctrl-tab", NextTab {}, None),
+        #[cfg(not(target_os = "macos"))]
+        KeyBinding::new("ctrl-shift-tab", PrevTab {}, None),
+        #[cfg(not(target_os = "macos"))]
+        KeyBinding::new("ctrl-pageup", PrevTab {}, None),
+        #[cfg(not(target_os = "macos"))]
+        KeyBinding::new("ctrl-pagedown", NextTab {}, None),
+        #[cfg(not(target_os = "macos"))]
+        KeyBinding::new("alt-left", PrevTab {}, None),
+        #[cfg(not(target_os = "macos"))]
+        KeyBinding::new("alt-right", NextTab {}, None),
     ]);
 
     // App-level action handlers to handle actions when no window is open or globally
@@ -489,13 +521,13 @@ fn build_native_menus(i18n: &I18n) -> Vec<Menu> {
 
     vec![
         Menu {
-            name: "led-gui".into(),
+            name: "led".into(),
             items: vec![
-                MenuItem::action("About led-gui", About {}),
+                MenuItem::action("About led", About {}),
                 MenuItem::separator(),
                 MenuItem::action(i18n.get("menu.app.preferences"), OpenSettings {}),
                 MenuItem::separator(),
-                MenuItem::action("Quit led-gui", Quit {}),
+                MenuItem::action("Quit led", Quit {}),
             ],
             disabled: false,
         },

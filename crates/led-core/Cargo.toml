@@ -14,3 +14,5 @@ unicode-width = { workspace = true }
 encoding_rs   = { workspace = true }
 ropey         = { workspace = true }
 rayon         = { workspace = true }
+serde_json    = { workspace = true }
+wasmi         = { workspace = true }

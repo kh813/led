@@ -49,7 +49,6 @@ impl Render for StatusBar {
         
         let is_modified = editor.is_modified();
         let vi_mode_enabled = workspace.config.vi_mode;
-        let vi_mode = format!("{:?}", editor.vi_mode).to_uppercase();
         
         let (line, col) = editor.char_to_line_col(editor.cursor);
 
@@ -105,15 +104,22 @@ impl Render for StatusBar {
                             .child(file_name.to_string())
                     )
                     .children(if vi_mode_enabled {
+                        let (badge_text, bg_color) = match editor.vi_mode {
+                            led_core::ViMode::Insert => ("INSERT", gpui::rgb(0x2e7d32)),
+                            led_core::ViMode::Visual => ("VISUAL", gpui::rgb(0x7b1fa2)),
+                            led_core::ViMode::VisualLine => ("V-LINE", gpui::rgb(0x8e24aa)),
+                            led_core::ViMode::VisualBlock => ("V-BLOCK", gpui::rgb(0x6a1b9a)),
+                            led_core::ViMode::Normal => ("NORMAL", gpui::rgb(0x1565c0)),
+                        };
                         Some(
                             div()
                                 .px_1p5()
                                 .py(px(1.0))
                                 .rounded_sm()
                                 .text_size(px(10.0))
-                                .bg(if vi_mode == "INSERT" { gpui::rgb(0x2e7d32) } else if vi_mode == "VISUAL" { gpui::rgb(0x7b1fa2) } else { gpui::rgb(0x1565c0) })
+                                .bg(bg_color)
                                 .text_color(gpui::rgb(0xffffff))
-                                .child(vi_mode)
+                                .child(badge_text)
                         )
                     } else {
                         None

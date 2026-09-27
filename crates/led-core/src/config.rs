@@ -10,6 +10,7 @@ pub struct Config {
     pub line_numbers: bool,
     pub vi_mode: bool,
     pub word_wrap: bool,
+    pub sidebar: bool,
     pub tab_size: usize,
     pub expand_tab: bool,
     // GUI specific customization (CLI ignores font settings)
@@ -28,6 +29,7 @@ impl Default for Config {
             line_numbers: true,
             vi_mode: false,
             word_wrap: false,
+            sidebar: true,
             tab_size: 4,
             expand_tab: false,
             font_family: None,
@@ -67,6 +69,7 @@ impl Config {
                     "line_numbers" => if let Some(b) = v.as_bool() { config.line_numbers = b; },
                     "vi_mode" => if let Some(b) = v.as_bool() { config.vi_mode = b; },
                     "word_wrap" => if let Some(b) = v.as_bool() { config.word_wrap = b; },
+                    "sidebar" => if let Some(b) = v.as_bool() { config.sidebar = b; },
                     "tab_size" => if let Some(i) = v.as_integer() { config.tab_size = i as usize; },
                     "expand_tab" => if let Some(b) = v.as_bool() { config.expand_tab = b; },
                     "font_family" => if let Some(s) = v.as_str() { config.font_family = Some(s.to_string()); },

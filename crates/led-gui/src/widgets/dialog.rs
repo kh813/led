@@ -315,7 +315,7 @@ impl Dialog {
                         div()
                             .text_size(px(22.0))
                             .font_weight(FontWeight::BOLD)
-                            .child("led-gui")
+                            .child("led")
                     )
                     .child(
                         div()

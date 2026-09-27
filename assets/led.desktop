@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=led
+GenericName=Text Editor
+Comment=Lightweight and modern text editor
+Exec=led-gui %F
+Icon=led
+Terminal=false
+Categories=Utility;TextEditor;Development;
+MimeType=text/plain;text/markdown;text/x-rust;text/x-python;application/json;application/toml;application/yaml;
+StartupNotify=true

@@ -467,22 +467,36 @@ impl WindowView {
 
     fn handle_toggle_line_numbers(&mut self, _: &ToggleLineNumbers, _window: &mut Window, cx: &mut Context<Self>) {
         self.config.line_numbers = !self.config.line_numbers;
-        let _ = Config::write_key("line_numbers", &self.config.line_numbers.to_string());
+        let line_numbers = self.config.line_numbers;
+        let _ = Config::write_key("line_numbers", &line_numbers.to_string());
+        self.workspace.update(cx, |w, cx| {
+            w.config.line_numbers = line_numbers;
+            cx.notify();
+        });
         cx.notify();
     }
 
     fn handle_toggle_word_wrap(&mut self, _: &ToggleWordWrap, _window: &mut Window, cx: &mut Context<Self>) {
         self.config.word_wrap = !self.config.word_wrap;
-        let _ = Config::write_key("word_wrap", &self.config.word_wrap.to_string());
+        let word_wrap = self.config.word_wrap;
+        let _ = Config::write_key("word_wrap", &word_wrap.to_string());
+        self.workspace.update(cx, |w, cx| {
+            w.config.word_wrap = word_wrap;
+            cx.notify();
+        });
         cx.notify();
     }
 
     fn handle_toggle_vi_mode(&mut self, _: &ToggleViMode, _window: &mut Window, cx: &mut Context<Self>) {
         self.config.vi_mode = !self.config.vi_mode;
-        let _ = Config::write_key("vi_mode", &self.config.vi_mode.to_string());
+        let vi_mode = self.config.vi_mode;
+        let _ = Config::write_key("vi_mode", &vi_mode.to_string());
         self.workspace.update(cx, |w, cx| {
+            w.config.vi_mode = vi_mode;
             for editor in w.editors.iter_mut() {
-                editor.vi_mode = if self.config.vi_mode { led_core::ViMode::Normal } else { led_core::ViMode::Insert };
+                editor.vi_mode = if vi_mode { led_core::ViMode::Normal } else { led_core::ViMode::Insert };
+                editor.selection = None;
+                editor.selection_anchor = None;
             }
             cx.notify();
         });

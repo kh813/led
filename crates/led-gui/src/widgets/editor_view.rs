@@ -11,6 +11,11 @@ pub struct EditorView {
     click_count: usize,
     preedit_text: Option<String>,
     preedit_range: Option<std::ops::Range<usize>>,
+    pending_d: bool,
+    pending_y: bool,
+    pending_c: bool,
+    pending_g: bool,
+    pending_r: bool,
 }
 
 impl EditorView {
@@ -26,6 +31,11 @@ impl EditorView {
             click_count: 0,
             preedit_text: None,
             preedit_range: None,
+            pending_d: false,
+            pending_y: false,
+            pending_c: false,
+            pending_g: false,
+            pending_r: false,
         }
     }
 
@@ -53,9 +63,67 @@ impl EditorView {
         let cmd = event.keystroke.modifiers.platform;
         let _alt = event.keystroke.modifiers.alt;
 
-        // If Cmd/Ctrl is pressed, key combinations are handled as shortcuts/actions
-        if control || cmd {
-            return;
+        let vi_mode_enabled = self.workspace.read(cx).config.vi_mode;
+        let current_vi_mode = self.workspace.read(cx).active_editor().map(|e| e.vi_mode);
+
+        if vi_mode_enabled {
+            // Handle Ctrl+V / Cmd+V in Normal/Visual mode for Visual Block
+            if (control || cmd) && key.as_str() == "v" {
+                if let Some(vi_mode) = current_vi_mode {
+                    if vi_mode != led_core::ViMode::Insert {
+                        self.workspace.update(cx, |w, cx| {
+                            if let Some(editor) = w.active_editor_mut() {
+                                if editor.vi_mode == led_core::ViMode::VisualBlock {
+                                    editor.vi_mode = led_core::ViMode::Normal;
+                                    editor.selection = None;
+                                    editor.selection_anchor = None;
+                                } else {
+                                    editor.vi_mode = led_core::ViMode::VisualBlock;
+                                    editor.ensure_selection();
+                                }
+                            }
+                            cx.notify();
+                        });
+                        return;
+                    }
+                }
+            }
+
+            // If other Cmd/Ctrl is pressed, key combinations are handled as shortcuts/actions
+            if control || cmd {
+                return;
+            }
+
+            if let Some(vi_mode) = current_vi_mode {
+                match vi_mode {
+                    led_core::ViMode::Normal => {
+                        self.handle_vi_normal_key(key, shift, cx);
+                        return;
+                    }
+                    led_core::ViMode::Visual | led_core::ViMode::VisualLine | led_core::ViMode::VisualBlock => {
+                        self.handle_vi_visual_key(key, cx);
+                        return;
+                    }
+                    led_core::ViMode::Insert => {
+                        if key.as_str() == "escape" {
+                            self.workspace.update(cx, |w, cx| {
+                                if let Some(editor) = w.active_editor_mut() {
+                                    editor.vi_mode = led_core::ViMode::Normal;
+                                    editor.selection = None;
+                                    editor.selection_anchor = None;
+                                }
+                                cx.notify();
+                            });
+                            return;
+                        }
+                    }
+                }
+            }
+        } else {
+            // If Cmd/Ctrl is pressed, key combinations are handled as shortcuts/actions
+            if control || cmd {
+                return;
+            }
         }
 
         self.workspace.update(cx, |w, cx| {
@@ -124,6 +192,940 @@ impl EditorView {
             cx.notify();
         });
     }
+
+    fn handle_vi_normal_key(&mut self, key: &str, shift: bool, cx: &mut Context<Self>) {
+        if self.pending_r {
+            if key != "escape" && key.chars().count() == 1 {
+                self.workspace.update(cx, |w, cx| {
+                    if let Some(editor) = w.active_editor_mut() {
+                        if editor.cursor < editor.rope.len_chars() {
+                            let (line, col) = editor.char_to_line_col(editor.cursor);
+                            let max_col = editor.get_line_max_col(line);
+                            if col < max_col {
+                                editor.delete(editor.cursor..editor.cursor + 1);
+                                editor.insert(editor.cursor, key);
+                                editor.cursor = editor.cursor.saturating_sub(1);
+                            }
+                        }
+                    }
+                    cx.notify();
+                });
+            }
+            self.pending_r = false;
+            return;
+        }
+
+        if self.pending_d {
+            let mut text_to_copy = None;
+            let mut handled = true;
+
+            self.workspace.update(cx, |w, cx| {
+                if let Some(editor) = w.active_editor_mut() {
+                    let start_pos = editor.cursor;
+                    let target_pos = match key {
+                        "d" => {
+                            let (line, _) = editor.char_to_line_col(editor.cursor);
+                            editor.select_line(line);
+                            if let Some(range) = editor.selection.clone() {
+                                text_to_copy = Some(editor.rope.slice(range.clone()).to_string());
+                                editor.delete(range);
+                                editor.selection = None;
+                                editor.selection_anchor = None;
+                            }
+                            None
+                        }
+                        "w" => {
+                            editor.move_word_forward(false);
+                            Some(editor.cursor)
+                        }
+                        "e" => {
+                            editor.move_word_end(false);
+                            Some((editor.cursor + 1).min(editor.rope.len_chars()))
+                        }
+                        "b" => {
+                            editor.move_word_backward(false);
+                            Some(editor.cursor)
+                        }
+                        "$" => {
+                            let (line, _) = editor.char_to_line_col(editor.cursor);
+                            let line_end = editor.line_col_to_char(line, editor.get_line_max_col(line));
+                            Some(line_end)
+                        }
+                        "0" | "^" => {
+                            let line = editor.rope.char_to_line(editor.cursor);
+                            let line_start = editor.rope.line_to_char(line);
+                            Some(line_start)
+                        }
+                        "h" => {
+                            Some(editor.cursor.saturating_sub(1))
+                        }
+                        "l" => {
+                            Some((editor.cursor + 1).min(editor.rope.len_chars()))
+                        }
+                        _ => {
+                            handled = false;
+                            None
+                        }
+                    };
+
+                    if let Some(end_pos) = target_pos {
+                        let range = if start_pos <= end_pos {
+                            start_pos..end_pos
+                        } else {
+                            end_pos..start_pos
+                        };
+                        if !range.is_empty() {
+                            text_to_copy = Some(editor.rope.slice(range.clone()).to_string());
+                            editor.delete(range.clone());
+                            editor.cursor = range.start;
+                            editor.selection = None;
+                            editor.selection_anchor = None;
+                        }
+                    }
+                }
+                cx.notify();
+            });
+
+            if let Some(text) = text_to_copy {
+                cx.write_to_clipboard(ClipboardItem::new_string(text));
+            }
+            self.pending_d = false;
+            if handled {
+                return;
+            }
+        }
+
+        if self.pending_c {
+            let mut text_to_copy = None;
+            let mut handled = true;
+
+            self.workspace.update(cx, |w, cx| {
+                if let Some(editor) = w.active_editor_mut() {
+                    let start_pos = editor.cursor;
+                    let target_pos = match key {
+                        "c" => {
+                            let (line, _) = editor.char_to_line_col(editor.cursor);
+                            let line_start = editor.rope.line_to_char(line);
+                            let line_end = editor.line_col_to_char(line, editor.get_line_max_col(line));
+                            let range = line_start..line_end;
+                            if !range.is_empty() {
+                                text_to_copy = Some(editor.rope.slice(range.clone()).to_string());
+                                editor.delete(range);
+                                editor.cursor = line_start;
+                            }
+                            editor.vi_mode = led_core::ViMode::Insert;
+                            None
+                        }
+                        "w" => {
+                            editor.move_word_forward(false);
+                            Some(editor.cursor)
+                        }
+                        "e" => {
+                            editor.move_word_end(false);
+                            Some((editor.cursor + 1).min(editor.rope.len_chars()))
+                        }
+                        "b" => {
+                            editor.move_word_backward(false);
+                            Some(editor.cursor)
+                        }
+                        "$" => {
+                            let (line, _) = editor.char_to_line_col(editor.cursor);
+                            let line_end = editor.line_col_to_char(line, editor.get_line_max_col(line));
+                            Some(line_end)
+                        }
+                        "0" | "^" => {
+                            let line = editor.rope.char_to_line(editor.cursor);
+                            let line_start = editor.rope.line_to_char(line);
+                            Some(line_start)
+                        }
+                        _ => {
+                            handled = false;
+                            None
+                        }
+                    };
+
+                    if let Some(end_pos) = target_pos {
+                        let range = if start_pos <= end_pos {
+                            start_pos..end_pos
+                        } else {
+                            end_pos..start_pos
+                        };
+                        if !range.is_empty() {
+                            text_to_copy = Some(editor.rope.slice(range.clone()).to_string());
+                            editor.delete(range.clone());
+                            editor.cursor = range.start;
+                            editor.selection = None;
+                            editor.selection_anchor = None;
+                        }
+                        editor.vi_mode = led_core::ViMode::Insert;
+                    }
+                }
+                cx.notify();
+            });
+
+            if let Some(text) = text_to_copy {
+                cx.write_to_clipboard(ClipboardItem::new_string(text));
+            }
+            self.pending_c = false;
+            if handled {
+                return;
+            }
+        }
+
+        if self.pending_y {
+            let mut text_to_copy = None;
+            let mut handled = true;
+
+            self.workspace.update(cx, |w, cx| {
+                if let Some(editor) = w.active_editor_mut() {
+                    let start_pos = editor.cursor;
+                    let target_pos = match key {
+                        "y" => {
+                            let (line, _) = editor.char_to_line_col(editor.cursor);
+                            editor.select_line(line);
+                            if let Some(range) = editor.selection.clone() {
+                                text_to_copy = Some(editor.rope.slice(range.clone()).to_string());
+                                editor.selection = None;
+                                editor.selection_anchor = None;
+                            }
+                            None
+                        }
+                        "w" => {
+                            editor.move_word_forward(false);
+                            let pos = editor.cursor;
+                            editor.cursor = start_pos;
+                            Some(pos)
+                        }
+                        "e" => {
+                            editor.move_word_end(false);
+                            let pos = (editor.cursor + 1).min(editor.rope.len_chars());
+                            editor.cursor = start_pos;
+                            Some(pos)
+                        }
+                        "b" => {
+                            editor.move_word_backward(false);
+                            let pos = editor.cursor;
+                            editor.cursor = start_pos;
+                            Some(pos)
+                        }
+                        "$" => {
+                            let (line, _) = editor.char_to_line_col(editor.cursor);
+                            let line_end = editor.line_col_to_char(line, editor.get_line_max_col(line));
+                            Some(line_end)
+                        }
+                        "0" | "^" => {
+                            let line = editor.rope.char_to_line(editor.cursor);
+                            let line_start = editor.rope.line_to_char(line);
+                            Some(line_start)
+                        }
+                        _ => {
+                            handled = false;
+                            None
+                        }
+                    };
+
+                    if let Some(end_pos) = target_pos {
+                        let range = if start_pos <= end_pos {
+                            start_pos..end_pos
+                        } else {
+                            end_pos..start_pos
+                        };
+                        if !range.is_empty() {
+                            text_to_copy = Some(editor.rope.slice(range).to_string());
+                        }
+                    }
+                }
+                cx.notify();
+            });
+
+            if let Some(text) = text_to_copy {
+                cx.write_to_clipboard(ClipboardItem::new_string(text));
+            }
+            self.pending_y = false;
+            if handled {
+                return;
+            }
+        }
+
+        match key {
+            "i" => {
+                self.workspace.update(cx, |w, cx| {
+                    if let Some(editor) = w.active_editor_mut() {
+                        editor.vi_mode = led_core::ViMode::Insert;
+                    }
+                    cx.notify();
+                });
+            }
+            "I" => {
+                self.workspace.update(cx, |w, cx| {
+                    if let Some(editor) = w.active_editor_mut() {
+                        let line = editor.rope.char_to_line(editor.cursor);
+                        let line_str = editor.rope.line(line).to_string();
+                        let indent = line_str.chars().take_while(|c| c.is_whitespace() && *c != '\n' && *c != '\r').count();
+                        editor.cursor = editor.line_col_to_char(line, indent);
+                        editor.vi_mode = led_core::ViMode::Insert;
+                    }
+                    cx.notify();
+                });
+            }
+            "a" => {
+                self.workspace.update(cx, |w, cx| {
+                    if let Some(editor) = w.active_editor_mut() {
+                        editor.move_cursor_right(false);
+                        editor.vi_mode = led_core::ViMode::Insert;
+                    }
+                    cx.notify();
+                });
+            }
+            "A" => {
+                self.workspace.update(cx, |w, cx| {
+                    if let Some(editor) = w.active_editor_mut() {
+                        let (line, _) = editor.char_to_line_col(editor.cursor);
+                        editor.cursor = editor.line_col_to_char(line, editor.get_line_max_col(line));
+                        editor.vi_mode = led_core::ViMode::Insert;
+                    }
+                    cx.notify();
+                });
+            }
+            "o" => {
+                self.workspace.update(cx, |w, cx| {
+                    if let Some(editor) = w.active_editor_mut() {
+                        editor.move_cursor_end(false);
+                        editor.insert(editor.cursor, "\n");
+                        editor.vi_mode = led_core::ViMode::Insert;
+                    }
+                    cx.notify();
+                });
+            }
+            "O" => {
+                self.workspace.update(cx, |w, cx| {
+                    if let Some(editor) = w.active_editor_mut() {
+                        editor.move_cursor_home(false);
+                        editor.insert(editor.cursor, "\n");
+                        editor.move_cursor_up(false);
+                        editor.vi_mode = led_core::ViMode::Insert;
+                    }
+                    cx.notify();
+                });
+            }
+            "v" => {
+                self.workspace.update(cx, |w, cx| {
+                    if let Some(editor) = w.active_editor_mut() {
+                        editor.vi_mode = led_core::ViMode::Visual;
+                        editor.ensure_selection();
+                    }
+                    cx.notify();
+                });
+            }
+            "V" => {
+                self.workspace.update(cx, |w, cx| {
+                    if let Some(editor) = w.active_editor_mut() {
+                        editor.vi_mode = led_core::ViMode::VisualLine;
+                        editor.ensure_selection();
+                        editor.update_selection();
+                    }
+                    cx.notify();
+                });
+            }
+            "h" => {
+                self.workspace.update(cx, |w, cx| {
+                    if let Some(editor) = w.active_editor_mut() {
+                        editor.move_cursor_left(false);
+                    }
+                    cx.notify();
+                });
+            }
+            "j" => {
+                self.workspace.update(cx, |w, cx| {
+                    if let Some(editor) = w.active_editor_mut() {
+                        editor.move_cursor_down(false);
+                    }
+                    cx.notify();
+                });
+            }
+            "k" => {
+                self.workspace.update(cx, |w, cx| {
+                    if let Some(editor) = w.active_editor_mut() {
+                        editor.move_cursor_up(false);
+                    }
+                    cx.notify();
+                });
+            }
+            "l" => {
+                self.workspace.update(cx, |w, cx| {
+                    if let Some(editor) = w.active_editor_mut() {
+                        editor.move_cursor_right(false);
+                    }
+                    cx.notify();
+                });
+            }
+            "w" => {
+                self.workspace.update(cx, |w, cx| {
+                    if let Some(editor) = w.active_editor_mut() {
+                        editor.move_word_forward(false);
+                    }
+                    cx.notify();
+                });
+            }
+            "b" => {
+                self.workspace.update(cx, |w, cx| {
+                    if let Some(editor) = w.active_editor_mut() {
+                        editor.move_word_backward(false);
+                    }
+                    cx.notify();
+                });
+            }
+            "e" => {
+                self.workspace.update(cx, |w, cx| {
+                    if let Some(editor) = w.active_editor_mut() {
+                        editor.move_word_end(false);
+                    }
+                    cx.notify();
+                });
+            }
+            "0" => {
+                self.workspace.update(cx, |w, cx| {
+                    if let Some(editor) = w.active_editor_mut() {
+                        let line = editor.rope.char_to_line(editor.cursor);
+                        editor.cursor = editor.rope.line_to_char(line);
+                    }
+                    cx.notify();
+                });
+            }
+            "^" => {
+                self.workspace.update(cx, |w, cx| {
+                    if let Some(editor) = w.active_editor_mut() {
+                        let line = editor.rope.char_to_line(editor.cursor);
+                        let line_str = editor.rope.line(line).to_string();
+                        let indent = line_str.chars().take_while(|c| c.is_whitespace() && *c != '\n' && *c != '\r').count();
+                        editor.cursor = editor.line_col_to_char(line, indent);
+                    }
+                    cx.notify();
+                });
+            }
+            "$" => {
+                self.workspace.update(cx, |w, cx| {
+                    if let Some(editor) = w.active_editor_mut() {
+                        let (line, _) = editor.char_to_line_col(editor.cursor);
+                        editor.cursor = editor.line_col_to_char(line, editor.get_line_max_col(line));
+                    }
+                    cx.notify();
+                });
+            }
+            "u" => {
+                self.workspace.update(cx, |w, cx| {
+                    if let Some(editor) = w.active_editor_mut() {
+                        editor.undo();
+                    }
+                    cx.notify();
+                });
+            }
+            "x" => {
+                self.workspace.update(cx, |w, cx| {
+                    if let Some(editor) = w.active_editor_mut() {
+                        if editor.cursor < editor.rope.len_chars() {
+                            editor.delete(editor.cursor..editor.cursor + 1);
+                        }
+                    }
+                    cx.notify();
+                });
+            }
+            "r" => {
+                self.pending_r = true;
+                return;
+            }
+            "s" => {
+                self.workspace.update(cx, |w, cx| {
+                    if let Some(editor) = w.active_editor_mut() {
+                        if editor.cursor < editor.rope.len_chars() {
+                            editor.delete(editor.cursor..editor.cursor + 1);
+                        }
+                        editor.vi_mode = led_core::ViMode::Insert;
+                    }
+                    cx.notify();
+                });
+            }
+            "S" => {
+                let mut text_to_copy = None;
+                self.workspace.update(cx, |w, cx| {
+                    if let Some(editor) = w.active_editor_mut() {
+                        let (line, _) = editor.char_to_line_col(editor.cursor);
+                        let line_start = editor.rope.line_to_char(line);
+                        let line_end = editor.line_col_to_char(line, editor.get_line_max_col(line));
+                        let range = line_start..line_end;
+                        if !range.is_empty() {
+                            text_to_copy = Some(editor.rope.slice(range.clone()).to_string());
+                            editor.delete(range);
+                            editor.cursor = line_start;
+                        }
+                        editor.vi_mode = led_core::ViMode::Insert;
+                    }
+                    cx.notify();
+                });
+                if let Some(text) = text_to_copy {
+                    cx.write_to_clipboard(ClipboardItem::new_string(text));
+                }
+            }
+            "C" => {
+                let mut text_to_copy = None;
+                self.workspace.update(cx, |w, cx| {
+                    if let Some(editor) = w.active_editor_mut() {
+                        let (line, _) = editor.char_to_line_col(editor.cursor);
+                        let line_end = editor.line_col_to_char(line, editor.get_line_max_col(line));
+                        let range = editor.cursor..line_end;
+                        if !range.is_empty() {
+                            text_to_copy = Some(editor.rope.slice(range.clone()).to_string());
+                            editor.delete(range);
+                        }
+                        editor.vi_mode = led_core::ViMode::Insert;
+                    }
+                    cx.notify();
+                });
+                if let Some(text) = text_to_copy {
+                    cx.write_to_clipboard(ClipboardItem::new_string(text));
+                }
+            }
+            "D" => {
+                let mut text_to_copy = None;
+                self.workspace.update(cx, |w, cx| {
+                    if let Some(editor) = w.active_editor_mut() {
+                        let (line, _) = editor.char_to_line_col(editor.cursor);
+                        let line_end = editor.line_col_to_char(line, editor.get_line_max_col(line));
+                        let range = editor.cursor..line_end;
+                        if !range.is_empty() {
+                            text_to_copy = Some(editor.rope.slice(range.clone()).to_string());
+                            editor.delete(range);
+                        }
+                    }
+                    cx.notify();
+                });
+                if let Some(text) = text_to_copy {
+                    cx.write_to_clipboard(ClipboardItem::new_string(text));
+                }
+            }
+            "Y" => {
+                let mut text_to_copy = None;
+                self.workspace.update(cx, |w, cx| {
+                    if let Some(editor) = w.active_editor_mut() {
+                        let (line, _) = editor.char_to_line_col(editor.cursor);
+                        editor.select_line(line);
+                        if let Some(range) = editor.selection.clone() {
+                            text_to_copy = Some(editor.rope.slice(range).to_string());
+                            editor.selection = None;
+                            editor.selection_anchor = None;
+                        }
+                    }
+                    cx.notify();
+                });
+                if let Some(text) = text_to_copy {
+                    cx.write_to_clipboard(ClipboardItem::new_string(text));
+                }
+            }
+            "J" => {
+                self.workspace.update(cx, |w, cx| {
+                    if let Some(editor) = w.active_editor_mut() {
+                        let (line, _) = editor.char_to_line_col(editor.cursor);
+                        if line + 1 < editor.line_count() {
+                            let line_end = editor.line_col_to_char(line, editor.get_line_max_col(line));
+                            let next_line_start = editor.rope.line_to_char(line + 1);
+                            let next_line_str = editor.rope.line(line + 1).to_string();
+                            let next_indent = next_line_str.chars().take_while(|c| c.is_whitespace() && *c != '\n' && *c != '\r').count();
+                            let next_text_start = next_line_start + next_indent;
+                            editor.delete(line_end..next_text_start);
+                            editor.insert(line_end, " ");
+                            editor.cursor = line_end;
+                        }
+                    }
+                    cx.notify();
+                });
+            }
+            "d" => {
+                self.pending_d = true;
+                return;
+            }
+            "c" => {
+                self.pending_c = true;
+                return;
+            }
+            "y" => {
+                self.pending_y = true;
+                return;
+            }
+            "p" => {
+                if let Some(item) = cx.read_from_clipboard() {
+                    if let Some(text) = item.text() {
+                        let text = text.clone();
+                        self.workspace.update(cx, |w, cx| {
+                            if let Some(editor) = w.active_editor_mut() {
+                                if let Some(range) = editor.selection.clone() {
+                                    editor.delete(range);
+                                }
+                                if text.ends_with('\n') {
+                                    // Line paste below
+                                    let (line, _) = editor.char_to_line_col(editor.cursor);
+                                    let next_line_start = if line + 1 < editor.line_count() {
+                                        editor.rope.line_to_char(line + 1)
+                                    } else {
+                                        editor.rope.len_chars()
+                                    };
+                                    editor.insert(next_line_start, &text);
+                                    editor.cursor = next_line_start;
+                                } else {
+                                    editor.move_cursor_right(false);
+                                    editor.insert(editor.cursor, &text);
+                                }
+                                editor.selection = None;
+                                editor.selection_anchor = None;
+                            }
+                            cx.notify();
+                        });
+                    }
+                }
+            }
+            "P" => {
+                if let Some(item) = cx.read_from_clipboard() {
+                    if let Some(text) = item.text() {
+                        let text = text.clone();
+                        self.workspace.update(cx, |w, cx| {
+                            if let Some(editor) = w.active_editor_mut() {
+                                if let Some(range) = editor.selection.clone() {
+                                    editor.delete(range);
+                                }
+                                if text.ends_with('\n') {
+                                    // Line paste above
+                                    let (line, _) = editor.char_to_line_col(editor.cursor);
+                                    let line_start = editor.rope.line_to_char(line);
+                                    editor.insert(line_start, &text);
+                                    editor.cursor = line_start;
+                                } else {
+                                    editor.insert(editor.cursor, &text);
+                                }
+                                editor.selection = None;
+                                editor.selection_anchor = None;
+                            }
+                            cx.notify();
+                        });
+                    }
+                }
+            }
+            "g" => {
+                if self.pending_g {
+                    self.workspace.update(cx, |w, cx| {
+                        if let Some(editor) = w.active_editor_mut() {
+                            editor.cursor = 0;
+                            editor.selection = None;
+                            editor.selection_anchor = None;
+                        }
+                        cx.notify();
+                    });
+                    self.pending_g = false;
+                } else {
+                    self.pending_g = true;
+                }
+                return;
+            }
+            "G" => {
+                self.workspace.update(cx, |w, cx| {
+                    if let Some(editor) = w.active_editor_mut() {
+                        editor.cursor = editor.rope.len_chars();
+                        let line = editor.line_count().saturating_sub(1);
+                        let col = editor.get_line_max_col(line);
+                        editor.cursor = editor.line_col_to_char(line, col);
+                        editor.selection = None;
+                        editor.selection_anchor = None;
+                    }
+                    cx.notify();
+                });
+            }
+            "escape" => {
+                self.workspace.update(cx, |w, cx| {
+                    if let Some(editor) = w.active_editor_mut() {
+                        editor.selection = None;
+                        editor.selection_anchor = None;
+                    }
+                    cx.notify();
+                });
+                self.pending_d = false;
+                self.pending_y = false;
+                self.pending_c = false;
+                self.pending_g = false;
+                self.pending_r = false;
+            }
+            "up" | "down" | "left" | "right" | "home" | "end" | "pageup" | "pagedown" => {
+                self.workspace.update(cx, |w, cx| {
+                    if let Some(editor) = w.active_editor_mut() {
+                        match key {
+                            "up" => editor.move_cursor_up(shift),
+                            "down" => editor.move_cursor_down(shift),
+                            "left" => editor.move_cursor_left(shift),
+                            "right" => editor.move_cursor_right(shift),
+                            "home" => editor.move_cursor_home(shift),
+                            "end" => editor.move_cursor_end(shift),
+                            "pageup" => {
+                                for _ in 0..20 {
+                                    editor.move_cursor_up(shift);
+                                }
+                            }
+                            "pagedown" => {
+                                for _ in 0..20 {
+                                    editor.move_cursor_down(shift);
+                                }
+                            }
+                            _ => {}
+                        }
+                    }
+                    cx.notify();
+                });
+            }
+            _ => {
+                self.pending_d = false;
+                self.pending_y = false;
+                self.pending_c = false;
+                self.pending_g = false;
+                self.pending_r = false;
+            }
+        }
+    }
+
+    fn handle_vi_visual_key(&mut self, key: &str, cx: &mut Context<Self>) {
+        let current_mode = self.workspace.read(cx).active_editor().map(|e| e.vi_mode);
+        let is_block = current_mode == Some(led_core::ViMode::VisualBlock);
+
+        match key {
+            "escape" => {
+                self.workspace.update(cx, |w, cx| {
+                    if let Some(editor) = w.active_editor_mut() {
+                        editor.vi_mode = led_core::ViMode::Normal;
+                        editor.selection = None;
+                        editor.selection_anchor = None;
+                    }
+                    cx.notify();
+                });
+            }
+            "v" => {
+                self.workspace.update(cx, |w, cx| {
+                    if let Some(editor) = w.active_editor_mut() {
+                        if editor.vi_mode == led_core::ViMode::Visual {
+                            editor.vi_mode = led_core::ViMode::Normal;
+                            editor.selection = None;
+                            editor.selection_anchor = None;
+                        } else {
+                            editor.vi_mode = led_core::ViMode::Visual;
+                            editor.update_selection();
+                        }
+                    }
+                    cx.notify();
+                });
+            }
+            "V" => {
+                self.workspace.update(cx, |w, cx| {
+                    if let Some(editor) = w.active_editor_mut() {
+                        if editor.vi_mode == led_core::ViMode::VisualLine {
+                            editor.vi_mode = led_core::ViMode::Normal;
+                            editor.selection = None;
+                            editor.selection_anchor = None;
+                        } else {
+                            editor.vi_mode = led_core::ViMode::VisualLine;
+                            editor.update_selection();
+                        }
+                    }
+                    cx.notify();
+                });
+            }
+            "h" => {
+                self.workspace.update(cx, |w, cx| {
+                    if let Some(editor) = w.active_editor_mut() {
+                        editor.move_cursor_left(true);
+                    }
+                    cx.notify();
+                });
+            }
+            "j" => {
+                self.workspace.update(cx, |w, cx| {
+                    if let Some(editor) = w.active_editor_mut() {
+                        editor.move_cursor_down(true);
+                    }
+                    cx.notify();
+                });
+            }
+            "k" => {
+                self.workspace.update(cx, |w, cx| {
+                    if let Some(editor) = w.active_editor_mut() {
+                        editor.move_cursor_up(true);
+                    }
+                    cx.notify();
+                });
+            }
+            "l" => {
+                self.workspace.update(cx, |w, cx| {
+                    if let Some(editor) = w.active_editor_mut() {
+                        editor.move_cursor_right(true);
+                    }
+                    cx.notify();
+                });
+            }
+            "w" => {
+                self.workspace.update(cx, |w, cx| {
+                    if let Some(editor) = w.active_editor_mut() {
+                        editor.move_word_forward(true);
+                    }
+                    cx.notify();
+                });
+            }
+            "b" => {
+                self.workspace.update(cx, |w, cx| {
+                    if let Some(editor) = w.active_editor_mut() {
+                        editor.move_word_backward(true);
+                    }
+                    cx.notify();
+                });
+            }
+            "e" => {
+                self.workspace.update(cx, |w, cx| {
+                    if let Some(editor) = w.active_editor_mut() {
+                        editor.move_word_end(true);
+                    }
+                    cx.notify();
+                });
+            }
+            "0" => {
+                self.workspace.update(cx, |w, cx| {
+                    if let Some(editor) = w.active_editor_mut() {
+                        editor.move_cursor_home(true);
+                    }
+                    cx.notify();
+                });
+            }
+            "$" => {
+                self.workspace.update(cx, |w, cx| {
+                    if let Some(editor) = w.active_editor_mut() {
+                        editor.move_cursor_end(true);
+                    }
+                    cx.notify();
+                });
+            }
+            "d" | "x" => {
+                let mut text_to_copy = None;
+                self.workspace.update(cx, |w, cx| {
+                    if let Some(editor) = w.active_editor_mut() {
+                        if editor.vi_mode == led_core::ViMode::VisualBlock {
+                            text_to_copy = Some(editor.get_visual_block_text());
+                            editor.delete_visual_block();
+                        } else {
+                            if let Some(range) = editor.selection.clone() {
+                                text_to_copy = Some(editor.rope.slice(range.clone()).to_string());
+                                editor.delete(range);
+                                editor.selection = None;
+                                editor.selection_anchor = None;
+                            }
+                        }
+                        editor.vi_mode = led_core::ViMode::Normal;
+                    }
+                    cx.notify();
+                });
+                if let Some(text) = text_to_copy {
+                    cx.write_to_clipboard(ClipboardItem::new_string(text));
+                }
+            }
+            "c" | "s" => {
+                let mut text_to_copy = None;
+                self.workspace.update(cx, |w, cx| {
+                    if let Some(editor) = w.active_editor_mut() {
+                        if editor.vi_mode == led_core::ViMode::VisualBlock {
+                            text_to_copy = Some(editor.get_visual_block_text());
+                            editor.delete_visual_block();
+                        } else {
+                            if let Some(range) = editor.selection.clone() {
+                                text_to_copy = Some(editor.rope.slice(range.clone()).to_string());
+                                editor.delete(range);
+                                editor.selection = None;
+                                editor.selection_anchor = None;
+                            }
+                        }
+                        editor.vi_mode = led_core::ViMode::Insert;
+                    }
+                    cx.notify();
+                });
+                if let Some(text) = text_to_copy {
+                    cx.write_to_clipboard(ClipboardItem::new_string(text));
+                }
+            }
+            "y" => {
+                let mut text_to_copy = None;
+                self.workspace.update(cx, |w, cx| {
+                    if let Some(editor) = w.active_editor_mut() {
+                        if editor.vi_mode == led_core::ViMode::VisualBlock {
+                            text_to_copy = Some(editor.get_visual_block_text());
+                        } else {
+                            if let Some(range) = editor.selection.clone() {
+                                text_to_copy = Some(editor.rope.slice(range).to_string());
+                            }
+                        }
+                        editor.selection = None;
+                        editor.selection_anchor = None;
+                        editor.vi_mode = led_core::ViMode::Normal;
+                    }
+                    cx.notify();
+                });
+                if let Some(text) = text_to_copy {
+                    cx.write_to_clipboard(ClipboardItem::new_string(text));
+                }
+            }
+            "p" => {
+                if let Some(item) = cx.read_from_clipboard() {
+                    if let Some(text) = item.text() {
+                        let text = text.clone();
+                        self.workspace.update(cx, |w, cx| {
+                            if let Some(editor) = w.active_editor_mut() {
+                                if editor.vi_mode == led_core::ViMode::VisualBlock {
+                                    editor.delete_visual_block();
+                                } else if let Some(range) = editor.selection.clone() {
+                                    editor.delete(range);
+                                }
+                                editor.insert(editor.cursor, &text);
+                                editor.selection = None;
+                                editor.selection_anchor = None;
+                                editor.vi_mode = led_core::ViMode::Normal;
+                            }
+                            cx.notify();
+                        });
+                    }
+                }
+            }
+            "I" if is_block => {
+                self.workspace.update(cx, |w, cx| {
+                    if let Some(editor) = w.active_editor_mut() {
+                        if let Some(anchor) = editor.selection_anchor {
+                            let (anchor_line, anchor_col) = editor.char_to_line_col(anchor);
+                            let (cursor_line, cursor_col) = editor.char_to_line_col(editor.cursor);
+                            let target_line = anchor_line.min(cursor_line);
+                            let target_col = anchor_col.min(cursor_col);
+                            editor.cursor = editor.line_col_to_char(target_line, target_col);
+                        }
+                        editor.vi_mode = led_core::ViMode::Insert;
+                    }
+                    cx.notify();
+                });
+            }
+            "A" if is_block => {
+                self.workspace.update(cx, |w, cx| {
+                    if let Some(editor) = w.active_editor_mut() {
+                        if let Some(anchor) = editor.selection_anchor {
+                            let (anchor_line, anchor_col) = editor.char_to_line_col(anchor);
+                            let (cursor_line, cursor_col) = editor.char_to_line_col(editor.cursor);
+                            let target_line = anchor_line.min(cursor_line);
+                            let target_col = anchor_col.max(cursor_col) + 1;
+                            editor.cursor = editor.line_col_to_char(target_line, target_col);
+                        }
+                        editor.vi_mode = led_core::ViMode::Insert;
+                    }
+                    cx.notify();
+                });
+            }
+            _ => {}
+        }
+    }
+
 
     fn mouse_pos_to_char_pos(&self, position: Point<Pixels>, cx: &mut Context<Self>) -> usize {
         let workspace = self.workspace.read(cx);
@@ -287,6 +1289,12 @@ impl EntityInputHandler for EditorView {
     }
 
     fn replace_text_in_range(&mut self, replacement_range: Option<std::ops::Range<usize>>, text: &str, _window: &mut Window, cx: &mut Context<Self>) {
+        let vi_mode_enabled = self.workspace.read(cx).config.vi_mode;
+        let is_normal_or_visual = self.workspace.read(cx).active_editor().map(|e| e.vi_mode != led_core::ViMode::Insert).unwrap_or(false);
+        if vi_mode_enabled && is_normal_or_visual {
+            return;
+        }
+
         self.workspace.update(cx, |w, cx| {
             let editor = match w.active_editor_mut() {
                 Some(e) => e,
@@ -657,34 +1665,66 @@ impl EditorView {
     fn render_line_content(&self, line_idx: usize, line_str: &str, workspace: &Workspace, editor: &led_core::buffer::Editor, is_cursor_line: bool) -> Vec<AnyElement> {
         let theme = &workspace.theme;
 
-        let selection = editor.selection.clone();
+        let selection = if editor.vi_mode == led_core::ViMode::VisualBlock {
+            let ranges = editor.get_visual_block_ranges();
+            let line_start = editor.rope.line_to_char(line_idx);
+            let line_end = line_start + editor.rope.line(line_idx).len_chars();
+            ranges.into_iter().find(|r| r.start >= line_start && r.start <= line_end)
+        } else {
+            editor.selection.clone()
+        };
         let line_start_char = editor.rope.line_to_char(line_idx);
         let (_, cursor_col) = editor.char_to_line_col(editor.cursor);
 
         let mut elements = Vec::new();
         let mut cursor_rendered = false;
 
+        let is_block_cursor = workspace.config.vi_mode && editor.vi_mode != led_core::ViMode::Insert;
+        let char_width_val = workspace.config.font_size * 0.6;
+
         let render_cursor = |elements: &mut Vec<AnyElement>| {
             if let Some(ref preedit) = self.preedit_text {
                 elements.push(self.render_preedit_element(preedit, theme));
             }
-            // Cursor bar that doesn't take space
-            elements.push(
-                div()
-                    .relative()
-                    .w(px(0.0))
-                    .h_full()
-                    .child(
-                        div()
-                            .absolute()
-                            .top_0()
-                            .left_0()
-                            .w(px(2.0))
-                            .h_full()
-                            .bg(led_color_to_gpui(theme.editor.cursor))
-                    )
-                    .into_any_element()
-            );
+            if is_block_cursor {
+                // Block cursor with alpha overlay
+                elements.push(
+                    div()
+                        .relative()
+                        .w(px(0.0))
+                        .h_full()
+                        .child(
+                            div()
+                                .absolute()
+                                .top_0()
+                                .left_0()
+                                .w(px(char_width_val))
+                                .h_full()
+                                .bg(with_alpha(led_color_to_gpui(theme.editor.cursor), 0.5))
+                                .border_1()
+                                .border_color(led_color_to_gpui(theme.editor.cursor))
+                        )
+                        .into_any_element()
+                );
+            } else {
+                // 2px vertical bar cursor
+                elements.push(
+                    div()
+                        .relative()
+                        .w(px(0.0))
+                        .h_full()
+                        .child(
+                            div()
+                                .absolute()
+                                .top_0()
+                                .left_0()
+                                .w(px(2.0))
+                                .h_full()
+                                .bg(led_color_to_gpui(theme.editor.cursor))
+                        )
+                        .into_any_element()
+                );
+            }
         };
 
         // Helper to render a chunk of text with potential selection highlight

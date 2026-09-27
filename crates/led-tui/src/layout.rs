@@ -5,6 +5,7 @@ pub struct Layout {
     pub tab_height: u16,
     pub panel_height: u16,
     pub status_height: u16,
+    pub sidebar_width: u16,
     pub gutter_width: u16,
     pub menu_bar_items: Vec<(String, u16, u16)>, // (label, col_start, col_end)
     pub tab_rects: Vec<(usize, u16, u16)>,       // (tab_index, col_start, col_end)
@@ -21,6 +22,7 @@ impl Layout {
             tab_height: 1,
             panel_height: 0,
             status_height: 1,
+            sidebar_width: 0,
             gutter_width: 0,
             menu_bar_items: Vec::new(),
             tab_rects: Vec::new(),
@@ -28,7 +30,14 @@ impl Layout {
         }
     }
 
-    pub fn recompute(&mut self, menus: &[crate::widgets::menu::Menu], buffers: &[led_core::buffer::Editor], active_buffer_idx: usize, show_line_numbers: bool) {
+    pub fn recompute(
+        &mut self,
+        menus: &[crate::widgets::menu::Menu],
+        buffers: &[led_core::buffer::Editor],
+        active_buffer_idx: usize,
+        show_line_numbers: bool,
+        show_sidebar: bool,
+    ) {
         // Recompute menu items
         self.menu_bar_items.clear();
         let mut current_x = 1;
@@ -43,7 +52,6 @@ impl Layout {
         // Recompute tabs
         self.tab_rects.clear();
         let mut current_tab_x = 0;
-        // We might need to handle scrolling if there are many tabs
         for (i, buffer) in buffers.iter().enumerate() {
             let name = buffer.path.as_ref()
                 .and_then(|p| p.file_name())
@@ -56,6 +64,13 @@ impl Layout {
             
             self.tab_rects.push((i, current_tab_x, current_tab_x + width + 1));
             current_tab_x += width + 1;
+        }
+
+        // Sidebar width
+        if show_sidebar && self.width >= 45 {
+            self.sidebar_width = 26.min(self.width.saturating_sub(25) / 2).max(16);
+        } else {
+            self.sidebar_width = 0;
         }
 
         // Gutter width
@@ -71,16 +86,25 @@ impl Layout {
         }
     }
 
-    pub fn editor_bounds(&self) -> (u16, u16, u16, u16) {
-        let x = self.gutter_width;
+    pub fn sidebar_bounds(&self) -> (u16, u16, u16, u16) {
+        if self.sidebar_width == 0 {
+            return (0, 0, 0, 0);
+        }
         let y = self.menu_height + self.tab_height + self.panel_height;
-        let w = self.width.saturating_sub(self.gutter_width);
+        let h = self.height.saturating_sub(y).saturating_sub(self.status_height);
+        (0, y, self.sidebar_width, h)
+    }
+
+    pub fn editor_bounds(&self) -> (u16, u16, u16, u16) {
+        let x = self.sidebar_width + self.gutter_width;
+        let y = self.menu_height + self.tab_height + self.panel_height;
+        let w = self.width.saturating_sub(self.sidebar_width + self.gutter_width);
         let h = self.height.saturating_sub(y).saturating_sub(self.status_height);
         (x, y, w, h)
     }
 
     pub fn gutter_bounds(&self) -> (u16, u16, u16, u16) {
-        let x = 0;
+        let x = self.sidebar_width;
         let y = self.menu_height + self.tab_height + self.panel_height;
         let w = self.gutter_width;
         let h = self.height.saturating_sub(y).saturating_sub(self.status_height);

@@ -157,6 +157,18 @@ install: local
 		cp $(DIST_DIR)/$(LED_GUI_BIN) $$INSTALL_DIR/; \
 		echo "Installed $(LED_GUI_BIN) to $$INSTALL_DIR/"; \
 	fi; \
+	if [ "$(OS_TYPE)" = "linux" ]; then \
+		mkdir -p $${HOME}/.local/share/applications; \
+		if [ -f assets/led.desktop ]; then \
+			cp assets/led.desktop $${HOME}/.local/share/applications/; \
+			echo "Installed led.desktop to $${HOME}/.local/share/applications/"; \
+		fi; \
+		mkdir -p $${HOME}/.local/share/icons/hicolor/scalable/apps; \
+		if [ -f assets/icons/led.svg ]; then \
+			cp assets/icons/led.svg $${HOME}/.local/share/icons/hicolor/scalable/apps/led.svg; \
+			echo "Installed icon to $${HOME}/.local/share/icons/hicolor/scalable/apps/"; \
+		fi; \
+	fi; \
 	if [ "$(OS_TYPE)" = "macos" ] && [ -d $(DIST_DIR)/led.app ]; then \
 		mkdir -p $${HOME}/Applications; \
 		rm -rf $${HOME}/Applications/led.app; \

@@ -1,7 +1,7 @@
 # led User Manual
 
-**led** is a lightweight, modern TUI text editor for plain text, Markdown, and config files.  
-It runs on macOS, Linux, and Windows — including over SSH.
+**led** is a lightweight, modern GUI and TUI text editor for plain text, Markdown, and config files.  
+It provides a native hardware-accelerated desktop application (`led.app` / `led-gui`) as well as a terminal interface (`led`) running on macOS, Linux, and Windows — including seamlessly over SSH.
 
 ---
 
@@ -29,9 +29,9 @@ Download the appropriate binary from the [releases page] and place it in your `P
 | :--- | :--- | :--- |
 | macOS Apple Silicon (TUI) | `led-mac-arm64` | TUI binary. Rename to `led` and `chmod +x`. |
 | macOS Apple Silicon (GUI) | `led-gui-mac-arm64.app.zip` | Extracting provides `led.app`. Double-click or move to `/Applications`. |
-| Linux x86-64 | `led-linux-x64` (TUI), `led-gui-linux-x64` (GUI) | TUI/GUI binary. Rename TUI to `led` and `chmod +x`. |
-| Linux ARM64 | `led-linux-arm64` (TUI), `led-gui-linux-arm64` (GUI) | TUI/GUI binary. Rename TUI to `led` and `chmod +x`. |
-| Windows x86-64 | `led-windows-x64.exe` (TUI), `led-gui-windows-x64.exe` (GUI) | TUI / GUI binary (`x86_64-pc-windows-msvc`). |
+| Linux x86-64 | `led-linux-x64` (TUI), `led-gui-linux-x64` (GUI) | TUI binary (`led`) and GUI binary (`led-gui`). Launch GUI from applications menu. |
+| Linux ARM64 | `led-linux-arm64` (TUI), `led-gui-linux-arm64` (GUI) | TUI binary (`led`) and GUI binary (`led-gui`). Launch GUI from applications menu. |
+| Windows x86-64 | `led-windows-x64.exe` (TUI), `led-gui-windows-x64.exe` (GUI) | TUI (`led.exe`) / GUI binary (`led.exe`). |
 
 **macOS / Linux quick install:**
 ```bash
@@ -50,22 +50,37 @@ sudo mv led /usr/local/bin/led
 
 **Requirements**: Rust toolchain (`rustup`), C compiler / build-essential
 
+#### macOS & Linux (Make)
 ```bash
-git clone https://github.com/yourname/led.git
+git clone https://github.com/kh813/led.git
 cd led
 
 # Build both TUI and GUI for current OS
 make
 
 # Or build individual components:
-make tui      # Build TUI (led)
 make gui      # Build GUI (led-gui and led.app on macOS)
+make tui      # Build TUI (led)
 
 # Install binaries to ~/.local/bin (and ~/Applications on macOS)
 make install
 
 # Outputs land in dist/
 ls dist/
+```
+
+#### Windows (PowerShell - No Make Needed)
+```powershell
+# Using make.ps1:
+.\make.ps1         # Build Windows GUI (dist/led.exe)
+.\make.ps1 tui     # Build Windows TUI (dist/led-cli.exe)
+.\make.ps1 test    # Run tests (cargo test --workspace)
+.\make.ps1 package # Package into dist/led-windows-x64.zip
+.\make.ps1 clean   # Clean build artifacts
+
+# Or directly with Cargo:
+cargo build --release -p led-gui   # Windows GUI: target/release/led-gui.exe
+cargo build --release -p led-tui   # Terminal TUI: target/release/led.exe
 ```
 
 **Available make targets:**
@@ -178,6 +193,7 @@ led file1.txt file2.txt  # Open multiple files in tabs
 | Action | Shortcut |
 | :--- | :--- |
 | Help / About | `Ctrl+H` (`⌘H` on macOS) |
+| Toggle Vi Mode | `Ctrl+I` (`⌘I` on macOS) |
 | Preferences / Settings | `Ctrl+,` (`⌘,` on macOS) |
 | Zoom In | `Ctrl+=` / `Ctrl++` (`⌘=` on macOS) |
 | Zoom Out | `Ctrl+-` (`⌘-` on macOS) |
@@ -187,6 +203,42 @@ led file1.txt file2.txt  # Open multiple files in tabs
 | Next tab | `Ctrl+Tab` |
 | Previous tab | `Ctrl+Shift+Tab` |
 | Toggle Line Numbers | `View > [x] Line Numbers` |
+| Toggle Word Wrap | `View > [x] Word Wrap` |
+
+### Vi / Vim Mode Commands (Normal, Visual, Visual Line & Visual Block Modes)
+
+Toggle Vi Mode with `Ctrl+I` (`⌘I` on macOS) or via `View > [x] Vi Mode`.
+
+#### Normal Mode
+- **Motions**: `h` / `j` / `k` / `l` (left/down/up/right), `w` / `b` / `e` (word forward/backward/end), `0` / `^` (line start/first non-blank), `$` (line end), `gg` / `G` (document start/end).
+- **Mode Switching**: 
+  - `i` (insert at cursor), `I` (insert at line start), `a` (append after cursor), `A` (append at line end), `o` (open newline below), `O` (open newline above).
+  - `v` (Visual character mode), `V` (Visual Line mode), `Ctrl+V` / `⌘V` (Visual Block / rectangular selection mode).
+  - `Esc` (clear selection/pending operator).
+- **Operators & Deletion**:
+  - `x` (delete character), `r<char>` (replace character).
+  - `dw` (delete word), `de` (delete to word end), `db` (delete to word start), `d$` / `D` (delete to line end), `d0` / `d^` (delete to line start), `dd` (delete line).
+- **Change**:
+  - `cw` / `ce` / `cb` / `c$` / `c0` / `c^` (change motion to Insert mode), `C` (change to line end), `cc` / `S` (change whole line), `s` (substitute character).
+- **Yank & Put (Clipboard)**:
+  - `yw` / `ye` / `yb` / `y$` / `y0` / `y^` (yank motion), `yy` / `Y` (yank whole line).
+  - `p` (paste after cursor / below line), `P` (paste before cursor / above line).
+- **Other**: `u` (undo), `J` (join next line).
+
+#### Visual & Visual Line Modes (`v` / `V`)
+- **Navigation & Selection**: `h` / `j` / `k` / `l`, `w` / `b` / `e`, `0`, `$` to expand/contract selection.
+- **Operations on Selection**: `y` (yank), `d` / `x` (cut), `c` / `s` (cut and enter Insert mode), `p` (replace selection with clipboard), `Esc` (return to Normal mode).
+
+#### Visual Block Mode (Rectangular Selection / `Ctrl+V` or `⌘V`)
+- **Navigation**: `h` / `j` / `k` / `l`, `0`, `$` to select a rectangular column area across multiple lines.
+- **Block Operations**:
+  - `d` / `x` (delete rectangular column block).
+  - `y` (yank rectangular block to clipboard).
+  - `c` / `s` (delete rectangular block and enter Insert mode).
+  - `I` (insert text before the rectangular block on all selected lines).
+  - `A` (append text after the rectangular block on all selected lines).
+  - `p` (replace rectangular block).
+  - `Esc` (exit to Normal mode).
 
 ### Find/Replace Panel
 
