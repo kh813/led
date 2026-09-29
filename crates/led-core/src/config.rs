@@ -29,7 +29,7 @@ impl Default for Config {
             line_numbers: true,
             vi_mode: false,
             word_wrap: false,
-            sidebar: true,
+            sidebar: false,
             tab_size: 4,
             expand_tab: false,
             font_family: None,

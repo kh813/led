@@ -90,6 +90,14 @@ tab_size = 4
 expand_tab = false
 
 
+# Show sidebar (File tree and Markdown Outline).
+# Can also be toggled at runtime via View > Sidebar (Cmd+B / Ctrl+B).
+#
+# Type    : boolean  (true / false)
+# Default : false
+sidebar = false
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # GUI Specific Settings (led-gui only; ignored by led-tui)
 # ─────────────────────────────────────────────────────────────────────────────
