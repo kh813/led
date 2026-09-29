@@ -341,7 +341,7 @@ pub fn setup_app(app: &mut App, rx: futures::channel::mpsc::UnboundedReceiver<Ve
 }
 
 fn centered_window_options(cx: &App) -> WindowOptions {
-    let window_size = size(px(940.0), px(800.0));
+    let window_size = size(px(1012.0), px(800.0));
     let mut origin = Point::default();
     if let Some(display) = cx.primary_display() {
         let display_bounds = display.bounds();
