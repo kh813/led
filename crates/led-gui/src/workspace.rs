@@ -24,8 +24,12 @@ pub struct Workspace {
 
 impl Workspace {
     pub fn new(config: Config) -> Self {
-        let root_path = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
-        let file_tree = FileTree::new(&root_path, false);
+        Self::new_with_root(config, None)
+    }
+
+    pub fn new_with_root(config: Config, root_path: Option<PathBuf>) -> Self {
+        let root = root_path.unwrap_or_else(led_core::file_tree::user_root_dir);
+        let file_tree = FileTree::new(&root, false);
         let sidebar_visible = config.sidebar;
         Self {
             editors: vec![Editor::new()],
@@ -37,6 +41,10 @@ impl Workspace {
             file_tree,
             outline_nodes: Vec::new(),
         }
+    }
+
+    pub fn set_root_path(&mut self, path: PathBuf) {
+        self.file_tree.set_root(path);
     }
 
     pub fn update_outline(&mut self) {

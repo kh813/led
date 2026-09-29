@@ -899,8 +899,13 @@ impl Render for WindowView {
             .on_action(cx.listener(Self::handle_exit))
             .on_drop(cx.listener(|this, paths: &ExternalPaths, _window, cx| {
                 let mut opened_any = false;
+                let mut dir_to_open = None;
                 for path in paths.paths() {
-                    if let Ok(editor) = Editor::from_file(path) {
+                    if path.is_dir() {
+                        if dir_to_open.is_none() {
+                            dir_to_open = Some(path.clone());
+                        }
+                    } else if let Ok(editor) = Editor::from_file(path) {
                         this.workspace.update(cx, |w, cx| {
                             w.add_editor(editor);
                             w.update_outline();
@@ -908,6 +913,13 @@ impl Render for WindowView {
                         });
                         opened_any = true;
                     }
+                }
+                if let Some(dir) = dir_to_open {
+                    this.workspace.update(cx, |w, cx| {
+                        w.set_root_path(dir);
+                        cx.notify();
+                    });
+                    opened_any = true;
                 }
                 if opened_any {
                     cx.notify();

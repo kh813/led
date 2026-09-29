@@ -304,8 +304,13 @@ pub fn setup_app(app: &mut App, rx: futures::channel::mpsc::UnboundedReceiver<Ve
     // Activate the application on launch so its window is brought to the foreground
     app.activate(true);
 
-    // Initial window
-    new_window(config.clone(), i18n.clone(), app);
+    // Initial window or CLI argument paths
+    let cli_paths: Vec<std::path::PathBuf> = std::env::args().skip(1).map(std::path::PathBuf::from).collect();
+    if !cli_paths.is_empty() {
+        open_paths(cli_paths, config.clone(), i18n.clone(), app);
+    } else {
+        new_window(config.clone(), i18n.clone(), app);
+    }
 
     // Handle files dropped on the Dock icon or opened via Finder
     app.spawn(|cx: &mut AsyncApp| {
@@ -336,7 +341,7 @@ pub fn setup_app(app: &mut App, rx: futures::channel::mpsc::UnboundedReceiver<Ve
 }
 
 fn centered_window_options(cx: &App) -> WindowOptions {
-    let window_size = size(px(1008.0), px(826.0));
+    let window_size = size(px(1248.0), px(826.0));
     let mut origin = Point::default();
     if let Some(display) = cx.primary_display() {
         let display_bounds = display.bounds();
@@ -418,18 +423,33 @@ pub fn open_paths(paths: Vec<std::path::PathBuf>, config: Config, i18n: I18n, cx
 
     let options = centered_window_options(cx);
     cx.open_window(options, move |window, cx| {
+        window.activate_window();
         let workspace = cx.new(|_| {
-            let mut w = Workspace::new(config.clone());
-            w.theme = theme_to_use;
-            let mut opened_any = false;
+            let mut dir_root = None;
+            let mut files_to_open = Vec::new();
+
             for path in paths {
+                if path.is_dir() {
+                    if dir_root.is_none() {
+                        dir_root = Some(path);
+                    }
+                } else {
+                    files_to_open.push(path);
+                }
+            }
+
+            let mut w = Workspace::new_with_root(config.clone(), dir_root);
+            w.theme = theme_to_use;
+
+            let mut opened_any = false;
+            for path in files_to_open {
                 if let Ok(editor) = led_core::buffer::Editor::from_file(&path) {
                     w.add_editor(editor);
                     opened_any = true;
                 }
             }
-            if !opened_any {
-                w.add_editor(led_core::buffer::Editor::new());
+            if opened_any {
+                w.update_outline();
             }
             w
         });

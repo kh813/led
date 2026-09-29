@@ -95,13 +95,16 @@ impl App {
 
         let mut buffers = Vec::new();
         let mut errors = Vec::new();
+        let mut root_dir = None;
 
         if paths.is_empty() {
             buffers.push(Editor::new());
         } else {
             for path in paths {
                 if path.is_dir() {
-                    errors.push(i18n.get("error.cannot_open_dir").replace("{path}", &path.display().to_string()));
+                    if root_dir.is_none() {
+                        root_dir = Some(path.clone());
+                    }
                     continue;
                 }
                 match Editor::from_file(&path) {
@@ -136,7 +139,7 @@ impl App {
         let mut layout = Layout::new(width, height);
         layout.recompute(&menus, &buffers, active_buffer, config.line_numbers, config.sidebar);
 
-        let root_dir = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+        let root_dir = root_dir.unwrap_or_else(led_core::file_tree::user_root_dir);
         let sidebar = crate::widgets::sidebar::Sidebar::new(root_dir, config.sidebar);
 
         let mut app = App {

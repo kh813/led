@@ -21,7 +21,21 @@ pub struct FlatFileItem {
     pub depth: usize,
 }
 
-#[derive(Debug, Clone)]
+pub fn user_root_dir() -> PathBuf {
+    #[cfg(target_os = "windows")]
+    {
+        std::env::var_os("USERPROFILE")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")))
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        std::env::var_os("HOME")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")))
+    }
+}
+
 pub struct FileTree {
     pub root_path: PathBuf,
     pub root_node: FileTreeNode,
@@ -51,6 +65,27 @@ impl FileTree {
             root_node,
             show_hidden,
         }
+    }
+
+    pub fn set_root<P: AsRef<Path>>(&mut self, root_path: P) {
+        let root_path = root_path.as_ref().to_path_buf();
+        let name = root_path
+            .file_name()
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or_else(|| root_path.to_string_lossy().to_string());
+
+        let mut root_node = FileTreeNode {
+            name,
+            path: root_path.clone(),
+            is_dir: true,
+            is_expanded: true,
+            children: Vec::new(),
+        };
+
+        Self::populate_children(&mut root_node, self.show_hidden);
+
+        self.root_path = root_path;
+        self.root_node = root_node;
     }
 
     pub fn refresh(&mut self) {
