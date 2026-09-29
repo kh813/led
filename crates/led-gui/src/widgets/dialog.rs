@@ -1211,14 +1211,14 @@ impl Dialog {
                                     .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, cx| {
                                         this.workspace.update(cx, |w, cx| {
                                             w.config.font_family = None;
-                                            w.config.font_size = 14.0;
-                                            w.config.line_height = 22.0;
+                                            w.config.font_size = 12.0;
+                                            w.config.line_height = 19.0;
                                             w.config.ui_font_size = 13.0;
                                             w.config.tab_size = 4;
                                             w.config.expand_tab = true;
                                             let _ = led_core::config::Config::write_key("font_family", "");
-                                            let _ = led_core::config::Config::write_key("font_size", "14.0");
-                                            let _ = led_core::config::Config::write_key("line_height", "22.0");
+                                            let _ = led_core::config::Config::write_key("font_size", "12.0");
+                                            let _ = led_core::config::Config::write_key("line_height", "19.0");
                                             let _ = led_core::config::Config::write_key("ui_font_size", "13.0");
                                             let _ = led_core::config::Config::write_key("tab_size", "4");
                                             let _ = led_core::config::Config::write_key("expand_tab", "true");

@@ -708,10 +708,10 @@ impl WindowView {
 
     fn handle_reset_zoom(&mut self, _: &ResetZoom, _window: &mut Window, cx: &mut Context<Self>) {
         self.workspace.update(cx, |w, cx| {
-            w.config.font_size = 14.0;
-            w.config.line_height = 22.0;
-            let _ = Config::write_key("font_size", "14.0");
-            let _ = Config::write_key("line_height", "22.0");
+            w.config.font_size = 12.0;
+            w.config.line_height = 19.0;
+            let _ = Config::write_key("font_size", "12.0");
+            let _ = Config::write_key("line_height", "19.0");
             cx.notify();
         });
         cx.notify();

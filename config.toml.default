@@ -106,15 +106,15 @@ expand_tab = false
 # Editor Font Size in pixels
 #
 # Type    : float
-# Default : 14.0
-font_size = 14.0
+# Default : 12.0
+font_size = 12.0
 
 
 # Editor Line Height in pixels
 #
 # Type    : float
-# Default : 22.0
-line_height = 22.0
+# Default : 19.0
+line_height = 19.0
 
 
 # UI Font Family for menus, tab bar, status bar, and dialogs

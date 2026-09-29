@@ -33,8 +33,8 @@ impl Default for Config {
             tab_size: 4,
             expand_tab: false,
             font_family: None,
-            font_size: 14.0,
-            line_height: 22.0,
+            font_size: 12.0,
+            line_height: 19.0,
             ui_font_family: None,
             ui_font_size: 12.5,
         }
