@@ -311,7 +311,7 @@ impl Default for Theme {
                 foreground: Color::Rgb(192, 202, 245),
                 cursor: Color::Rgb(192, 202, 245),
                 selection: Color::Rgb(40, 52, 87),
-                line_number: Color::Rgb(59, 66, 97),
+                line_number: Color::Rgb(120, 124, 153),
                 current_line: Some(Color::Rgb(30, 32, 48)),
             },
             ui: UiColors {

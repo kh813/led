@@ -6,7 +6,7 @@ background = "#1a1b26"
 foreground = "#a9b1d6"
 cursor = "#a9b1d6"
 selection = "#333a55"
-line_number = "#3b4261"
+line_number = "#787c99"
 current_line = "#1e2030"
 
 [ui]

@@ -6,7 +6,7 @@ background = "#eff1f5"
 foreground = "#4c4f69"
 cursor = "#dc8a78"
 selection = "#acb0be"
-line_number = "#9ca0b0"
+line_number = "#7c7f93"
 
 [ui]
 menu_bar_bg = "#e6e9ef"
