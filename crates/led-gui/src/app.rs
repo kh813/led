@@ -72,6 +72,12 @@ pub fn setup_app(app: &mut App, rx: futures::channel::mpsc::UnboundedReceiver<Ve
         #[cfg(target_os = "macos")]
         KeyBinding::new("cmd-}", NextTab {}, None),
         #[cfg(target_os = "macos")]
+        KeyBinding::new("cmd-b", ToggleSidebar {}, None),
+        #[cfg(target_os = "macos")]
+        KeyBinding::new("cmd-1", ToggleFiles {}, None),
+        #[cfg(target_os = "macos")]
+        KeyBinding::new("cmd-2", ToggleOutline {}, None),
+        #[cfg(target_os = "macos")]
         KeyBinding::new("ctrl-tab", NextTab {}, None),
         #[cfg(target_os = "macos")]
         KeyBinding::new("ctrl-shift-tab", PrevTab {}, None),
@@ -132,6 +138,12 @@ pub fn setup_app(app: &mut App, rx: futures::channel::mpsc::UnboundedReceiver<Ve
         KeyBinding::new("alt-left", PrevTab {}, None),
         #[cfg(not(target_os = "macos"))]
         KeyBinding::new("alt-right", NextTab {}, None),
+        #[cfg(not(target_os = "macos"))]
+        KeyBinding::new("ctrl-b", ToggleSidebar {}, None),
+        #[cfg(not(target_os = "macos"))]
+        KeyBinding::new("alt-1", ToggleFiles {}, None),
+        #[cfg(not(target_os = "macos"))]
+        KeyBinding::new("alt-2", ToggleOutline {}, None),
     ]);
 
     // App-level action handlers to handle actions when no window is open or globally
@@ -567,6 +579,8 @@ fn build_native_menus(i18n: &I18n) -> Vec<Menu> {
         Menu {
             name: i18n.get("menu.view").into(),
             items: vec![
+                MenuItem::action(i18n.get("menu.view.sidebar"), ToggleSidebar {}),
+                MenuItem::separator(),
                 MenuItem::action(i18n.get("menu.view.go_to_line"), GoToLine {}),
                 MenuItem::separator(),
                 MenuItem::action(i18n.get("menu.view.zoom_in"), ZoomIn {}),
@@ -635,6 +649,7 @@ actions!(led, [
     // Tabs
     NextTab, PrevTab,
     // View
+    ToggleSidebar, ToggleOutline, ToggleFiles,
     GoToLine, ZoomIn, ZoomOut, ResetZoom, ToggleLineNumbers, ToggleWordWrap, ToggleViMode,
     SetEncodingUtf8, SetEncodingUtf8Bom, SetEncodingUtf16Le, SetEncodingUtf16Be,
     SetEncodingShiftJis, SetEncodingEucJp, SetEncodingIso2022Jp, SetEncodingLatin1,

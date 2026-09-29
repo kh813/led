@@ -5,6 +5,7 @@ use crate::widgets::editor_view::EditorView;
 use crate::widgets::tab_bar::{TabBar, TabBarEvent};
 use crate::widgets::status_bar::StatusBar;
 use crate::widgets::find_panel::FindPanel;
+use crate::widgets::sidebar_view::SidebarView;
 use crate::workspace::Workspace;
 use crate::app::*;
 use led_core::buffer::Editor;
@@ -21,6 +22,7 @@ pub struct WindowView {
     i18n: I18n,
     pub(crate) workspace: Entity<Workspace>,
     editor: Entity<EditorView>,
+    sidebar: Entity<SidebarView>,
     tab_bar: Entity<TabBar>,
     status_bar: Entity<StatusBar>,
     find_panel: Entity<FindPanel>,
@@ -33,11 +35,14 @@ pub struct WindowView {
 impl WindowView {
     pub fn new(config: Config, i18n: I18n, workspace: Entity<Workspace>, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let editor = cx.new(|cx| EditorView::new(workspace.clone(), cx));
+        let sidebar = cx.new(|cx| SidebarView::new(workspace.clone(), cx));
         let tab_bar = cx.new(|cx| TabBar::new(workspace.clone(), cx));
         let status_bar = cx.new(|cx| StatusBar::new(workspace.clone(), cx));
         let find_panel = cx.new(|cx| FindPanel::new(workspace.clone(), cx));
         #[cfg(not(target_os = "macos"))]
         let menu_bar = cx.new(|cx| MenuBar::new(workspace.clone(), i18n.clone(), cx));
+        
+        workspace.update(cx, |w, _| w.update_outline());
         
         let focus_handle = cx.focus_handle();
         
@@ -96,6 +101,7 @@ impl WindowView {
             i18n,
             workspace,
             editor,
+            sidebar,
             tab_bar,
             status_bar,
             find_panel,
@@ -463,6 +469,33 @@ impl WindowView {
 
     fn handle_replace(&mut self, _: &Replace, window: &mut Window, cx: &mut Context<Self>) {
         self.find_panel.update(cx, |p, cx| p.show(true, window, cx));
+    }
+
+    fn handle_toggle_sidebar(&mut self, _: &ToggleSidebar, _window: &mut Window, cx: &mut Context<Self>) {
+        self.workspace.update(cx, |w, cx| {
+            w.toggle_sidebar();
+            cx.notify();
+        });
+        cx.notify();
+    }
+
+    fn handle_toggle_outline(&mut self, _: &ToggleOutline, _window: &mut Window, cx: &mut Context<Self>) {
+        self.workspace.update(cx, |w, cx| {
+            w.sidebar_visible = true;
+            w.sidebar_tab = crate::workspace::SidebarTab::Outline;
+            w.update_outline();
+            cx.notify();
+        });
+        cx.notify();
+    }
+
+    fn handle_toggle_files(&mut self, _: &ToggleFiles, _window: &mut Window, cx: &mut Context<Self>) {
+        self.workspace.update(cx, |w, cx| {
+            w.sidebar_visible = true;
+            w.sidebar_tab = crate::workspace::SidebarTab::Files;
+            cx.notify();
+        });
+        cx.notify();
     }
 
     fn handle_toggle_line_numbers(&mut self, _: &ToggleLineNumbers, _window: &mut Window, cx: &mut Context<Self>) {
@@ -835,6 +868,9 @@ impl Render for WindowView {
             .on_action(cx.listener(Self::handle_select_all))
             .on_action(cx.listener(Self::handle_find))
             .on_action(cx.listener(Self::handle_replace))
+            .on_action(cx.listener(Self::handle_toggle_sidebar))
+            .on_action(cx.listener(Self::handle_toggle_outline))
+            .on_action(cx.listener(Self::handle_toggle_files))
             .on_action(cx.listener(Self::handle_toggle_line_numbers))
             .on_action(cx.listener(Self::handle_toggle_word_wrap))
             .on_action(cx.listener(Self::handle_toggle_vi_mode))
@@ -867,6 +903,7 @@ impl Render for WindowView {
                     if let Ok(editor) = Editor::from_file(path) {
                         this.workspace.update(cx, |w, cx| {
                             w.add_editor(editor);
+                            w.update_outline();
                             cx.notify();
                         });
                         opened_any = true;
@@ -876,7 +913,7 @@ impl Render for WindowView {
                     cx.notify();
                 }
             }))
-            .child(self.render_layout());
+            .child(self.render_layout(cx));
 
         #[cfg(not(target_os = "macos"))]
         let root = root.child(self.render_menu_dropdown(cx));
@@ -896,16 +933,34 @@ impl Render for WindowView {
 }
 
 impl WindowView {
-    fn render_layout(&self) -> impl IntoElement {
+    fn render_layout(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let container = div().w_full().h_full().flex().flex_col();
 
         #[cfg(not(target_os = "macos"))]
         let container = container.child(self.menu_bar.clone());
 
+        let is_sidebar_visible = self.workspace.read(cx).sidebar_visible;
+
+        let main_area = div()
+            .flex_grow()
+            .flex()
+            .flex_row()
+            .w_full()
+            .h_full()
+            .overflow_hidden();
+
+        let main_area = if is_sidebar_visible {
+            main_area
+                .child(self.sidebar.clone())
+                .child(div().flex_grow().h_full().child(self.editor.clone()))
+        } else {
+            main_area.child(div().flex_grow().h_full().child(self.editor.clone()))
+        };
+
         container
             .child(self.tab_bar.clone())
             .child(self.find_panel.clone())
-            .child(div().flex_grow().child(self.editor.clone()))
+            .child(main_area)
             .child(self.status_bar.clone())
     }
 }
@@ -1058,6 +1113,7 @@ impl WindowView {
             .child(self.render_menu_item(self.i18n.get("menu.view.zoom_out").to_string(), Some("Ctrl+-"), ZoomOut {}, fg, hover_bg, muted_fg, cx))
             .child(self.render_menu_item(self.i18n.get("menu.view.reset_zoom").to_string(), Some("Ctrl+0"), ResetZoom {}, fg, hover_bg, muted_fg, cx))
             .child(self.render_menu_sep(border))
+            .child(self.render_menu_item(self.i18n.get("menu.view.sidebar").to_string(), Some("Ctrl+B"), ToggleSidebar {}, fg, hover_bg, muted_fg, cx))
             .child(self.render_menu_item(self.i18n.get("menu.view.line_numbers").to_string(), None, ToggleLineNumbers {}, fg, hover_bg, muted_fg, cx))
             .child(self.render_menu_item(self.i18n.get("menu.view.word_wrap").to_string(), None, ToggleWordWrap {}, fg, hover_bg, muted_fg, cx))
             .child(self.render_menu_item(self.i18n.get("menu.view.vi_mode").to_string(), None, ToggleViMode {}, fg, hover_bg, muted_fg, cx))

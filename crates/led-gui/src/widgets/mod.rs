@@ -4,6 +4,7 @@ pub mod tab_bar;
 pub mod find_panel;
 pub mod status_bar;
 pub mod dialog;
+pub mod sidebar_view;
 
 use gpui::Rgba;
 use led_core::theme::Color as LedColor;

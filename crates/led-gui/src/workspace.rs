@@ -1,21 +1,67 @@
 use led_core::buffer::Editor;
 use led_core::theme::Theme;
 use led_core::config::Config;
+use led_core::file_tree::FileTree;
+use led_core::outline::{self, OutlineNode};
+use std::path::PathBuf;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SidebarTab {
+    Files,
+    Outline,
+}
 
 pub struct Workspace {
     pub editors: Vec<Editor>,
     pub active_editor_index: usize,
     pub theme: Theme,
     pub config: Config,
+    pub sidebar_visible: bool,
+    pub sidebar_tab: SidebarTab,
+    pub file_tree: FileTree,
+    pub outline_nodes: Vec<OutlineNode>,
 }
 
 impl Workspace {
     pub fn new(config: Config) -> Self {
+        let root_path = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+        let file_tree = FileTree::new(&root_path, false);
+        let sidebar_visible = config.sidebar;
         Self {
             editors: vec![Editor::new()],
             active_editor_index: 0,
             theme: Theme::default(),
             config,
+            sidebar_visible,
+            sidebar_tab: SidebarTab::Files,
+            file_tree,
+            outline_nodes: Vec::new(),
+        }
+    }
+
+    pub fn update_outline(&mut self) {
+        if let Some(editor) = self.active_editor() {
+            let text = editor.rope.to_string();
+            self.outline_nodes = outline::parse_markdown_outline(&text);
+        } else {
+            self.outline_nodes.clear();
+        }
+    }
+
+    pub fn toggle_sidebar(&mut self) {
+        self.sidebar_visible = !self.sidebar_visible;
+        self.config.sidebar = self.sidebar_visible;
+        let _ = Config::write_key("sidebar", &self.sidebar_visible.to_string());
+    }
+
+    pub fn jump_to_line(&mut self, line: usize) {
+        if let Some(editor) = self.active_editor_mut() {
+            let line_count = editor.line_count();
+            let target_line = line.min(line_count.saturating_sub(1));
+            editor.cursor = editor.rope.line_to_char(target_line);
+            editor.selection = None;
+            editor.selection_anchor = None;
+            editor.scroll_row = target_line.saturating_sub(5);
         }
     }
 

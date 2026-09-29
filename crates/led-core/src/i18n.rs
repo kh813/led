@@ -101,6 +101,7 @@ impl I18n {
         m.insert("menu.view".to_string(), "View".to_string());
         m.insert("menu.view.go_to_line".to_string(), "Go to Line…".to_string());
         m.insert("menu.view.line_numbers".to_string(), "Line Numbers".to_string());
+        m.insert("menu.view.sidebar".to_string(), "Sidebar".to_string());
         m.insert("menu.view.word_wrap".to_string(), "Word Wrap".to_string());
         m.insert("menu.view.vi_mode".to_string(), "Vi Mode".to_string());
         m.insert("menu.view.encoding".to_string(), "Encoding".to_string());
@@ -206,6 +207,7 @@ impl I18n {
         m.insert("menu.view".to_string(), "表示".to_string());
         m.insert("menu.view.go_to_line".to_string(), "行移動…".to_string());
         m.insert("menu.view.line_numbers".to_string(), "行番号".to_string());
+        m.insert("menu.view.sidebar".to_string(), "サイドバー".to_string());
         m.insert("menu.view.word_wrap".to_string(), "右端で折り返す".to_string());
         m.insert("menu.view.vi_mode".to_string(), "Viモード".to_string());
         m.insert("menu.view.encoding".to_string(), "エンコード".to_string());

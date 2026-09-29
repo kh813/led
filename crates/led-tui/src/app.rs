@@ -2961,10 +2961,12 @@ impl App {
         }).max().unwrap_or(10) as u16;
         max_width += 2; // Padding
 
-        let bg = self.to_ct_color(self.theme.ui.menu_bar_bg);
+        let bg = self.to_ct_color(self.theme.ui.dialog_bg);
         let fg = self.to_ct_color(self.theme.ui.menu_bar_fg);
         let active_bg = self.to_ct_color(self.theme.ui.menu_item_active_bg);
         let active_fg = self.to_ct_color(self.theme.ui.menu_item_active_fg);
+        let border_fg = self.to_ct_color(self.theme.ui.dialog_border);
+        let sc_fg = self.to_ct_color(self.theme.editor.line_number);
 
         let is_current_level = depth == self.submenu_stack.len();
         let selected_at_this_level = if depth < self.submenu_stack.len() {
@@ -3000,7 +3002,7 @@ impl App {
                         self.renderer.set_cell(x + dx, iy, Cell {
                             ch: '─',
                             bg: item_bg,
-                            fg: item_fg,
+                            fg: border_fg,
                             ..Default::default()
                         });
                     }
@@ -3009,7 +3011,7 @@ impl App {
                     let mut cur_ix = x + 1;
                     for c in label.chars() {
                         let cw = unicode_width::UnicodeWidthChar::width(c).unwrap_or(0);
-                        self.renderer.set_cell(cur_ix, iy, Cell { ch: c, width: cw as u8, bg: item_bg, fg: item_fg, ..Default::default() });
+                        self.renderer.set_cell(cur_ix, iy, Cell { ch: c, width: cw as u8, bg: item_bg, fg: item_fg, bold: is_selected, ..Default::default() });
                         cur_ix += cw as u16;
                     }
                     if let Some(s) = shortcut {
@@ -3017,7 +3019,7 @@ impl App {
                         let mut sx = x + max_width - sw - 1;
                         for c in s.chars() {
                             let cw = unicode_width::UnicodeWidthChar::width(c).unwrap_or(0);
-                            self.renderer.set_cell(sx, iy, Cell { ch: c, width: cw as u8, bg: item_bg, fg: item_fg, ..Default::default() });
+                            self.renderer.set_cell(sx, iy, Cell { ch: c, width: cw as u8, bg: item_bg, fg: if is_selected { active_fg } else { sc_fg }, ..Default::default() });
                             sx += cw as u16;
                         }
                     }
@@ -3031,7 +3033,7 @@ impl App {
                     let mut cur_ix = x + 1;
                     for c in prefix.chars().chain(label.chars()) {
                         let cw = unicode_width::UnicodeWidthChar::width(c).unwrap_or(0);
-                        self.renderer.set_cell(cur_ix, iy, Cell { ch: c, width: cw as u8, bg: item_bg, fg: item_fg, ..Default::default() });
+                        self.renderer.set_cell(cur_ix, iy, Cell { ch: c, width: cw as u8, bg: item_bg, fg: item_fg, bold: is_selected, ..Default::default() });
                         cur_ix += cw as u16;
                     }
                 }
@@ -3039,7 +3041,7 @@ impl App {
                     let mut cur_ix = x + 1;
                     for c in label.chars() {
                         let cw = unicode_width::UnicodeWidthChar::width(c).unwrap_or(0);
-                        self.renderer.set_cell(cur_ix, iy, Cell { ch: c, width: cw as u8, bg: item_bg, fg: item_fg, ..Default::default() });
+                        self.renderer.set_cell(cur_ix, iy, Cell { ch: c, width: cw as u8, bg: item_bg, fg: item_fg, bold: is_selected, ..Default::default() });
                         cur_ix += cw as u16;
                     }
                     self.renderer.set_cell(x + max_width - 2, iy, Cell { ch: '▶', bg: item_bg, fg: item_fg, ..Default::default() });
@@ -3060,7 +3062,6 @@ impl App {
         let active_fg = self.to_ct_color(self.theme.ui.tab_active_fg);
         let inactive_bg = self.to_ct_color(self.theme.ui.tab_inactive_bg);
         let inactive_fg = self.to_ct_color(self.theme.ui.tab_inactive_fg);
-        let border_fg = self.to_ct_color(self.theme.editor.line_number);
         
         // Background
         for dx in 0..w {
@@ -3101,20 +3102,33 @@ impl App {
             let tab_width: u16 = label.chars().map(|c| unicode_width::UnicodeWidthChar::width(c).unwrap_or(0) as u16).sum();
 
             // Basic scrolling: just hide tabs that don't fit for now
-            if current_tab_x + tab_width + 1 > x + offset_x + display_w {
+            if current_tab_x + tab_width > x + offset_x + display_w {
                 break;
             }
 
-            // Left vertical divider
-            self.renderer.set_cell(current_tab_x, y, Cell {
-                ch: '│',
-                bg: if is_active { active_bg } else { bg },
-                fg: border_fg,
-                ..Default::default()
-            });
+            let mut cur_tx = current_tab_x;
 
-            let mut cur_tx = current_tab_x + 1;
-            for c in label.chars() {
+            // Space prefix
+            self.renderer.set_cell(cur_tx, y, Cell { ch: ' ', bg: tab_bg, ..Default::default() });
+            cur_tx += 1;
+
+            if buffer.read_only {
+                for c in "[RO] ".chars() {
+                    let cw = unicode_width::UnicodeWidthChar::width(c).unwrap_or(0);
+                    self.renderer.set_cell(cur_tx, y, Cell { ch: c, width: cw as u8, bg: tab_bg, fg: if is_active { Color::Cyan } else { Color::DarkGrey }, bold: is_active, ..Default::default() });
+                    cur_tx += cw as u16;
+                }
+            }
+
+            if buffer.is_modified() {
+                for c in "[+] ".chars() {
+                    let cw = unicode_width::UnicodeWidthChar::width(c).unwrap_or(0);
+                    self.renderer.set_cell(cur_tx, y, Cell { ch: c, width: cw as u8, bg: tab_bg, fg: Color::Yellow, bold: true, ..Default::default() });
+                    cur_tx += cw as u16;
+                }
+            }
+
+            for c in name.chars() {
                 let cw = unicode_width::UnicodeWidthChar::width(c).unwrap_or(0);
                 self.renderer.set_cell(cur_tx, y, Cell {
                     ch: c,
@@ -3127,28 +3141,24 @@ impl App {
                 cur_tx += cw as u16;
             }
 
-            current_tab_x += tab_width + 1;
+            // Close button
+            self.renderer.set_cell(cur_tx, y, Cell { ch: ' ', bg: tab_bg, ..Default::default() });
+            cur_tx += 1;
+            self.renderer.set_cell(cur_tx, y, Cell { ch: '×', bg: tab_bg, fg: tab_fg, bold: is_active, ..Default::default() });
+            cur_tx += 1;
+            self.renderer.set_cell(cur_tx, y, Cell { ch: ' ', bg: tab_bg, ..Default::default() });
 
-            // Right vertical divider at end of tab list
-            if i == self.buffers.len() - 1 || current_tab_x + 1 > x + offset_x + display_w {
+            current_tab_x += tab_width;
+
+            // Space between tabs
+            if current_tab_x < x + offset_x + display_w {
                 self.renderer.set_cell(current_tab_x, y, Cell {
-                    ch: '│',
-                    bg: if is_active { active_bg } else { bg },
-                    fg: border_fg,
+                    ch: ' ',
+                    bg,
                     ..Default::default()
                 });
                 current_tab_x += 1;
             }
-        }
-
-        // Draw horizontal line on the rest of the tab bar
-        for dx in current_tab_x..(x + display_w) {
-            self.renderer.set_cell(dx, y, Cell {
-                ch: '─',
-                bg,
-                fg: border_fg,
-                ..Default::default()
-            });
         }
     }
 
@@ -3472,12 +3482,11 @@ impl App {
                         }
                         if v_idx == 0 {
                             let line_num = (logical_line_idx + 1).to_string();
-                            let num_x = _gx + gw - line_num.len() as u16 - 2;
+                            let num_x = _gx + gw - line_num.len() as u16 - 1;
                             for (i, c) in line_num.chars().enumerate() {
                                 renderer.set_cell(num_x + i as u16, ry, Cell { ch: c, bg: gutter_bg, fg: gutter_fg, ..Default::default() });
                             }
                         }
-                        renderer.set_cell(_gx + gw - 1, ry, Cell { ch: '│', bg: gutter_bg, fg: gutter_fg, ..Default::default() });
                     }
 
                     // Render visual line content
@@ -3590,7 +3599,6 @@ impl App {
                     for dx in 0..gw {
                         renderer.set_cell(_gx + dx, ey + dy, Cell { ch: ' ', bg: gutter_bg, ..Default::default() });
                     }
-                    renderer.set_cell(_gx + gw - 1, ey + dy, Cell { ch: '│', bg: gutter_bg, fg: gutter_fg, ..Default::default() });
                 }
                 for dx in 0..ew {
                     renderer.set_cell(ex + dx, ey + dy, Cell { ch: ' ', bg: editor_bg, ..Default::default() });
@@ -3607,12 +3615,11 @@ impl App {
                     }
                     if line_idx < buffer.line_count() {
                         let line_num = (line_idx + 1).to_string();
-                        let num_x = _gx + gw - line_num.len() as u16 - 2;
+                        let num_x = _gx + gw - line_num.len() as u16 - 1;
                         for (i, c) in line_num.chars().enumerate() {
                             renderer.set_cell(num_x + i as u16, _gy + dy, Cell { ch: c, bg: gutter_bg, fg: gutter_fg, ..Default::default() });
                         }
                     }
-                    renderer.set_cell(_gx + gw - 1, _gy + dy, Cell { ch: '│', bg: gutter_bg, fg: gutter_fg, ..Default::default() });
                 }
             }
 

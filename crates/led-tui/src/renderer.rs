@@ -160,6 +160,9 @@ impl Renderer {
                     }
 
                     if style != last_style {
+                        if last_style.attributes != style.attributes {
+                            writer.queue(style::SetAttribute(style::Attribute::Reset))?;
+                        }
                         writer.queue(style::SetStyle(style))?;
                         last_style = style;
                     }

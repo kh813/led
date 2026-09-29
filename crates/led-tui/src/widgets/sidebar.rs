@@ -325,7 +325,7 @@ impl Sidebar {
                     },
                 );
             }
-            // Draw right vertical divider
+            // Draw right vertical divider between sidebar and main editor
             if bw > 1 {
                 renderer.set_cell(
                     bx + bw - 1,
@@ -362,7 +362,7 @@ impl Sidebar {
                     fg: if files_active { accent } else { fg },
                     bg,
                     bold: files_active,
-                    underline: files_active,
+                    underline: false,
                     width: 1,
                 },
             );
@@ -381,7 +381,7 @@ impl Sidebar {
                     fg: if outline_active { accent } else { fg },
                     bg,
                     bold: outline_active,
-                    underline: outline_active,
+                    underline: false,
                     width: 1,
                 },
             );
