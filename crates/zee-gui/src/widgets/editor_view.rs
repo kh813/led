@@ -1607,14 +1607,21 @@ impl EditorView {
                     .w(gutter_width)
                     .h_full()
                     .flex()
-                    .items_center()
+                    .items_start()
                     .justify_end()
                     .px_2p5()
                     .border_r_1()
                     .border_color(if workspace.config.line_numbers { gutter_border } else { rgba(0x00000000) })
                     .text_color(led_color_to_gpui(theme.editor.line_number))
                     .font_family(mono_font_family())
-                    .child(if workspace.config.line_numbers { (line_idx + 1).to_string() } else { "".to_string() })
+                    .child(
+                        div()
+                            .h(line_height)
+                            .flex()
+                            .items_center()
+                            .justify_end()
+                            .child(if workspace.config.line_numbers { (line_idx + 1).to_string() } else { "".to_string() })
+                    )
             )
             .child(
                 div()
@@ -1634,6 +1641,7 @@ impl EditorView {
     fn render_line_content(&self, line_idx: usize, line_str: &str, workspace: &Workspace, editor: &zee_core::buffer::Editor, is_cursor_line: bool) -> Vec<AnyElement> {
         let theme = &workspace.theme;
         let line_height = px(workspace.config.line_height);
+        let word_wrap = workspace.config.word_wrap;
 
         let selection = if editor.vi_mode == zee_core::ViMode::VisualBlock {
             let ranges = editor.get_visual_block_ranges();
@@ -1714,15 +1722,15 @@ impl EditorView {
                     let part1 = chunk_chars[..split_idx].iter().collect::<String>();
                     let part2 = chunk_chars[split_idx..].iter().collect::<String>();
                     
-                    self.render_chunk_internal(&part1, start_char, token_color, selection.clone(), theme, line_height, elements);
+                    self.render_chunk_internal(&part1, start_char, token_color, selection.clone(), theme, line_height, word_wrap, elements);
                     render_cursor(elements);
                     cursor_rendered = true;
-                    self.render_chunk_internal(&part2, start_char + split_idx, token_color, selection.clone(), theme, line_height, elements);
+                    self.render_chunk_internal(&part2, start_char + split_idx, token_color, selection.clone(), theme, line_height, word_wrap, elements);
                     return;
                 }
             }
 
-            self.render_chunk_internal(text, start_char, token_color, selection.clone(), theme, line_height, elements);
+            self.render_chunk_internal(text, start_char, token_color, selection.clone(), theme, line_height, word_wrap, elements);
         };
 
         if let Some(Some(tokens)) = editor.line_tokens.get(line_idx) {
@@ -1785,73 +1793,106 @@ impl EditorView {
             .into_any_element()
     }
 
-    fn render_chunk_internal(&self, text: &str, start_char: usize, token_color: Option<Rgba>, selection: Option<std::ops::Range<usize>>, theme: &Theme, line_height: Pixels, elements: &mut Vec<AnyElement>) {
+    fn render_chunk_internal(&self, text: &str, start_char: usize, token_color: Option<Rgba>, selection: Option<std::ops::Range<usize>>, theme: &Theme, line_height: Pixels, word_wrap: bool, elements: &mut Vec<AnyElement>) {
         if text.is_empty() { return; }
-        let chunk_chars: Vec<char> = text.chars().collect();
-        let chunk_len = chunk_chars.len();
         
         let text_color = token_color.unwrap_or(led_color_to_gpui(theme.editor.foreground));
         let sel_bg = with_alpha(led_color_to_gpui(theme.editor.selection), 0.75);
 
-        if let Some(ref sel) = selection {
-            let sel_start = if sel.start > start_char { sel.start - start_char } else { 0 };
-            let sel_end = if sel.end > start_char { sel.end - start_char } else { 0 };
+        // When word wrap is enabled, split long chunks into word/whitespace segments
+        // so GPUI flex_wrap can cleanly wrap at whitespace or punctuation boundaries
+        let sub_chunks: Vec<(String, usize)> = if word_wrap {
+            let mut result = Vec::new();
+            let mut current = String::new();
+            let mut cur_offset = 0;
+            let mut chunk_start = 0;
+            let mut in_whitespace = None;
 
-            if sel_start < chunk_len && sel_end > 0 {
-                let highlight_start = sel_start;
-                let highlight_end = sel_end.min(chunk_len);
-
-                if highlight_start > 0 {
-                    elements.push(
-                        div()
-                            .h(line_height)
-                            .flex()
-                            .items_center()
-                            .text_color(text_color)
-                            .font_family(mono_font_family())
-                            .child(chunk_chars[..highlight_start].iter().collect::<String>())
-                            .into_any_element()
-                    );
+            for c in text.chars() {
+                let is_ws = c.is_whitespace();
+                if let Some(prev_ws) = in_whitespace {
+                    if is_ws != prev_ws || (!is_ws && current.chars().count() >= 12) {
+                        result.push((current, start_char + chunk_start));
+                        current = String::new();
+                        chunk_start = cur_offset;
+                    }
                 }
-
-                elements.push(
-                    div()
-                        .h(line_height)
-                        .flex()
-                        .items_center()
-                        .bg(sel_bg)
-                        .text_color(text_color)
-                        .font_family(mono_font_family())
-                        .child(chunk_chars[highlight_start..highlight_end].iter().collect::<String>())
-                        .into_any_element()
-                );
-
-                if highlight_end < chunk_len {
-                    elements.push(
-                        div()
-                            .h(line_height)
-                            .flex()
-                            .items_center()
-                            .text_color(text_color)
-                            .font_family(mono_font_family())
-                            .child(chunk_chars[highlight_end..].iter().collect::<String>())
-                            .into_any_element()
-                    );
-                }
-                return;
+                in_whitespace = Some(is_ws);
+                current.push(c);
+                cur_offset += 1;
             }
-        }
+            if !current.is_empty() {
+                result.push((current, start_char + chunk_start));
+            }
+            result
+        } else {
+            vec![(text.to_string(), start_char)]
+        };
 
-        elements.push(
-            div()
-                .h(line_height)
-                .flex()
-                .items_center()
-                .text_color(text_color)
-                .font_family(mono_font_family())
-                .child(text.to_string())
-                .into_any_element()
-        );
+        for (sub_text, sub_start) in sub_chunks {
+            let chunk_chars: Vec<char> = sub_text.chars().collect();
+            let chunk_len = chunk_chars.len();
+
+            if let Some(ref sel) = selection {
+                let sel_start = if sel.start > sub_start { sel.start - sub_start } else { 0 };
+                let sel_end = if sel.end > sub_start { sel.end - sub_start } else { 0 };
+
+                if sel_start < chunk_len && sel_end > 0 {
+                    let highlight_start = sel_start;
+                    let highlight_end = sel_end.min(chunk_len);
+
+                    if highlight_start > 0 {
+                        elements.push(
+                            div()
+                                .h(line_height)
+                                .flex()
+                                .items_center()
+                                .text_color(text_color)
+                                .font_family(mono_font_family())
+                                .child(chunk_chars[..highlight_start].iter().collect::<String>())
+                                .into_any_element()
+                        );
+                    }
+
+                    elements.push(
+                        div()
+                            .h(line_height)
+                            .flex()
+                            .items_center()
+                            .bg(sel_bg)
+                            .text_color(text_color)
+                            .font_family(mono_font_family())
+                            .child(chunk_chars[highlight_start..highlight_end].iter().collect::<String>())
+                            .into_any_element()
+                    );
+
+                    if highlight_end < chunk_len {
+                        elements.push(
+                            div()
+                                .h(line_height)
+                                .flex()
+                                .items_center()
+                                .text_color(text_color)
+                                .font_family(mono_font_family())
+                                .child(chunk_chars[highlight_end..].iter().collect::<String>())
+                                .into_any_element()
+                        );
+                    }
+                    continue;
+                }
+            }
+
+            elements.push(
+                div()
+                    .h(line_height)
+                    .flex()
+                    .items_center()
+                    .text_color(text_color)
+                    .font_family(mono_font_family())
+                    .child(sub_text)
+                    .into_any_element()
+            );
+        }
     }
 }
 

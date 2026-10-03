@@ -573,6 +573,8 @@ impl WindowView {
             w.config.line_numbers = line_numbers;
             cx.notify();
         });
+        #[cfg(target_os = "macos")]
+        cx.set_menus(crate::app::build_native_menus(&self.i18n, &self.config));
         cx.notify();
     }
 
@@ -584,6 +586,8 @@ impl WindowView {
             w.config.word_wrap = word_wrap;
             cx.notify();
         });
+        #[cfg(target_os = "macos")]
+        cx.set_menus(crate::app::build_native_menus(&self.i18n, &self.config));
         cx.notify();
     }
 
@@ -600,6 +604,8 @@ impl WindowView {
             }
             cx.notify();
         });
+        #[cfg(target_os = "macos")]
+        cx.set_menus(crate::app::build_native_menus(&self.i18n, &self.config));
         cx.notify();
     }
 
@@ -737,7 +743,10 @@ impl WindowView {
         });
         
         let theme_slug = theme.meta.name.to_lowercase().replace(' ', "-");
+        self.config.theme = theme.meta.name.clone();
         let _ = Config::write_key("theme", &theme_slug);
+        #[cfg(target_os = "macos")]
+        cx.set_menus(crate::app::build_native_menus(&self.i18n, &self.config));
         cx.notify();
     }
 
@@ -1127,6 +1136,7 @@ impl WindowView {
         &self,
         label: String,
         shortcut: Option<&'static str>,
+        checked: bool,
         action: A,
         _fg: Rgba,
         hover_bg: Rgba,
@@ -1136,7 +1146,7 @@ impl WindowView {
         let action = action.clone();
         div()
             .h(px(26.0))
-            .px_3()
+            .px_2()
             .mx_1()
             .flex()
             .items_center()
@@ -1148,7 +1158,22 @@ impl WindowView {
                 this.menu_bar.update(cx, |m, cx| m.close_menu(cx));
                 window.dispatch_action(Box::new(action.clone()), cx);
             }))
-            .child(div().child(label))
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap_1p5()
+                    .child(
+                        div()
+                            .w(px(14.0))
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .text_size(px(12.0))
+                            .child(if checked { "✓" } else { "" })
+                    )
+                    .child(label)
+            )
             .child(if let Some(sc) = shortcut {
                 div().text_size(px(11.0)).text_color(muted_fg).child(sc)
             } else {
@@ -1164,66 +1189,70 @@ impl WindowView {
         div()
             .flex()
             .flex_col()
-            .child(self.render_menu_item(self.i18n.get("menu.file.new_tab").to_string(), Some("Ctrl+T"), NewTab {}, fg, hover_bg, muted_fg, cx))
-            .child(self.render_menu_item(self.i18n.get("menu.file.new_window").to_string(), Some("Ctrl+N"), NewWindow {}, fg, hover_bg, muted_fg, cx))
-            .child(self.render_menu_item(self.i18n.get("menu.file.open").to_string(), Some("Ctrl+O"), Open {}, fg, hover_bg, muted_fg, cx))
+            .child(self.render_menu_item(self.i18n.get("menu.file.new_tab").to_string(), Some("Ctrl+T"), false, NewTab {}, fg, hover_bg, muted_fg, cx))
+            .child(self.render_menu_item(self.i18n.get("menu.file.new_window").to_string(), Some("Ctrl+N"), false, NewWindow {}, fg, hover_bg, muted_fg, cx))
+            .child(self.render_menu_item(self.i18n.get("menu.file.open").to_string(), Some("Ctrl+O"), false, Open {}, fg, hover_bg, muted_fg, cx))
             .child(self.render_menu_sep(border))
-            .child(self.render_menu_item(self.i18n.get("menu.file.save").to_string(), Some("Ctrl+S"), Save {}, fg, hover_bg, muted_fg, cx))
-            .child(self.render_menu_item(self.i18n.get("menu.file.save_as").to_string(), Some("Ctrl+Shift+S"), SaveAs {}, fg, hover_bg, muted_fg, cx))
+            .child(self.render_menu_item(self.i18n.get("menu.file.save").to_string(), Some("Ctrl+S"), false, Save {}, fg, hover_bg, muted_fg, cx))
+            .child(self.render_menu_item(self.i18n.get("menu.file.save_as").to_string(), Some("Ctrl+Shift+S"), false, SaveAs {}, fg, hover_bg, muted_fg, cx))
             .child(self.render_menu_sep(border))
-            .child(self.render_menu_item(self.i18n.get("menu.file.close").to_string(), Some("Ctrl+W"), CloseTab {}, fg, hover_bg, muted_fg, cx))
+            .child(self.render_menu_item(self.i18n.get("menu.file.close").to_string(), Some("Ctrl+W"), false, CloseTab {}, fg, hover_bg, muted_fg, cx))
             .child(self.render_menu_sep(border))
-            .child(self.render_menu_item(self.i18n.get("menu.file.exit").to_string(), Some("Ctrl+Q"), Exit {}, fg, hover_bg, muted_fg, cx))
+            .child(self.render_menu_item(self.i18n.get("menu.file.exit").to_string(), Some("Ctrl+Q"), false, Exit {}, fg, hover_bg, muted_fg, cx))
     }
 
     fn render_edit_menu(&self, fg: Rgba, hover_bg: Rgba, muted_fg: Rgba, border: Rgba, cx: &mut Context<Self>) -> impl IntoElement {
         div()
             .flex()
             .flex_col()
-            .child(self.render_menu_item(self.i18n.get("menu.edit.undo").to_string(), Some("Ctrl+Z"), Undo {}, fg, hover_bg, muted_fg, cx))
-            .child(self.render_menu_item(self.i18n.get("menu.edit.redo").to_string(), Some("Ctrl+Y"), Redo {}, fg, hover_bg, muted_fg, cx))
+            .child(self.render_menu_item(self.i18n.get("menu.edit.undo").to_string(), Some("Ctrl+Z"), false, Undo {}, fg, hover_bg, muted_fg, cx))
+            .child(self.render_menu_item(self.i18n.get("menu.edit.redo").to_string(), Some("Ctrl+Y"), false, Redo {}, fg, hover_bg, muted_fg, cx))
             .child(self.render_menu_sep(border))
-            .child(self.render_menu_item(self.i18n.get("menu.edit.cut").to_string(), Some("Ctrl+X"), Cut {}, fg, hover_bg, muted_fg, cx))
-            .child(self.render_menu_item(self.i18n.get("menu.edit.copy").to_string(), Some("Ctrl+C"), Copy {}, fg, hover_bg, muted_fg, cx))
-            .child(self.render_menu_item(self.i18n.get("menu.edit.paste").to_string(), Some("Ctrl+V"), Paste {}, fg, hover_bg, muted_fg, cx))
+            .child(self.render_menu_item(self.i18n.get("menu.edit.cut").to_string(), Some("Ctrl+X"), false, Cut {}, fg, hover_bg, muted_fg, cx))
+            .child(self.render_menu_item(self.i18n.get("menu.edit.copy").to_string(), Some("Ctrl+C"), false, Copy {}, fg, hover_bg, muted_fg, cx))
+            .child(self.render_menu_item(self.i18n.get("menu.edit.paste").to_string(), Some("Ctrl+V"), false, Paste {}, fg, hover_bg, muted_fg, cx))
             .child(self.render_menu_sep(border))
-            .child(self.render_menu_item(self.i18n.get("menu.edit.find").to_string(), Some("Ctrl+F"), Find {}, fg, hover_bg, muted_fg, cx))
-            .child(self.render_menu_item(self.i18n.get("menu.edit.replace").to_string(), Some("Ctrl+H"), Replace {}, fg, hover_bg, muted_fg, cx))
+            .child(self.render_menu_item(self.i18n.get("menu.edit.find").to_string(), Some("Ctrl+F"), false, Find {}, fg, hover_bg, muted_fg, cx))
+            .child(self.render_menu_item(self.i18n.get("menu.edit.replace").to_string(), Some("Ctrl+H"), false, Replace {}, fg, hover_bg, muted_fg, cx))
             .child(self.render_menu_sep(border))
-            .child(self.render_menu_item(self.i18n.get("menu.edit.select_all").to_string(), Some("Ctrl+A"), SelectAll {}, fg, hover_bg, muted_fg, cx))
+            .child(self.render_menu_item(self.i18n.get("menu.edit.select_all").to_string(), Some("Ctrl+A"), false, SelectAll {}, fg, hover_bg, muted_fg, cx))
             .child(self.render_menu_sep(border))
-            .child(self.render_menu_item(self.i18n.get("menu.edit.format_document").to_string(), None, crate::app::FormatDocument {}, fg, hover_bg, muted_fg, cx))
-            .child(self.render_menu_item(self.i18n.get("menu.edit.sort_lines").to_string(), None, crate::app::SortLines {}, fg, hover_bg, muted_fg, cx))
+            .child(self.render_menu_item(self.i18n.get("menu.edit.format_document").to_string(), None, false, crate::app::FormatDocument {}, fg, hover_bg, muted_fg, cx))
+            .child(self.render_menu_item(self.i18n.get("menu.edit.sort_lines").to_string(), None, false, crate::app::SortLines {}, fg, hover_bg, muted_fg, cx))
             .child(self.render_menu_sep(border))
-            .child(self.render_menu_item(self.i18n.get("menu.edit.to_uppercase").to_string(), None, crate::app::ToUpperCase {}, fg, hover_bg, muted_fg, cx))
-            .child(self.render_menu_item(self.i18n.get("menu.edit.to_lowercase").to_string(), None, crate::app::ToLowerCase {}, fg, hover_bg, muted_fg, cx))
-            .child(self.render_menu_item(self.i18n.get("menu.edit.to_snake_case").to_string(), None, crate::app::ToSnakeCase {}, fg, hover_bg, muted_fg, cx))
-            .child(self.render_menu_item(self.i18n.get("menu.edit.to_camel_case").to_string(), None, crate::app::ToCamelCase {}, fg, hover_bg, muted_fg, cx))
+            .child(self.render_menu_item(self.i18n.get("menu.edit.to_uppercase").to_string(), None, false, crate::app::ToUpperCase {}, fg, hover_bg, muted_fg, cx))
+            .child(self.render_menu_item(self.i18n.get("menu.edit.to_lowercase").to_string(), None, false, crate::app::ToLowerCase {}, fg, hover_bg, muted_fg, cx))
+            .child(self.render_menu_item(self.i18n.get("menu.edit.to_snake_case").to_string(), None, false, crate::app::ToSnakeCase {}, fg, hover_bg, muted_fg, cx))
+            .child(self.render_menu_item(self.i18n.get("menu.edit.to_camel_case").to_string(), None, false, crate::app::ToCamelCase {}, fg, hover_bg, muted_fg, cx))
     }
 
     fn render_view_menu(&self, fg: Rgba, hover_bg: Rgba, muted_fg: Rgba, border: Rgba, cx: &mut Context<Self>) -> impl IntoElement {
+        let line_numbers_checked = self.config.line_numbers;
+        let word_wrap_checked = self.config.word_wrap;
+        let vi_mode_checked = self.config.vi_mode;
+
         div()
             .flex()
             .flex_col()
-            .child(self.render_menu_item(self.i18n.get("menu.view.go_to_line").to_string(), None, GoToLine {}, fg, hover_bg, muted_fg, cx))
+            .child(self.render_menu_item(self.i18n.get("menu.view.go_to_line").to_string(), None, false, GoToLine {}, fg, hover_bg, muted_fg, cx))
             .child(self.render_menu_sep(border))
-            .child(self.render_menu_item(self.i18n.get("menu.view.zoom_in").to_string(), Some("Ctrl+="), ZoomIn {}, fg, hover_bg, muted_fg, cx))
-            .child(self.render_menu_item(self.i18n.get("menu.view.zoom_out").to_string(), Some("Ctrl+-"), ZoomOut {}, fg, hover_bg, muted_fg, cx))
-            .child(self.render_menu_item(self.i18n.get("menu.view.reset_zoom").to_string(), Some("Ctrl+0"), ResetZoom {}, fg, hover_bg, muted_fg, cx))
+            .child(self.render_menu_item(self.i18n.get("menu.view.zoom_in").to_string(), Some("Ctrl+="), false, ZoomIn {}, fg, hover_bg, muted_fg, cx))
+            .child(self.render_menu_item(self.i18n.get("menu.view.zoom_out").to_string(), Some("Ctrl+-"), false, ZoomOut {}, fg, hover_bg, muted_fg, cx))
+            .child(self.render_menu_item(self.i18n.get("menu.view.reset_zoom").to_string(), Some("Ctrl+0"), false, ResetZoom {}, fg, hover_bg, muted_fg, cx))
             .child(self.render_menu_sep(border))
-            .child(self.render_menu_item(self.i18n.get("menu.view.sidebar").to_string(), Some("Ctrl+B"), ToggleSidebar {}, fg, hover_bg, muted_fg, cx))
-            .child(self.render_menu_item(self.i18n.get("menu.view.line_numbers").to_string(), None, ToggleLineNumbers {}, fg, hover_bg, muted_fg, cx))
-            .child(self.render_menu_item(self.i18n.get("menu.view.word_wrap").to_string(), None, ToggleWordWrap {}, fg, hover_bg, muted_fg, cx))
-            .child(self.render_menu_item(self.i18n.get("menu.view.vi_mode").to_string(), None, ToggleViMode {}, fg, hover_bg, muted_fg, cx))
+            .child(self.render_menu_item(self.i18n.get("menu.view.sidebar").to_string(), Some("Ctrl+B"), false, ToggleSidebar {}, fg, hover_bg, muted_fg, cx))
+            .child(self.render_menu_item(self.i18n.get("menu.view.line_numbers").to_string(), None, line_numbers_checked, ToggleLineNumbers {}, fg, hover_bg, muted_fg, cx))
+            .child(self.render_menu_item(self.i18n.get("menu.view.word_wrap").to_string(), None, word_wrap_checked, ToggleWordWrap {}, fg, hover_bg, muted_fg, cx))
+            .child(self.render_menu_item(self.i18n.get("menu.view.vi_mode").to_string(), None, vi_mode_checked, ToggleViMode {}, fg, hover_bg, muted_fg, cx))
             .child(self.render_menu_sep(border))
-            .child(self.render_menu_item(self.i18n.get("menu.app.preferences").to_string(), Some("Ctrl+,"), OpenSettings {}, fg, hover_bg, muted_fg, cx))
+            .child(self.render_menu_item(self.i18n.get("menu.app.preferences").to_string(), Some("Ctrl+,"), false, OpenSettings {}, fg, hover_bg, muted_fg, cx))
     }
 
     fn render_help_menu(&self, fg: Rgba, hover_bg: Rgba, muted_fg: Rgba, cx: &mut Context<Self>) -> impl IntoElement {
         div()
             .flex()
             .flex_col()
-            .child(self.render_menu_item(self.i18n.get("menu.help.about").to_string(), None, About {}, fg, hover_bg, muted_fg, cx))
-            .child(self.render_menu_item(self.i18n.get("menu.help.check_for_updates").to_string(), None, CheckForUpdates {}, fg, hover_bg, muted_fg, cx))
+            .child(self.render_menu_item(self.i18n.get("menu.help.about").to_string(), None, false, About {}, fg, hover_bg, muted_fg, cx))
+            .child(self.render_menu_item(self.i18n.get("menu.help.check_for_updates").to_string(), None, false, CheckForUpdates {}, fg, hover_bg, muted_fg, cx))
     }
 }

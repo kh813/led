@@ -205,7 +205,7 @@ pub fn setup_app(app: &mut App, rx: futures::channel::mpsc::UnboundedReceiver<Ve
         }
     });
 
-    setup_menu(app, &i18n);
+    setup_menu(app, &i18n, &config);
 
     let config_open = config.clone();
     let i18n_open = i18n.clone();
@@ -481,12 +481,12 @@ pub fn open_paths(paths: Vec<std::path::PathBuf>, config: Config, i18n: I18n, cx
 }
 
 #[cfg(target_os = "macos")]
-fn setup_menu(app: &mut App, i18n: &I18n) {
-    app.set_menus(build_native_menus(i18n));
+pub fn setup_menu(app: &mut App, i18n: &I18n, config: &Config) {
+    app.set_menus(build_native_menus(i18n, config));
 }
 
 #[cfg(not(target_os = "macos"))]
-fn setup_menu(_app: &mut App, _i18n: &I18n) {
+pub fn setup_menu(_app: &mut App, _i18n: &I18n, _config: &Config) {
     // In-window menu bar is handled in window_view.rs
 }
 
@@ -543,11 +543,17 @@ impl Action for SetSyntax {
 }
 
 #[cfg(target_os = "macos")]
-fn build_native_menus(i18n: &I18n) -> Vec<Menu> {
+pub fn build_native_menus(i18n: &I18n, config: &zee_core::config::Config) -> Vec<Menu> {
     let mut theme_items = Vec::new();
     for theme in zee_core::theme::Theme::load_all() {
+        let is_current = theme.meta.name == config.theme;
+        let theme_name = if is_current {
+            format!("✓ {}", theme.meta.name)
+        } else {
+            theme.meta.name.clone()
+        };
         theme_items.push(MenuItem::action(
-            theme.meta.name.clone(),
+            theme_name,
             SetTheme { name: theme.meta.name.clone() },
         ));
     }
@@ -573,6 +579,22 @@ fn build_native_menus(i18n: &I18n) -> Vec<Menu> {
     let convert_items = encodings.iter().map(|e| {
         MenuItem::action(e.to_string(), ConvertToEncoding { encoding: e.to_string() })
     }).collect();
+
+    let line_numbers_label = if config.line_numbers {
+        format!("✓ {}", i18n.get("menu.view.line_numbers"))
+    } else {
+        i18n.get("menu.view.line_numbers").to_string()
+    };
+    let word_wrap_label = if config.word_wrap {
+        format!("✓ {}", i18n.get("menu.view.word_wrap"))
+    } else {
+        i18n.get("menu.view.word_wrap").to_string()
+    };
+    let vi_mode_label = if config.vi_mode {
+        format!("✓ {}", i18n.get("menu.view.vi_mode"))
+    } else {
+        i18n.get("menu.view.vi_mode").to_string()
+    };
 
     vec![
         Menu {
@@ -638,9 +660,9 @@ fn build_native_menus(i18n: &I18n) -> Vec<Menu> {
                 MenuItem::action(i18n.get("menu.view.zoom_out"), ZoomOut {}),
                 MenuItem::action(i18n.get("menu.view.reset_zoom"), ResetZoom {}),
                 MenuItem::separator(),
-                MenuItem::action(i18n.get("menu.view.line_numbers"), ToggleLineNumbers {}),
-                MenuItem::action(i18n.get("menu.view.word_wrap"), ToggleWordWrap {}),
-                MenuItem::action(i18n.get("menu.view.vi_mode"), ToggleViMode {}),
+                MenuItem::action(line_numbers_label, ToggleLineNumbers {}),
+                MenuItem::action(word_wrap_label, ToggleWordWrap {}),
+                MenuItem::action(vi_mode_label, ToggleViMode {}),
                 MenuItem::separator(),
                 MenuItem::submenu(Menu {
                     name: i18n.get("menu.view.encoding").into(),
