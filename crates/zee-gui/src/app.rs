@@ -251,6 +251,29 @@ pub fn setup_app(app: &mut App, rx: futures::channel::mpsc::UnboundedReceiver<Ve
         }).expect("Failed to open about window");
     });
 
+    let i18n_update = i18n.clone();
+    app.on_action(move |_: &CheckForUpdates, cx| {
+        let i18n = i18n_update.clone();
+        if let Some(window_handle) = cx.active_window() {
+            let _ = cx.update_window(window_handle, |any_view, window, cx| {
+                if let Ok(view_handle) = any_view.downcast::<WindowView>() {
+                    view_handle.update(cx, |view, cx| {
+                        view.handle_check_for_updates(&CheckForUpdates {}, window, cx);
+                    });
+                }
+            });
+        } else {
+            cx.open_window(centered_window_options(cx), move |window, cx| {
+                let workspace = cx.new(|_| Workspace::new(Config::default()));
+                cx.new(|cx| {
+                    let mut view = WindowView::new(Config::default(), i18n.clone(), workspace, window, cx);
+                    view.handle_check_for_updates(&CheckForUpdates {}, window, cx);
+                    view
+                })
+            }).expect("Failed to open window for update");
+        }
+    });
+
     app.on_action(|_: &Quit, cx| {
         for hw in cx.windows() {
             let modified = cx.update_window(hw, |any_view, _window, cx| {
@@ -556,6 +579,7 @@ fn build_native_menus(i18n: &I18n) -> Vec<Menu> {
             name: "zee".into(),
             items: vec![
                 MenuItem::action("About zee", About {}),
+                MenuItem::action(i18n.get("menu.help.check_for_updates"), CheckForUpdates {}),
                 MenuItem::separator(),
                 MenuItem::action(i18n.get("menu.app.preferences"), OpenSettings {}),
                 MenuItem::separator(),
@@ -655,6 +679,7 @@ fn build_native_menus(i18n: &I18n) -> Vec<Menu> {
             name: i18n.get("menu.help").into(),
             items: vec![
                 MenuItem::action(i18n.get("menu.help.about"), About {}),
+                MenuItem::action(i18n.get("menu.help.check_for_updates"), CheckForUpdates {}),
             ],
             disabled: false,
         }
@@ -663,7 +688,8 @@ fn build_native_menus(i18n: &I18n) -> Vec<Menu> {
 
 actions!(zee, [
     // App/File
-    About, OpenSettings, Quit, Exit, New, NewTab, NewWindow, Open, Save, SaveAs, CloseTab,
+    About, CheckForUpdates, OpenSettings, Quit, Exit, New, NewTab, NewWindow, Open, Save, SaveAs, CloseTab,
+
     // Edit
     Undo, Redo, Cut, Copy, Paste, Find, Replace, SelectAll,
     // Tabs

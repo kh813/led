@@ -1,5 +1,6 @@
 use gpui::*;
 use crate::workspace::Workspace;
+use crate::app::Quit;
 use zee_core::i18n::I18n;
 use crate::widgets::{led_color_to_gpui, ui_font_family, with_alpha};
 
@@ -9,8 +10,19 @@ pub enum UnsavedChangesIntent {
     CloseTab,
 }
 
+#[derive(Debug, Clone)]
+pub enum UpdateStatus {
+    Checking,
+    UpToDate { version: String },
+    Available { latest_version: String, asset_url: Option<String>, html_url: String },
+    Downloading,
+    Success,
+    Failed { error: String, html_url: Option<String> },
+}
+
 pub enum DialogType {
     About,
+    Update,
     GoToLine,
     #[allow(dead_code)]
     OpenFile,
@@ -35,6 +47,8 @@ pub struct Dialog {
     show_hidden: bool,
     // Button focus state for UnsavedChanges
     button_idx: usize,
+    // Update dialog state
+    update_status: Option<UpdateStatus>,
 }
 
 #[derive(Clone)]
@@ -68,6 +82,8 @@ impl Dialog {
             }
         }
 
+        let is_update = matches!(dialog_type, DialogType::Update);
+
         let mut this = Self {
             workspace,
             i18n,
@@ -79,10 +95,92 @@ impl Dialog {
             selected_idx: 0,
             show_hidden: false,
             button_idx: 0,
+            update_status: if is_update { Some(UpdateStatus::Checking) } else { None },
         };
         this.refresh_files();
+        if is_update {
+            this.start_update_check(cx);
+        }
         this
     }
+
+    fn start_update_check(&mut self, cx: &mut Context<Self>) {
+        self.update_status = Some(UpdateStatus::Checking);
+        cx.spawn(|this: WeakEntity<Self>, cx: &mut AsyncApp| {
+            let cx = cx.clone();
+            async move {
+                let res = std::thread::spawn(|| {
+                    zee_core::selfupdate::check_latest(zee_core::selfupdate::AppType::Gui)
+                }).join().unwrap_or_else(|_| Err(anyhow::anyhow!("Update check thread panicked")));
+
+                let _ = this.update(&mut cx.clone(), |this, cx| {
+                    match res {
+                        Ok(info) => {
+                            if zee_core::selfupdate::is_newer(zee_core::selfupdate::CURRENT_VERSION, &info.version) {
+                                this.update_status = Some(UpdateStatus::Available {
+                                    latest_version: info.version,
+                                    asset_url: info.asset_url,
+                                    html_url: info.html_url,
+                                });
+                            } else {
+                                this.update_status = Some(UpdateStatus::UpToDate {
+                                    version: info.version,
+                                });
+                            }
+                        }
+                        Err(err) => {
+                            this.update_status = Some(UpdateStatus::Failed {
+                                error: err.to_string(),
+                                html_url: Some(format!("https://github.com/{}/releases", zee_core::selfupdate::GITHUB_REPO)),
+                            });
+                        }
+                    }
+                    cx.notify();
+                });
+            }
+        }).detach();
+    }
+
+    fn start_apply_update(&mut self, asset_url: String, cx: &mut Context<Self>) {
+        self.update_status = Some(UpdateStatus::Downloading);
+        cx.notify();
+        cx.spawn(|this: WeakEntity<Self>, cx: &mut AsyncApp| {
+            let cx = cx.clone();
+            async move {
+                let url = asset_url.clone();
+                let res = std::thread::spawn(move || {
+                    zee_core::selfupdate::apply_update(&url, zee_core::selfupdate::AppType::Gui)
+                }).join().unwrap_or_else(|_| Err(anyhow::anyhow!("Apply update thread panicked")));
+
+                let _ = this.update(&mut cx.clone(), |this, cx| {
+                    match res {
+                        Ok(()) => {
+                            this.update_status = Some(UpdateStatus::Success);
+                            cx.notify();
+                            cx.spawn(|_, cx: &mut AsyncApp| {
+                                let cx = cx.clone();
+                                async move {
+                                    smol::Timer::after(std::time::Duration::from_millis(1500)).await;
+                                    let _ = cx.update(|cx| {
+                                        cx.dispatch_action(&Quit {});
+                                    });
+                                }
+                            }).detach();
+                        }
+                        Err(err) => {
+                            this.update_status = Some(UpdateStatus::Failed {
+                                error: err.to_string(),
+                                html_url: Some(format!("https://github.com/{}/releases", zee_core::selfupdate::GITHUB_REPO)),
+                            });
+                            cx.notify();
+                        }
+                    }
+                });
+            }
+        }).detach();
+    }
+
+
 
     fn refresh_files(&mut self) {
         self.files.clear();
@@ -347,6 +445,283 @@ impl Dialog {
                             .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, cx| this.close(cx)))
                             .child(self.i18n.get("dialog.ok").to_string())
                     )
+            }
+            DialogType::Update => {
+                let status = self.update_status.as_ref().unwrap_or(&UpdateStatus::Checking);
+                match status {
+                    UpdateStatus::Checking => {
+                        div()
+                            .flex()
+                            .flex_col()
+                            .items_center()
+                            .gap_3()
+                            .py_4()
+                            .child(
+                                div()
+                                    .text_size(px(16.0))
+                                    .font_weight(FontWeight::BOLD)
+                                    .child(self.i18n.get("dialog.update.title").to_string())
+                            )
+                            .child(
+                                div()
+                                    .text_size(px(13.0))
+                                    .text_color(with_alpha(fg, 0.7))
+                                    .child(self.i18n.get("dialog.update.checking").to_string())
+                            )
+                    }
+                    UpdateStatus::UpToDate { version } => {
+                        let msg = self.i18n.get("dialog.update.up_to_date").replace("{version}", version);
+                        div()
+                            .flex()
+                            .flex_col()
+                            .items_center()
+                            .gap_3()
+                            .py_3()
+                            .child(
+                                div()
+                                    .text_size(px(16.0))
+                                    .font_weight(FontWeight::BOLD)
+                                    .child(self.i18n.get("dialog.update.title").to_string())
+                            )
+                            .child(
+                                div()
+                                    .text_size(px(13.0))
+                                    .text_color(with_alpha(fg, 0.8))
+                                    .child(msg)
+                            )
+                            .child(
+                                div()
+                                    .mt_4()
+                                    .h(px(30.0))
+                                    .px_6()
+                                    .flex()
+                                    .items_center()
+                                    .justify_center()
+                                    .rounded_md()
+                                    .bg(accent)
+                                    .text_color(gpui::rgb(0xffffff))
+                                    .text_size(px(13.0))
+                                    .font_weight(FontWeight::MEDIUM)
+                                    .cursor_pointer()
+                                    .hover(|s| s.opacity(0.9))
+                                    .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, cx| this.close(cx)))
+                                    .child(self.i18n.get("dialog.ok").to_string())
+                            )
+                    }
+                    UpdateStatus::Available { latest_version, asset_url, html_url } => {
+                        let msg = self.i18n.get("dialog.update.available").replace("{version}", latest_version);
+                        let asset_url_clone = asset_url.clone();
+                        let html_url_btn = html_url.clone();
+
+                        div()
+                            .flex()
+                            .flex_col()
+                            .items_center()
+                            .gap_3()
+                            .py_3()
+                            .child(
+                                div()
+                                    .text_size(px(16.0))
+                                    .font_weight(FontWeight::BOLD)
+                                    .child(self.i18n.get("dialog.update.title").to_string())
+                            )
+                            .child(
+                                div()
+                                    .text_size(px(13.0))
+                                    .text_color(with_alpha(fg, 0.8))
+                                    .child(msg)
+                            )
+                            .child(
+                                div()
+                                    .mt_4()
+                                    .flex()
+                                    .flex_row()
+                                    .gap_3()
+                                    .child(
+                                        if let Some(url) = asset_url_clone {
+                                            div()
+                                                .h(px(30.0))
+                                                .px_4()
+                                                .flex()
+                                                .items_center()
+                                                .justify_center()
+                                                .rounded_md()
+                                                .bg(accent)
+                                                .text_color(gpui::rgb(0xffffff))
+                                                .text_size(px(13.0))
+                                                .font_weight(FontWeight::MEDIUM)
+                                                .cursor_pointer()
+                                                .hover(|s| s.opacity(0.9))
+                                                .on_mouse_down(MouseButton::Left, cx.listener(move |this, _, _, cx| {
+                                                    this.start_apply_update(url.clone(), cx);
+                                                }))
+                                                .child(self.i18n.get("dialog.update.btn_update").to_string())
+                                        } else {
+                                            let h_url = html_url.clone();
+                                            div()
+                                                .h(px(30.0))
+                                                .px_4()
+                                                .flex()
+                                                .items_center()
+                                                .justify_center()
+                                                .rounded_md()
+                                                .bg(accent)
+                                                .text_color(gpui::rgb(0xffffff))
+                                                .text_size(px(13.0))
+                                                .font_weight(FontWeight::MEDIUM)
+                                                .cursor_pointer()
+                                                .hover(|s| s.opacity(0.9))
+                                                .on_mouse_down(MouseButton::Left, cx.listener(move |_, _, _, _| {
+                                                    let _ = zee_core::selfupdate::open_url(&h_url);
+                                                }))
+                                                .child(self.i18n.get("dialog.update.btn_open_url").to_string())
+                                        }
+                                    )
+                                    .child(
+                                        div()
+                                            .h(px(30.0))
+                                            .px_4()
+                                            .flex()
+                                            .items_center()
+                                            .justify_center()
+                                            .rounded_md()
+                                            .bg(button_bg)
+                                            .text_color(fg)
+                                            .text_size(px(13.0))
+                                            .cursor_pointer()
+                                            .hover(move |s| s.bg(button_hover))
+                                            .on_mouse_down(MouseButton::Left, cx.listener(move |_, _, _, _| {
+                                                let _ = zee_core::selfupdate::open_url(&html_url_btn);
+                                            }))
+                                            .child(self.i18n.get("dialog.update.btn_open_url").to_string())
+                                    )
+                                    .child(
+                                        div()
+                                            .h(px(30.0))
+                                            .px_4()
+                                            .flex()
+                                            .items_center()
+                                            .justify_center()
+                                            .rounded_md()
+                                            .bg(button_bg)
+                                            .text_color(fg)
+                                            .text_size(px(13.0))
+                                            .cursor_pointer()
+                                            .hover(move |s| s.bg(button_hover))
+                                            .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, cx| this.close(cx)))
+                                            .child(self.i18n.get("dialog.cancel").to_string())
+                                    )
+                            )
+                    }
+                    UpdateStatus::Downloading => {
+                        div()
+                            .flex()
+                            .flex_col()
+                            .items_center()
+                            .gap_3()
+                            .py_4()
+                            .child(
+                                div()
+                                    .text_size(px(16.0))
+                                    .font_weight(FontWeight::BOLD)
+                                    .child(self.i18n.get("dialog.update.title").to_string())
+                            )
+                            .child(
+                                div()
+                                    .text_size(px(13.0))
+                                    .text_color(with_alpha(fg, 0.8))
+                                    .child(self.i18n.get("dialog.update.downloading").to_string())
+                            )
+                    }
+                    UpdateStatus::Success => {
+                        div()
+                            .flex()
+                            .flex_col()
+                            .items_center()
+                            .gap_3()
+                            .py_3()
+                            .child(
+                                div()
+                                    .text_size(px(16.0))
+                                    .font_weight(FontWeight::BOLD)
+                                    .child(self.i18n.get("dialog.update.title").to_string())
+                            )
+                            .child(
+                                div()
+                                    .text_size(px(13.0))
+                                    .text_color(gpui::rgb(0x44cc44))
+                                    .child(self.i18n.get("dialog.update.success").to_string())
+                            )
+                    }
+                    UpdateStatus::Failed { error, html_url } => {
+                        let err_msg = self.i18n.get("dialog.update.failed").replace("{error}", error);
+                        let html_url_btn = html_url.clone();
+                        div()
+                            .flex()
+                            .flex_col()
+                            .items_center()
+                            .gap_3()
+                            .py_3()
+                            .child(
+                                div()
+                                    .text_size(px(16.0))
+                                    .font_weight(FontWeight::BOLD)
+                                    .child(self.i18n.get("dialog.update.title").to_string())
+                            )
+                            .child(
+                                div()
+                                    .text_size(px(13.0))
+                                    .text_color(gpui::rgb(0xff5555))
+                                    .child(err_msg)
+                            )
+                            .child(
+                                div()
+                                    .mt_4()
+                                    .flex()
+                                    .flex_row()
+                                    .gap_3()
+                                    .child(
+                                        if let Some(url) = html_url_btn {
+                                            div()
+                                                .h(px(30.0))
+                                                .px_4()
+                                                .flex()
+                                                .items_center()
+                                                .justify_center()
+                                                .rounded_md()
+                                                .bg(accent)
+                                                .text_color(gpui::rgb(0xffffff))
+                                                .text_size(px(13.0))
+                                                .font_weight(FontWeight::MEDIUM)
+                                                .cursor_pointer()
+                                                .hover(|s| s.opacity(0.9))
+                                                .on_mouse_down(MouseButton::Left, cx.listener(move |_, _, _, _| {
+                                                    let _ = zee_core::selfupdate::open_url(&url);
+                                                }))
+                                                .child(self.i18n.get("dialog.update.btn_open_url").to_string())
+                                        } else {
+                                            div()
+                                        }
+                                    )
+                                    .child(
+                                        div()
+                                            .h(px(30.0))
+                                            .px_4()
+                                            .flex()
+                                            .items_center()
+                                            .justify_center()
+                                            .rounded_md()
+                                            .bg(button_bg)
+                                            .text_color(fg)
+                                            .text_size(px(13.0))
+                                            .cursor_pointer()
+                                            .hover(move |s| s.bg(button_hover))
+                                            .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, cx| this.close(cx)))
+                                            .child(self.i18n.get("dialog.ok").to_string())
+                                    )
+                            )
+                    }
+                }
             }
             DialogType::GoToLine => {
                 div()

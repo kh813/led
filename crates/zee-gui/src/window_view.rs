@@ -750,6 +750,10 @@ impl WindowView {
         self.show_dialog(DialogType::About, Some(window), cx);
     }
 
+    pub fn handle_check_for_updates(&mut self, _: &CheckForUpdates, window: &mut Window, cx: &mut Context<Self>) {
+        self.show_dialog(DialogType::Update, Some(window), cx);
+    }
+
     pub fn handle_quit(&mut self, _action: &Quit, window: &mut Window, cx: &mut Context<Self>) {
         let mut modified_file = None;
         let mut target_idx = None;
@@ -920,6 +924,7 @@ impl Render for WindowView {
             .on_action(cx.listener(Self::handle_zoom_out))
             .on_action(cx.listener(Self::handle_reset_zoom))
             .on_action(cx.listener(Self::handle_about))
+            .on_action(cx.listener(Self::handle_check_for_updates))
             .on_action(cx.listener(Self::handle_quit))
             .on_action(cx.listener(Self::handle_exit))
             .on_drop(cx.listener(|this, paths: &ExternalPaths, _window, cx| {
@@ -1163,5 +1168,6 @@ impl WindowView {
             .flex()
             .flex_col()
             .child(self.render_menu_item(self.i18n.get("menu.help.about").to_string(), None, About {}, fg, hover_bg, muted_fg, cx))
+            .child(self.render_menu_item(self.i18n.get("menu.help.check_for_updates").to_string(), None, CheckForUpdates {}, fg, hover_bg, muted_fg, cx))
     }
 }

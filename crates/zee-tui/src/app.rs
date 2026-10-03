@@ -345,6 +345,7 @@ impl App {
             ]),
             Menu::new(i18n.get("menu.help"), vec![
                 MenuItem::Action { label: i18n.get("menu.help.about").to_string(), action: Action::About, shortcut: Some("Ctrl+H".to_string()) },
+                MenuItem::Action { label: i18n.get("menu.help.check_for_updates").to_string(), action: Action::CheckForUpdates, shortcut: None },
             ]),
         ]
     }
@@ -2451,6 +2452,10 @@ impl App {
             Action::About => {
                 self.focus = Focus::Dialog;
                 self.current_dialog = Some(Box::new(dialog::AboutDialog::new(&self.i18n)));
+            }
+            Action::CheckForUpdates => {
+                self.focus = Focus::Dialog;
+                self.current_dialog = Some(Box::new(dialog::UpdateDialog::new(&self.i18n)));
             }
             Action::ReopenWithEncoding(enc) => {
                 if let Some(buffer) = self.buffers.get(self.active_buffer) {

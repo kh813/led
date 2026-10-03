@@ -1139,6 +1139,338 @@ impl Dialog for AboutDialog {
     }
 }
 
+#[derive(Debug, Clone)]
+pub enum UpdateState {
+    Checking,
+    UpToDate { version: String },
+    Available { latest_version: String, asset_url: Option<String>, html_url: String },
+    Downloading,
+    Success,
+    Failed { error: String, html_url: Option<String> },
+}
+
+enum UpdateMsg {
+    CheckDone(Result<zee_core::selfupdate::ReleaseInfo, String>),
+    ApplyDone(Result<(), String>),
+}
+
+pub struct UpdateDialog {
+    pub state: std::sync::Mutex<UpdateState>,
+    pub selected_btn: std::sync::Mutex<usize>,
+    rx: std::sync::mpsc::Receiver<UpdateMsg>,
+    tx: std::sync::mpsc::Sender<UpdateMsg>,
+    pub i18n_title: String,
+    pub i18n_ok: String,
+    pub i18n_cancel: String,
+    pub i18n_update_now: String,
+    pub i18n_open_url: String,
+    pub i18n_checking: String,
+    pub i18n_up_to_date: String,
+    pub i18n_available: String,
+    pub i18n_downloading: String,
+    pub i18n_success: String,
+    pub i18n_failed: String,
+}
+
+impl UpdateDialog {
+    pub fn new(i18n: &zee_core::I18n) -> Self {
+        let (tx, rx) = std::sync::mpsc::channel();
+        let tx_check = tx.clone();
+        
+        std::thread::spawn(move || {
+            let res = zee_core::selfupdate::check_latest(zee_core::selfupdate::AppType::Cli)
+                .map_err(|e| e.to_string());
+            let _ = tx_check.send(UpdateMsg::CheckDone(res));
+        });
+
+        Self {
+            state: std::sync::Mutex::new(UpdateState::Checking),
+            selected_btn: std::sync::Mutex::new(0),
+            rx,
+            tx,
+            i18n_title: i18n.get("dialog.update.title").to_string(),
+            i18n_ok: i18n.get("dialog.ok").to_string(),
+            i18n_cancel: i18n.get("dialog.cancel").to_string(),
+            i18n_update_now: i18n.get("dialog.update.btn_update").to_string(),
+            i18n_open_url: i18n.get("dialog.update.btn_open_url").to_string(),
+            i18n_checking: i18n.get("dialog.update.checking").to_string(),
+            i18n_up_to_date: i18n.get("dialog.update.up_to_date").to_string(),
+            i18n_available: i18n.get("dialog.update.available").to_string(),
+            i18n_downloading: i18n.get("dialog.update.downloading").to_string(),
+            i18n_success: i18n.get("dialog.update.success").to_string(),
+            i18n_failed: i18n.get("dialog.update.failed").to_string(),
+        }
+    }
+
+    fn poll_messages(&self) {
+        while let Ok(msg) = self.rx.try_recv() {
+            let mut state = self.state.lock().unwrap();
+            let mut selected = self.selected_btn.lock().unwrap();
+            match msg {
+                UpdateMsg::CheckDone(res) => {
+                    match res {
+                        Ok(info) => {
+                            if zee_core::selfupdate::is_newer(zee_core::selfupdate::CURRENT_VERSION, &info.version) {
+                                *state = UpdateState::Available {
+                                    latest_version: info.version,
+                                    asset_url: info.asset_url,
+                                    html_url: info.html_url,
+                                };
+                                *selected = 0;
+                            } else {
+                                *state = UpdateState::UpToDate {
+                                    version: info.version,
+                                };
+                                *selected = 0;
+                            }
+                        }
+                        Err(err) => {
+                            *state = UpdateState::Failed {
+                                error: err,
+                                html_url: Some(format!("https://github.com/{}/releases", zee_core::selfupdate::GITHUB_REPO)),
+                            };
+                            *selected = 0;
+                        }
+                    }
+                }
+                UpdateMsg::ApplyDone(res) => {
+                    match res {
+                        Ok(()) => {
+                            *state = UpdateState::Success;
+                            *selected = 0;
+                        }
+                        Err(err) => {
+                            *state = UpdateState::Failed {
+                                error: err,
+                                html_url: Some(format!("https://github.com/{}/releases", zee_core::selfupdate::GITHUB_REPO)),
+                            };
+                            *selected = 0;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    fn trigger_update(&self, asset_url: Option<String>, html_url: String) {
+        if let Some(url) = asset_url {
+            let mut state = self.state.lock().unwrap();
+            *state = UpdateState::Downloading;
+            let tx = self.tx.clone();
+            std::thread::spawn(move || {
+                let res = zee_core::selfupdate::apply_update(&url, zee_core::selfupdate::AppType::Cli)
+                    .map_err(|e| e.to_string());
+                let _ = tx.send(UpdateMsg::ApplyDone(res));
+            });
+        } else {
+            let _ = zee_core::selfupdate::open_url(&html_url);
+        }
+    }
+}
+
+impl Dialog for UpdateDialog {
+    fn title(&self) -> &str {
+        &self.i18n_title
+    }
+
+    fn dimensions(&self) -> (u16, u16) {
+        (56, 11)
+    }
+
+    fn render(&self, renderer: &mut Renderer, theme: &zee_core::theme::Theme, x: u16, y: u16, w: u16, h: u16) {
+        self.poll_messages();
+
+        render_base_dialog(renderer, theme, self.title(), x, y, w, h);
+
+        let dialog_bg = to_ct_color(theme.ui.dialog_bg, theme);
+        let dialog_fg = to_ct_color(theme.ui.panel_fg, theme);
+
+        let mut lines = Vec::new();
+
+        let state = self.state.lock().unwrap().clone();
+        match &state {
+            UpdateState::Checking => {
+                lines.push(self.i18n_checking.clone());
+            }
+            UpdateState::UpToDate { version } => {
+                lines.push(self.i18n_up_to_date.replace("{version}", version));
+            }
+            UpdateState::Available { latest_version, .. } => {
+                lines.push(self.i18n_available.replace("{version}", latest_version));
+            }
+            UpdateState::Downloading => {
+                lines.push(self.i18n_downloading.clone());
+            }
+            UpdateState::Success => {
+                lines.push(self.i18n_success.clone());
+            }
+            UpdateState::Failed { error, .. } => {
+                lines.push(self.i18n_failed.replace("{error}", error));
+            }
+        }
+
+        for (i, line) in lines.iter().enumerate() {
+            let line_w: u16 = line.chars().map(|c| c.width().unwrap_or(0) as u16).sum();
+            let lx = x + (w.saturating_sub(line_w)) / 2;
+            let ly = y + 3 + i as u16;
+            let mut cur_lx = lx;
+            for c in line.chars() {
+                let cw = c.width().unwrap_or(0) as u16;
+                if cur_lx + cw <= x + w - 1 {
+                    renderer.set_cell(cur_lx, ly, Cell { ch: c, bg: dialog_bg, fg: dialog_fg, width: cw as u8, ..Default::default() });
+                }
+                cur_lx += cw;
+            }
+        }
+
+        // Render buttons
+        let buttons: Vec<&str> = match &state {
+            UpdateState::Checking | UpdateState::Downloading => vec![],
+            UpdateState::UpToDate { .. } | UpdateState::Success => vec![&self.i18n_ok],
+            UpdateState::Available { .. } => vec![&self.i18n_update_now, &self.i18n_cancel, &self.i18n_open_url],
+            UpdateState::Failed { .. } => vec![&self.i18n_ok, &self.i18n_open_url],
+        };
+
+        if !buttons.is_empty() {
+            let total_btn_len: usize = buttons.iter().map(|b| b.len() + 4).sum::<usize>() + (buttons.len().saturating_sub(1) * 2);
+            let mut bx = x + (w.saturating_sub(total_btn_len as u16)) / 2;
+            let by = y + h - 2;
+
+            let selected_idx = *self.selected_btn.lock().unwrap();
+
+            for (idx, btn) in buttons.iter().enumerate() {
+                let is_sel = idx == selected_idx;
+                let (btn_bg, btn_fg) = if is_sel {
+                    (to_ct_color(theme.ui.button_active_bg, theme), to_ct_color(theme.ui.button_active_fg, theme))
+                } else {
+                    (to_ct_color(theme.ui.status_bar_bg, theme), to_ct_color(theme.ui.status_bar_fg, theme))
+                };
+
+                let text = format!("[ {} ]", btn);
+                for c in text.chars() {
+                    let cw = c.width().unwrap_or(0) as u16;
+                    renderer.set_cell(bx, by, Cell {
+                        ch: c,
+                        bg: btn_bg,
+                        fg: btn_fg,
+                        width: cw as u8,
+                        ..Default::default()
+                    });
+                    bx += cw;
+                }
+                bx += 2;
+            }
+        }
+    }
+
+    fn handle_key(&mut self, key: KeyEvent) -> DialogResult<Action> {
+        self.poll_messages();
+
+        let state = self.state.lock().unwrap().clone();
+        let num_buttons = match &state {
+            UpdateState::Checking | UpdateState::Downloading => 0,
+            UpdateState::UpToDate { .. } | UpdateState::Success => 1,
+            UpdateState::Available { .. } => 3,
+            UpdateState::Failed { .. } => 2,
+        };
+
+        match key.code {
+            KeyCode::Esc => DialogResult::Cancel,
+            KeyCode::Left | KeyCode::BackTab => {
+                if num_buttons > 0 {
+                    let mut sel = self.selected_btn.lock().unwrap();
+                    *sel = (*sel + num_buttons - 1) % num_buttons;
+                }
+                DialogResult::Pending
+            }
+            KeyCode::Right | KeyCode::Tab => {
+                if num_buttons > 0 {
+                    let mut sel = self.selected_btn.lock().unwrap();
+                    *sel = (*sel + 1) % num_buttons;
+                }
+                DialogResult::Pending
+            }
+            KeyCode::Enter => {
+                let sel = *self.selected_btn.lock().unwrap();
+                match &state {
+                    UpdateState::Checking | UpdateState::Downloading => DialogResult::Pending,
+                    UpdateState::UpToDate { .. } => DialogResult::Ok(Action::Confirm),
+                    UpdateState::Success => DialogResult::Ok(Action::Confirm),
+                    UpdateState::Available { asset_url, html_url, .. } => {
+                        let asset_url = asset_url.clone();
+                        let html_url = html_url.clone();
+                        match sel {
+                            0 => {
+                                self.trigger_update(asset_url, html_url);
+                                DialogResult::Pending
+                            }
+                            1 => DialogResult::Cancel,
+                            2 => {
+                                let _ = zee_core::selfupdate::open_url(&html_url);
+                                DialogResult::Pending
+                            }
+                            _ => DialogResult::Pending,
+                        }
+                    }
+                    UpdateState::Failed { html_url, .. } => {
+                        let html_url = html_url.clone();
+                        match sel {
+                            0 => DialogResult::Ok(Action::Confirm),
+                            1 => {
+                                if let Some(url) = html_url {
+                                    let _ = zee_core::selfupdate::open_url(&url);
+                                }
+                                DialogResult::Pending
+                            }
+                            _ => DialogResult::Pending,
+                        }
+                    }
+                }
+            }
+            _ => DialogResult::Pending,
+        }
+    }
+
+    fn handle_mouse(&mut self, mouse: MouseEvent, x: u16, y: u16, w: u16, h: u16) -> DialogResult<Action> {
+        self.poll_messages();
+        if mouse.kind != MouseEventKind::Down(MouseButton::Left) {
+            return DialogResult::Pending;
+        }
+
+        let (mx, my) = (mouse.column, mouse.row);
+        let by = y + h - 2;
+        if my != by {
+            return DialogResult::Pending;
+        }
+
+        let state = self.state.lock().unwrap().clone();
+        let buttons: Vec<&str> = match &state {
+            UpdateState::Checking | UpdateState::Downloading => vec![],
+            UpdateState::UpToDate { .. } | UpdateState::Success => vec![&self.i18n_ok],
+            UpdateState::Available { .. } => vec![&self.i18n_update_now, &self.i18n_cancel, &self.i18n_open_url],
+            UpdateState::Failed { .. } => vec![&self.i18n_ok, &self.i18n_open_url],
+        };
+
+        if buttons.is_empty() {
+            return DialogResult::Pending;
+        }
+
+        let total_btn_len: usize = buttons.iter().map(|b| b.len() + 4).sum::<usize>() + (buttons.len().saturating_sub(1) * 2);
+        let mut bx = x + (w.saturating_sub(total_btn_len as u16)) / 2;
+
+        for (idx, btn) in buttons.iter().enumerate() {
+            let btn_w = (btn.len() + 4) as u16;
+            if mx >= bx && mx < bx + btn_w {
+                *self.selected_btn.lock().unwrap() = idx;
+                return self.handle_key(KeyEvent::from(KeyCode::Enter));
+            }
+            bx += btn_w + 2;
+        }
+
+        DialogResult::Pending
+    }
+}
+
 pub struct ReopenConfirmationDialog {
     pub i18n_title: String,
     pub i18n_message: String,
@@ -1146,6 +1478,7 @@ pub struct ReopenConfirmationDialog {
     pub i18n_cancel: String,
     pub selected_btn: usize,
 }
+
 
 impl ReopenConfirmationDialog {
     pub fn new(i18n: &zee_core::I18n) -> Self {

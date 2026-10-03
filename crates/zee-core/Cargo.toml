@@ -16,3 +16,7 @@ ropey         = { workspace = true }
 rayon         = { workspace = true }
 serde_json    = { workspace = true }
 wasmi         = { workspace = true }
+ureq          = { version = "2.10", features = ["json"] }
+flate2        = "1.0"
+tar           = "0.4"
+zip           = { version = "2.2", default-features = false, features = ["deflate"] }

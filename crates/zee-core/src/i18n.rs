@@ -111,6 +111,16 @@ impl I18n {
 
         m.insert("menu.help".to_string(), "Help".to_string());
         m.insert("menu.help.about".to_string(), "About".to_string());
+        m.insert("menu.help.check_for_updates".to_string(), "Check for Updates…".to_string());
+        m.insert("dialog.update.title".to_string(), "Check for Updates".to_string());
+        m.insert("dialog.update.checking".to_string(), "Checking for updates...".to_string());
+        m.insert("dialog.update.up_to_date".to_string(), "zee is up to date (v{version}).".to_string());
+        m.insert("dialog.update.available".to_string(), "A new version (v{version}) is available. Would you like to update now?".to_string());
+        m.insert("dialog.update.downloading".to_string(), "Downloading and applying update...".to_string());
+        m.insert("dialog.update.success".to_string(), "Update installed! Restarting zee...".to_string());
+        m.insert("dialog.update.failed".to_string(), "Update failed: {error}".to_string());
+        m.insert("dialog.update.btn_update".to_string(), "Update Now".to_string());
+        m.insert("dialog.update.btn_open_url".to_string(), "Open Release Page".to_string());
 
         m.insert("panel.find".to_string(), "Find:".to_string());
         m.insert("panel.replace".to_string(), "Replace:".to_string());
@@ -217,6 +227,16 @@ impl I18n {
 
         m.insert("menu.help".to_string(), "ヘルプ".to_string());
         m.insert("menu.help.about".to_string(), "このソフトについて".to_string());
+        m.insert("menu.help.check_for_updates".to_string(), "アップデートを確認…".to_string());
+        m.insert("dialog.update.title".to_string(), "アップデートの確認".to_string());
+        m.insert("dialog.update.checking".to_string(), "最新バージョンを確認中...".to_string());
+        m.insert("dialog.update.up_to_date".to_string(), "最新バージョン (v{version}) を使用しています。".to_string());
+        m.insert("dialog.update.available".to_string(), "新しいバージョン (v{version}) が利用可能です。今すぐアップデートしますか？".to_string());
+        m.insert("dialog.update.downloading".to_string(), "アップデートをダウンロードして適用中...".to_string());
+        m.insert("dialog.update.success".to_string(), "アップデートが完了しました！ 再起動しています...".to_string());
+        m.insert("dialog.update.failed".to_string(), "アップデートに失敗しました: {error}".to_string());
+        m.insert("dialog.update.btn_update".to_string(), "今すぐアップデート".to_string());
+        m.insert("dialog.update.btn_open_url".to_string(), "リリースを開く".to_string());
 
         m.insert("panel.find".to_string(), "検索:".to_string());
         m.insert("panel.replace".to_string(), "置換:".to_string());

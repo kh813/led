@@ -7,6 +7,7 @@ pub mod theme;
 pub mod file_tree;
 pub mod outline;
 pub mod plugin;
+pub mod selfupdate;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Action {
@@ -43,6 +44,7 @@ pub enum Action {
 
     // Help
     About,
+    CheckForUpdates,
 
     NoOp,
 }
