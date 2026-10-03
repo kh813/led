@@ -267,6 +267,8 @@ fn apply_macos_gui_bundle(zip_bytes: &[u8], current_exe: &Path) -> Result<()> {
 sleep 1
 rm -rf "$1"
 mv "$2" "$1"
+xattr -cr "$1" 2>/dev/null || true
+codesign --force --deep --sign - "$1" 2>/dev/null || true
 rm -rf "$3"
 open "$1"
 "#;
@@ -345,6 +347,8 @@ sleep 0.5
 rm -f "$1"
 mv "$2" "$1"
 chmod +x "$1"
+xattr -d com.apple.quarantine "$1" 2>/dev/null || true
+codesign --force --sign - "$1" 2>/dev/null || true
 rm -rf "$3"
 "#;
     let child = Command::new("/bin/sh")
