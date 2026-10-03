@@ -1078,7 +1078,7 @@ impl Dialog for AboutDialog {
         let dialog_fg = to_ct_color(theme.ui.panel_fg, theme);
 
         let content = [
-            format!("zee v0.0.2"),
+            format!("zee v0.1.0"),
             format!("{}: v0.1.0", self.i18n_version),
             "A lightweight, modern TUI editor.".to_string(),
             "".to_string(),
