@@ -111,17 +111,17 @@ pub fn find_matching_asset_for_platform<'a>(
         if os == "macos" {
             let is_arm64 = arch == "aarch64" || arch == "arm64";
             if is_arm64 && name.contains("macos") && (name.contains("arm64") || name.contains("aarch64")) {
-                if app_type == AppType::Gui && name.starts_with("zeeg-") && name.ends_with(".zip") {
+                if app_type == AppType::Gui && name.starts_with("zeeg-") && (name.ends_with(".zip") || name.ends_with(".tar.gz")) {
                     return Some(asset);
-                } else if app_type == AppType::Cli && name.starts_with("zee-") && !name.starts_with("zeeg-") && name.ends_with(".tar.gz") {
+                } else if app_type == AppType::Cli && name.starts_with("zee-") && !name.starts_with("zeeg-") && (name.ends_with(".zip") || name.ends_with(".tar.gz")) {
                     return Some(asset);
                 }
             }
             // x86_64 fallback if ever released
             if !is_arm64 && name.contains("macos") && (name.contains("x64") || name.contains("x86_64")) {
-                if app_type == AppType::Gui && name.starts_with("zeeg-") && name.ends_with(".zip") {
+                if app_type == AppType::Gui && name.starts_with("zeeg-") && (name.ends_with(".zip") || name.ends_with(".tar.gz")) {
                     return Some(asset);
-                } else if app_type == AppType::Cli && name.starts_with("zee-") && !name.starts_with("zeeg-") && name.ends_with(".tar.gz") {
+                } else if app_type == AppType::Cli && name.starts_with("zee-") && !name.starts_with("zeeg-") && (name.ends_with(".zip") || name.ends_with(".tar.gz")) {
                     return Some(asset);
                 }
             }
@@ -137,9 +137,9 @@ pub fn find_matching_asset_for_platform<'a>(
             };
 
             if name.contains("linux") && matches_arch {
-                if app_type == AppType::Gui && name.starts_with("zeeg-") && name.ends_with(".tar.gz") {
+                if app_type == AppType::Gui && name.starts_with("zeeg-") && (name.ends_with(".zip") || name.ends_with(".tar.gz")) {
                     return Some(asset);
-                } else if app_type == AppType::Cli && name.starts_with("zee-") && !name.starts_with("zeeg-") && name.ends_with(".tar.gz") {
+                } else if app_type == AppType::Cli && name.starts_with("zee-") && !name.starts_with("zeeg-") && (name.ends_with(".zip") || name.ends_with(".tar.gz")) {
                     return Some(asset);
                 }
             }
@@ -154,7 +154,7 @@ pub fn find_matching_asset_for_platform<'a>(
                 name.contains("x64") || name.contains("x86_64")
             };
 
-            if name.contains("windows") && matches_arch && name.ends_with(".zip") {
+            if name.contains("windows") && matches_arch && (name.ends_with(".zip") || name.ends_with(".tar.gz")) {
                 if app_type == AppType::Gui && name.starts_with("zeeg-") {
                     return Some(asset);
                 } else if app_type == AppType::Cli && name.starts_with("zee-") && !name.starts_with("zeeg-") {
@@ -335,8 +335,12 @@ fn apply_unix_binary(archive_bytes: &[u8], current_exe: &Path, target_bin_name: 
     let staging_dir = tempfile_staging_dir("zee-update")?;
     let new_bin_path = staging_dir.join(target_bin_name);
 
-    // Extract binary from tar.gz
-    extract_tar_gz_binary(archive_bytes, target_bin_name, &new_bin_path)?;
+    // Extract binary from zip or tar.gz
+    if archive_bytes.starts_with(b"PK") {
+        extract_zip_binary(archive_bytes, target_bin_name, &new_bin_path)?;
+    } else {
+        extract_tar_gz_binary(archive_bytes, target_bin_name, &new_bin_path)?;
+    }
 
     use std::os::unix::fs::PermissionsExt;
     fs::set_permissions(&new_bin_path, fs::Permissions::from_mode(0o755))

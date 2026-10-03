@@ -83,7 +83,9 @@ jobs:
           mkdir -p "dist/${ARCHIVE_NAME}"
           cp "target/${{ matrix.target }}/release/zee" "dist/${ARCHIVE_NAME}/"
           cp README.md MANUAL.md LICENSE* "dist/${ARCHIVE_NAME}/" 2>/dev/null || true
-          tar -czvf "dist/${ARCHIVE_NAME}.tar.gz" -C dist "${ARCHIVE_NAME}"
+          cd dist
+          zip -r "${ARCHIVE_NAME}.zip" "${ARCHIVE_NAME}"
+          cd ..
 
       - name: Build & Package macOS GUI (Zee.app)
         if: matrix.is_macos
@@ -145,6 +147,7 @@ jobs:
           codesign --force --deep --sign - "dist/Zee.app" || true
           cd dist
           zip -r "${GUI_ARCHIVE_NAME}.zip" Zee.app
+          cd ..
 
       # --- Linux Builds (CLI as 'zee', GUI as 'zeeg') ---
       - name: Build Linux (CLI & GUI)
@@ -160,13 +163,17 @@ jobs:
           mkdir -p "dist/${ARCHIVE_NAME}"
           cp "target/${{ matrix.target }}/release/zee" "dist/${ARCHIVE_NAME}/"
           cp README.md MANUAL.md LICENSE* "dist/${ARCHIVE_NAME}/" 2>/dev/null || true
-          tar -czvf "dist/${ARCHIVE_NAME}.tar.gz" -C dist "${ARCHIVE_NAME}"
+          cd dist
+          zip -r "${ARCHIVE_NAME}.zip" "${ARCHIVE_NAME}"
+          cd ..
 
           # Package GUI (zeeg)
           mkdir -p "dist/${GUI_ARCHIVE_NAME}"
           cp "target/${{ matrix.target }}/release/zeeg" "dist/${GUI_ARCHIVE_NAME}/"
           cp README.md MANUAL.md LICENSE* "dist/${GUI_ARCHIVE_NAME}/" 2>/dev/null || true
-          tar -czvf "dist/${GUI_ARCHIVE_NAME}.tar.gz" -C dist "${GUI_ARCHIVE_NAME}"
+          cd dist
+          zip -r "${GUI_ARCHIVE_NAME}.zip" "${GUI_ARCHIVE_NAME}"
+          cd ..
 
       # --- Windows Builds (GUI only as 'zeeg') ---
       - name: Build Windows GUI (zeeg.exe)
