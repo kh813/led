@@ -1193,4 +1193,103 @@ mod tests {
         editor.undo();
         assert_eq!(editor.rope.to_string(), "HELLO WORLD");
     }
+
+    #[test]
+    fn test_cursor_line_col_multibyte_and_newlines() {
+        let mut editor = Editor::new();
+        // Insert Japanese and English text
+        editor.insert(0, "こんにちは\nWorld 🌍!\n日本語とEnglish\n");
+
+        // Line 0: "こんにちは\n" (5 chars + 1 newline)
+        assert_eq!(editor.char_to_line_col(0), (0, 0));
+        assert_eq!(editor.char_to_line_col(2), (0, 2));
+        assert_eq!(editor.char_to_line_col(5), (0, 5));
+        assert_eq!(editor.line_col_to_char(0, 0), 0);
+        assert_eq!(editor.line_col_to_char(0, 2), 2);
+        assert_eq!(editor.line_col_to_char(0, 5), 5);
+
+        // Line 1: "World 🌍!\n" (9 chars)
+        let l1_start = editor.line_col_to_char(1, 0);
+        assert_eq!(l1_start, 6);
+        assert_eq!(editor.char_to_line_col(6), (1, 0));
+        assert_eq!(editor.char_to_line_col(12), (1, 6)); // '🌍' is char at index 6 in "World 🌍!"
+        assert_eq!(editor.line_col_to_char(1, 6), 12);
+
+        // Line 2: "日本語とEnglish\n"
+        let l2_start = editor.line_col_to_char(2, 0);
+        assert_eq!(editor.char_to_line_col(l2_start + 4), (2, 4));
+        assert_eq!(editor.line_col_to_char(2, 4), l2_start + 4);
+    }
+
+    #[test]
+    fn test_chunk_selection_and_cursor_split_logic() {
+        // Test chunk splitting logic matching editor_view render_line_content
+        let text = "function hello()";
+        let chars: Vec<char> = text.chars().collect();
+        let chunk_start_char = 10;
+        let chunk_len = chars.len();
+
+        // Cursor at column 8 in chunk ("function " -> cursor before 'h')
+        let cursor_col = 9;
+        let chunk_start_col = 0;
+        assert!(cursor_col >= chunk_start_col && cursor_col <= chunk_start_col + chunk_len);
+        let split_idx = cursor_col - chunk_start_col;
+        let part1 = chars[..split_idx].iter().collect::<String>();
+        let part2 = chars[split_idx..].iter().collect::<String>();
+        assert_eq!(part1, "function ");
+        assert_eq!(part2, "hello()");
+
+        // Selection slicing logic
+        // Selection is 12..17 ("uncti")
+        let sel = 12..17;
+        let sel_start = if sel.start > chunk_start_char { sel.start - chunk_start_char } else { 0 };
+        let sel_end = if sel.end > chunk_start_char { sel.end - chunk_start_char } else { 0 };
+        assert_eq!(sel_start, 2);
+        assert_eq!(sel_end, 7);
+
+        let before_sel = chars[..sel_start].iter().collect::<String>();
+        let highlighted = chars[sel_start..sel_end.min(chunk_len)].iter().collect::<String>();
+        let after_sel = chars[sel_end.min(chunk_len)..].iter().collect::<String>();
+        assert_eq!(before_sel, "fu");
+        assert_eq!(highlighted, "nctio");
+        assert_eq!(after_sel, "n hello()");
+    }
+
+    #[test]
+    fn test_mouse_hit_testing_calculation() {
+        let mut editor = Editor::new();
+        editor.insert(0, "Line 0: abcdef\nLine 1: 123456\nLine 2: 漢字テキスト\n");
+
+        let line_height = 20.0_f32;
+        let font_size = 14.0_f32;
+        let char_width = font_size * 0.6; // 8.4
+        let gutter_width = 52.0_f32;
+        let sidebar_width = 220.0_f32;
+        let top_offset = 36.0_f32; // tab_bar_height
+
+        // Helper replicating mouse_pos_to_char_pos
+        let mouse_to_char = |mouse_x: f32, mouse_y: f32, scroll_row: usize, scroll_col: usize| -> usize {
+            let relative_y = mouse_y - top_offset;
+            let line_idx = (relative_y / line_height).floor() as i32 + scroll_row as i32;
+            let line_idx = line_idx.max(0).min(editor.line_count() as i32 - 1) as usize;
+
+            let left_offset = sidebar_width + gutter_width;
+            let relative_x = mouse_x - left_offset + (scroll_col as f32 * char_width);
+            let col_idx = (relative_x / char_width).round() as i32;
+            let col_idx = col_idx.max(0) as usize;
+
+            editor.line_col_to_char(line_idx, col_idx)
+        };
+
+        // Click on Line 0, Col 0 (just past sidebar and gutter)
+        let pos = mouse_to_char(sidebar_width + gutter_width + 1.0, top_offset + 5.0, 0, 0);
+        assert_eq!(pos, 0);
+
+        // Click on Line 1, Col 8 (mouse_y = top_offset + 25.0)
+        let pos1 = mouse_to_char(sidebar_width + gutter_width + (char_width * 8.0), top_offset + 25.0, 0, 0);
+        let (l, c) = editor.char_to_line_col(pos1);
+        assert_eq!(l, 1);
+        assert_eq!(c, 8);
+    }
 }
+
