@@ -83,7 +83,7 @@ pub struct App {
 
 impl App {
     pub fn new(paths: Vec<PathBuf>) -> Result<Self> {
-        let (width, height) = terminal::size()?;
+        let (width, height) = terminal::size().unwrap_or((80, 24));
         
         let config = Config::load();
         let i18n = I18n::load(&config.language);
