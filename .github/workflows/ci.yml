@@ -54,7 +54,7 @@ jobs:
 
       - name: Build TUI on macOS & Linux (Release)
         if: runner.os != 'Windows'
-        run: cargo build --release -p led-tui
+        run: cargo build --release -p zee-tui
 
       - name: Build GUI (Release)
-        run: cargo build --release -p led-gui
+        run: cargo build --release -p zee-gui

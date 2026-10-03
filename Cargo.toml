@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/led-core", "crates/led-tui", "crates/led-gui"]
+members = ["crates/zee-core", "crates/zee-tui", "crates/zee-gui"]
 resolver = "2"
 
 [workspace.dependencies]

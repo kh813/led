@@ -1,7 +1,7 @@
-# led User Manual
+# zee User Manual
 
-**led** is a lightweight, modern GUI and TUI text editor for plain text, Markdown, and config files.  
-It provides a native hardware-accelerated desktop application (`led.app` / `led-gui`) as well as a terminal interface (`led`) running on macOS, Linux, and Windows — including seamlessly over SSH.
+**zee** is a lightweight, modern GUI and TUI text editor for plain text, Markdown, and config files.  
+It provides a native hardware-accelerated desktop application (`Zee.app` / `zeeg`) as well as a terminal interface (`zee`) running on macOS, Linux, and Windows — including seamlessly over SSH.
 
 ---
 
@@ -27,23 +27,23 @@ Download the appropriate binary from the [releases page] and place it in your `P
 
 | Platform | Binary | Notes |
 | :--- | :--- | :--- |
-| macOS Apple Silicon (TUI) | `led-mac-arm64` | TUI binary. Rename to `led` and `chmod +x`. |
-| macOS Apple Silicon (GUI) | `led-gui-mac-arm64.app.zip` | Extracting provides `led.app`. Double-click or move to `/Applications`. |
-| Linux x86-64 | `led-linux-x64` (TUI), `led-gui-linux-x64` (GUI) | TUI binary (`led`) and GUI binary (`led-gui`). Launch GUI from applications menu. |
-| Linux ARM64 | `led-linux-arm64` (TUI), `led-gui-linux-arm64` (GUI) | TUI binary (`led`) and GUI binary (`led-gui`). Launch GUI from applications menu. |
-| Windows x86-64 | `led-windows-x64.exe` (TUI), `led-gui-windows-x64.exe` (GUI) | TUI (`led.exe`) / GUI binary (`led.exe`). |
+| macOS Apple Silicon (TUI) | `zee-mac-arm64` | TUI binary. Rename to `zee` and `chmod +x`. |
+| macOS Apple Silicon (GUI) | `zeeg-mac-arm64.app.zip` | Extracting provides `Zee.app`. Double-click or move to `/Applications`. |
+| Linux x86-64 | `zee-linux-x64` (TUI), `zeeg-linux-x64` (GUI) | TUI binary (`zee`) and GUI binary (`zeeg`). Launch GUI from applications menu. |
+| Linux ARM64 | `zee-linux-arm64` (TUI), `zeeg-linux-arm64` (GUI) | TUI binary (`zee`) and GUI binary (`zeeg`). Launch GUI from applications menu. |
+| Windows x86-64 | `zee-windows-x64.exe` (TUI), `zeeg-windows-x64.exe` (GUI) | TUI (`zee.exe`) / GUI binary (`zee.exe`). |
 
 **macOS / Linux quick install:**
 ```bash
 # Example: macOS Apple Silicon TUI
-curl -L https://github.com/yourname/led/releases/latest/download/led-mac-arm64 -o led
-chmod +x led
-sudo mv led /usr/local/bin/led
+curl -L https://github.com/yourname/zee/releases/latest/download/zee-mac-arm64 -o zee
+chmod +x zee
+sudo mv zee /usr/local/bin/zee
 ```
 
 > **macOS Gatekeeper**: On first run, macOS may block the binary. Right-click → Open to allow, or run:
 > ```bash
-> xattr -d com.apple.quarantine /usr/local/bin/led
+> xattr -d com.apple.quarantine /usr/local/bin/zee
 > ```
 
 ### Build from source
@@ -52,15 +52,15 @@ sudo mv led /usr/local/bin/led
 
 #### macOS & Linux (Make)
 ```bash
-git clone https://github.com/kh813/led.git
-cd led
+git clone https://github.com/kh813/zee.git
+cd zee
 
 # Build both TUI and GUI for current OS
 make
 
 # Or build individual components:
-make gui      # Build GUI (led-gui and led.app on macOS)
-make tui      # Build TUI (led)
+make gui      # Build GUI (zeeg and Zee.app on macOS)
+make tui      # Build TUI (zee)
 
 # Install binaries to ~/.local/bin (and ~/Applications on macOS)
 make install
@@ -72,27 +72,27 @@ ls dist/
 #### Windows (PowerShell - No Make Needed)
 ```powershell
 # Using make.ps1:
-.\make.ps1         # Build Windows GUI (dist/led.exe)
-.\make.ps1 tui     # Build Windows TUI (dist/led-cli.exe)
+.\make.ps1         # Build Windows GUI (dist/zee.exe)
+.\make.ps1 tui     # Build Windows TUI (dist/zee-cli.exe)
 .\make.ps1 test    # Run tests (cargo test --workspace)
-.\make.ps1 package # Package into dist/led-windows-x64.zip
+.\make.ps1 package # Package into dist/zee-windows-x64.zip
 .\make.ps1 clean   # Clean build artifacts
 
 # Or directly with Cargo:
-cargo build --release -p led-gui   # Windows GUI: target/release/led-gui.exe
-cargo build --release -p led-tui   # Terminal TUI: target/release/led.exe
+cargo build --release -p zeeg   # Windows GUI: target/release/zeeg.exe
+cargo build --release -p zee-tui   # Terminal TUI: target/release/zee.exe
 ```
 
 **Available make targets:**
 
 | Target | Description |
 | :--- | :--- |
-| `make` / `make local` | Build both TUI (`led`) and GUI (`led-gui` / `led.app`) for the local host OS into `dist/` |
-| `make tui` / `make cli` | Build TUI binary (`led`) into `dist/` |
-| `make gui` | Build GUI binary (and `led.app` bundle on macOS) into `dist/` |
+| `make` / `make local` | Build both TUI (`zee`) and GUI (`zeeg` / `Zee.app`) for the local host OS into `dist/` |
+| `make tui` / `make cli` | Build TUI binary (`zee`) into `dist/` |
+| `make gui` | Build GUI binary (and `Zee.app` bundle on macOS) into `dist/` |
 | `make test` | Run workspace unit & integration tests (`cargo test --workspace`) |
 | `make check` | Run fast workspace type-checks (`cargo check --workspace --all-targets`) |
-| `make install` | Install binaries to `~/.local/bin` (and `led.app` to `~/Applications` on macOS) |
+| `make install` | Install binaries to `~/.local/bin` (and `Zee.app` to `~/Applications` on macOS) |
 | `make package` | Create distribution archive (`.tar.gz` / `.zip`) in `dist/` |
 | `make clean` | Remove `dist/` and clean cargo cache |
 | `make help` | List all make targets and usage |
@@ -106,19 +106,19 @@ cargo build --release -p led-tui   # Terminal TUI: target/release/led.exe
 ## 2. Basic Usage
 
 ```bash
-led                      # Open with empty buffer
-led myfile.txt           # Open a file (creates empty named buffer if it does not exist)
-led file1.txt file2.txt  # Open multiple files in tabs
+zee                      # Open with empty buffer
+zee myfile.txt           # Open a file (creates empty named buffer if it does not exist)
+zee file1.txt file2.txt  # Open multiple files in tabs
 ```
 
 ### Command-Line Behavior
 
 | Invocation | Result |
 | :--- | :--- |
-| `led` | Opens with a single empty `[No Name]` buffer |
-| `led myfile.txt` | Opens `myfile.txt`; if it does not exist, creates an empty buffer pre-named `myfile.txt` (not written to disk until you save) |
-| `led a.txt b.txt` | Opens both files in separate tabs; first tab is active |
-| `led /some/dir` | Shows an error dialog (`"..." is a directory`) and opens an empty buffer |
+| `zee` | Opens with a single empty `[No Name]` buffer |
+| `zee myfile.txt` | Opens `myfile.txt`; if it does not exist, creates an empty buffer pre-named `myfile.txt` (not written to disk until you save) |
+| `zee a.txt b.txt` | Opens both files in separate tabs; first tab is active |
+| `zee /some/dir` | Shows an error dialog (`"..." is a directory`) and opens an empty buffer |
 
 ### UI Layout
 
@@ -267,29 +267,29 @@ Toggle Vi Mode with `Ctrl+I` (`⌘I` on macOS) or via `View > [x] Vi Mode`.
 
 ## 4. Configuration
 
-All configuration lives in `~/.config/led/config.toml`.
+All configuration lives in `~/.config/zee/config.toml`.
 
-- If the file **exists**, **led** reads it at startup and applies any keys it finds over the built-in defaults.
-- If the file **does not exist**, **led** runs on built-in defaults — the file is not created automatically on startup.
+- If the file **exists**, **zee** reads it at startup and applies any keys it finds over the built-in defaults.
+- If the file **does not exist**, **zee** runs on built-in defaults — the file is not created automatically on startup.
 - Unknown keys are silently ignored. Missing keys fall back to their default values.
 
-**Runtime config writes**: When you change a persistent setting at runtime (e.g., toggling Line Numbers or switching Theme via the View menu), **led** writes that change back to `~/.config/led/config.toml` automatically. If the file does not exist yet, it is created at that point with only the changed key(s).
+**Runtime config writes**: When you change a persistent setting at runtime (e.g., toggling Line Numbers or switching Theme via the View menu), **zee** writes that change back to `~/.config/zee/config.toml` automatically. If the file does not exist yet, it is created at that point with only the changed key(s).
 
-To start customizing manually, copy the template shipped with **led** and edit it:
+To start customizing manually, copy the template shipped with **zee** and edit it:
 
 ```bash
-cp /path/to/led/assets/config.toml.default ~/.config/led/config.toml
+cp /path/to/zee/assets/config.toml.default ~/.config/zee/config.toml
 ```
 
 ### All Configuration Keys
 
 ```toml
-# ~/.config/led/config.toml
+# ~/.config/zee/config.toml
 
 # UI language (see Section 7 for available locales)
 language = "en"
 
-# Active theme (must match a filename in ~/.config/led/themes/ without .toml)
+# Active theme (must match a filename in ~/.config/zee/themes/ without .toml)
 # Built-in themes: "tokyo-night", "light", "solarized-dark", "solarized-light",
 #                  "catppuccin-mocha", "catppuccin-latte"
 theme = "tokyo-night"
@@ -314,7 +314,7 @@ tab_size = 4
 # already in the file are always preserved as-is on disk regardless of this setting.
 expand_tab = false
 
-# GUI Font & Spacing Settings (led-gui only; ignored by led-tui)
+# GUI Font & Spacing Settings (zeeg only; ignored by zee-tui)
 # font_family = "Menlo"      # Editor monospace font family (null = system monospace)
 font_size = 14.0             # Editor font size in pixels (default: 14.0)
 line_height = 22.0           # Editor line height in pixels (default: 22.0)
@@ -322,12 +322,12 @@ line_height = 22.0           # Editor line height in pixels (default: 22.0)
 ui_font_size = 13.0          # UI font size in pixels (default: 13.0)
 ```
 
-> **Note**: All config files are loaded at startup only. Changes to `config.toml` take effect after restarting `led`, except for settings changed via the View menu which are applied immediately.
+> **Note**: All config files are loaded at startup only. Changes to `config.toml` take effect after restarting `zee`, except for settings changed via the View menu which are applied immediately.
 
 ### Directory Structure
 
 ```
-~/.config/led/
+~/.config/zee/
 ├── config.toml               ← main config
 ├── themes/
 │   ├── tokyo-night.toml      ← built-in
@@ -358,7 +358,7 @@ ui_font_size = 13.0          # UI font size in pixels (default: 13.0)
 
 ## 5. Theme File Format
 
-Theme files live in `~/.config/led/themes/*.toml`. Built-in and custom user themes are automatically loaded and selectable from the **View > Theme** menu and `config.toml` in both **GUI** and **CLI/TUI** modes.
+Theme files live in `~/.config/zee/themes/*.toml`. Built-in and custom user themes are automatically loaded and selectable from the **View > Theme** menu and `config.toml` in both **GUI** and **CLI/TUI** modes.
 
 Colors can be specified in multiple standard formats:
 - **CSS Hex**: `"#rgb"`, `"#rrggbb"`, or `"#rrggbbaa"` (e.g. `"#1a1b26"`, `"#fff"`, `"#1a1b2680"`)
@@ -369,7 +369,7 @@ Colors can be specified in multiple standard formats:
 ### Full Schema
 
 ```toml
-# ~/.config/led/themes/my-theme.toml
+# ~/.config/zee/themes/my-theme.toml
 
 [meta]
 name        = "My Theme"          # Display name shown in View > Theme menu
@@ -443,13 +443,13 @@ All other keys default to reasonable fallback values derived from `editor.foregr
 
 ## 6. Syntax Definition File Format
 
-Syntax definition files live in `~/.config/led/syntax/*.toml`.  
+Syntax definition files live in `~/.config/zee/syntax/*.toml`.  
 They map **file extensions** to a set of **regex-based token rules**.
 
 ### Full Schema
 
 ```toml
-# ~/.config/led/syntax/python.toml
+# ~/.config/zee/syntax/python.toml
 
 [meta]
 name        = "Python"
@@ -547,12 +547,12 @@ Rules are evaluated in file order — **first matching rule wins**.
 
 ## 7. Internationalization (i18n)
 
-**led** loads UI strings from a locale file at startup.
+**zee** loads UI strings from a locale file at startup.
 
 ### Selecting a Language
 
 ```toml
-# ~/.config/led/config.toml
+# ~/.config/zee/config.toml
 language = "ja"   # Japanese
 ```
 
@@ -565,16 +565,16 @@ language = "ja"   # Japanese
 
 ### Custom Locale File Format
 
-Create `~/.config/led/locales/<code>.toml`. Any key omitted falls back to the `en` built-in.
+Create `~/.config/zee/locales/<code>.toml`. Any key omitted falls back to the `en` built-in.
 
 ```toml
-# ~/.config/led/locales/en.toml
+# ~/.config/zee/locales/en.toml
 # Complete English built-in locale — use as reference for translations.
 
 [meta]
 language    = "en"
 name        = "English"
-author      = "led contributors"
+author      = "zee contributors"
 
 [menu]
 file        = "File"
@@ -674,8 +674,8 @@ license     = "License"
 
 ### Clipboard over SSH (OSC 52)
 
-**led** supports clipboard sharing over SSH via the **OSC 52** escape sequence.  
-When you copy text (`Ctrl+C`), **led** sends an OSC 52 sequence that instructs your **local** terminal emulator to place the text in your local clipboard. This happens alongside a regular platform clipboard write — both are always attempted.
+**zee** supports clipboard sharing over SSH via the **OSC 52** escape sequence.  
+When you copy text (`Ctrl+C`), **zee** sends an OSC 52 sequence that instructs your **local** terminal emulator to place the text in your local clipboard. This happens alongside a regular platform clipboard write — both are always attempted.
 
 **Supported terminal emulators**:
 - iTerm2 (macOS) — enable in Preferences → General → Applications in terminal may access clipboard
@@ -686,7 +686,7 @@ If your terminal does not support OSC 52, `Ctrl+C` still copies to the remote cl
 
 ### Ctrl+S Freezing
 
-Some shell configurations interpret `Ctrl+S` as `XOFF` (pause output), causing the terminal to appear frozen. **led** disables this via raw mode, but as a precaution add this to your `~/.bashrc` or `~/.zshrc`:
+Some shell configurations interpret `Ctrl+S` as `XOFF` (pause output), causing the terminal to appear frozen. **zee** disables this via raw mode, but as a precaution add this to your `~/.bashrc` or `~/.zshrc`:
 
 ```bash
 stty -ixon
@@ -694,7 +694,7 @@ stty -ixon
 
 ### Performance
 
-**led** uses diff-based rendering (only changed screen cells are redrawn), minimizing bytes sent over the network. It performs well on connections with up to several hundred milliseconds of latency.
+**zee** uses diff-based rendering (only changed screen cells are redrawn), minimizing bytes sent over the network. It performs well on connections with up to several hundred milliseconds of latency.
 
 ---
 
@@ -704,13 +704,13 @@ stty -ixon
 Press `Ctrl+Q` to unfreeze (XON), then add `stty -ixon` to your shell profile. See [Section 8](#8-ssh-usage-notes).
 
 ### Japanese/Chinese text displays with wrong column alignment
-Ensure your terminal emulator uses a **monospace font with CJK support** (e.g., Noto Mono, Sarasa Mono, HackGen). **led** uses Unicode display-cell widths (CJK = 2 cells); the terminal font must agree.
+Ensure your terminal emulator uses a **monospace font with CJK support** (e.g., Noto Mono, Sarasa Mono, HackGen). **zee** uses Unicode display-cell widths (CJK = 2 cells); the terminal font must agree.
 
 ### Terminal too small message
-Resize your terminal to at least **40 columns × 24 rows**. **led** resumes automatically.
+Resize your terminal to at least **40 columns × 24 rows**. **zee** resumes automatically.
 
 ### Theme or syntax not appearing in menu
-Check that the `.toml` file is in the correct directory and restart **led**. Config files are loaded at startup only.
+Check that the `.toml` file is in the correct directory and restart **zee**. Config files are loaded at startup only.
 
 ### Mouse not working over SSH
 Ensure your SSH client passes through mouse escape sequences. In PuTTY, enable "xterm-style mouse reporting" in Terminal → Features settings.

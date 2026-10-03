@@ -1,0 +1,1167 @@
+use gpui::*;
+use zee_core::config::Config;
+use zee_core::i18n::I18n;
+use crate::widgets::editor_view::EditorView;
+use crate::widgets::tab_bar::{TabBar, TabBarEvent};
+use crate::widgets::status_bar::StatusBar;
+use crate::widgets::find_panel::{FindPanel, FindPanelEvent};
+use crate::widgets::sidebar_view::SidebarView;
+use crate::workspace::Workspace;
+use crate::app::*;
+use zee_core::buffer::Editor;
+
+#[cfg(not(target_os = "macos"))]
+use crate::widgets::menu_bar::MenuBar;
+#[cfg(not(target_os = "macos"))]
+use crate::widgets::{led_color_to_gpui, ui_font_family, with_alpha};
+
+use crate::widgets::dialog::{Dialog, DialogType, DialogEvent, UnsavedChangesIntent};
+
+pub struct WindowView {
+    config: Config,
+    i18n: I18n,
+    pub(crate) workspace: Entity<Workspace>,
+    editor: Entity<EditorView>,
+    sidebar: Entity<SidebarView>,
+    tab_bar: Entity<TabBar>,
+    status_bar: Entity<StatusBar>,
+    find_panel: Entity<FindPanel>,
+    #[cfg(not(target_os = "macos"))]
+    menu_bar: Entity<MenuBar>,
+    dialog: Option<Entity<Dialog>>,
+    focus_handle: FocusHandle,
+}
+
+impl WindowView {
+    pub fn new(config: Config, i18n: I18n, workspace: Entity<Workspace>, window: &mut Window, cx: &mut Context<Self>) -> Self {
+        let editor = cx.new(|cx| EditorView::new(workspace.clone(), cx));
+        let sidebar = cx.new(|cx| SidebarView::new(workspace.clone(), cx));
+        let tab_bar = cx.new(|cx| TabBar::new(workspace.clone(), cx));
+        let status_bar = cx.new(|cx| StatusBar::new(workspace.clone(), cx));
+        let find_panel = cx.new(|cx| FindPanel::new(workspace.clone(), cx));
+        #[cfg(not(target_os = "macos"))]
+        let menu_bar = cx.new(|cx| MenuBar::new(workspace.clone(), i18n.clone(), cx));
+        
+        workspace.update(cx, |w, _| w.update_outline());
+        
+        let focus_handle = cx.focus_handle();
+        
+        // Focus the editor by default
+        editor.update(cx, |editor, cx| {
+            editor.focus_handle.focus(window, cx);
+        });
+
+        cx.observe(&workspace, |_, _, cx| {
+            cx.notify();
+        }).detach();
+
+        #[cfg(not(target_os = "macos"))]
+        cx.observe(&menu_bar, |_, _, cx| {
+            cx.notify();
+        }).detach();
+
+        cx.subscribe(&tab_bar, |this, _tab_bar, event: &TabBarEvent, cx| {
+            match event {
+                TabBarEvent::Select(idx) => {
+                    this.workspace.update(cx, |w, cx| {
+                        w.active_editor_index = *idx;
+                        cx.notify();
+                    });
+                }
+                TabBarEvent::New => {
+                    this.workspace.update(cx, |w, cx| {
+                        w.new_tab();
+                        cx.notify();
+                    });
+                }
+                TabBarEvent::Close(idx) => {
+                    let idx = *idx;
+                    let is_modified = this.workspace.read(cx).editors.get(idx).map(|e| e.is_modified()).unwrap_or(false);
+                    if is_modified {
+                        this.workspace.update(cx, |w, cx| {
+                            w.active_editor_index = idx;
+                            cx.notify();
+                        });
+                        let filename = this.workspace.read(cx).editors[idx].path.as_ref()
+                            .map(|p| p.to_string_lossy().into_owned())
+                            .unwrap_or(this.i18n.get("status.no_name").to_string());
+                        this.show_dialog(DialogType::UnsavedChanges { filename, intent: UnsavedChangesIntent::CloseTab }, None, cx);
+                    } else {
+                        this.workspace.update(cx, |w, cx| {
+                            w.close_editor(idx);
+                            cx.notify();
+                        });
+                    }
+                }
+            }
+        }).detach();
+
+        cx.subscribe(&find_panel, |_this, _find_panel, event: &FindPanelEvent, cx| {
+            match event {
+                FindPanelEvent::Close => {
+                    cx.spawn(|_, cx: &mut AsyncApp| {
+                        let cx = cx.clone();
+                        async move {
+                            cx.update(|cx| {
+                                if let Some(window_handle) = cx.active_window() {
+                                    let _ = cx.update_window(window_handle, |any_view, window, cx| {
+                                        if let Ok(view_handle) = any_view.downcast::<WindowView>() {
+                                            view_handle.update(cx, |view, cx| {
+                                                view.editor.update(cx, |editor, cx| {
+                                                    editor.focus_handle.focus(window, cx);
+                                                });
+                                            });
+                                        }
+                                    });
+                                }
+                            });
+                        }
+                    }).detach();
+                }
+            }
+        }).detach();
+
+        Self {
+            config,
+            i18n,
+            workspace,
+            editor,
+            sidebar,
+            tab_bar,
+            status_bar,
+            find_panel,
+            #[cfg(not(target_os = "macos"))]
+            menu_bar,
+            dialog: None,
+            focus_handle,
+        }
+    }
+
+    fn show_dialog(&mut self, dialog_type: DialogType, window: Option<&mut Window>, cx: &mut Context<Self>) {
+        let dialog = cx.new(|cx| Dialog::new(self.workspace.clone(), self.i18n.clone(), dialog_type, cx));
+        cx.subscribe(&dialog, |this, _dialog, event, cx| {
+            match event {
+                DialogEvent::Close => {
+                    this.dialog = None;
+                    cx.notify();
+                    
+                    // Defer focus restoration to avoid re-entrancy
+                    cx.spawn(|_, cx: &mut AsyncApp| {
+                        let cx = cx.clone();
+                        async move {
+                            cx.update(|cx| {
+                                if let Some(window_handle) = cx.active_window() {
+                                    let _ = cx.update_window(window_handle, |any_view, window, cx| {
+                                        if let Ok(view_handle) = any_view.downcast::<WindowView>() {
+                                            view_handle.update(cx, |view, cx| {
+                                                view.editor.update(cx, |editor, cx| {
+                                                    editor.focus_handle.focus(window, cx);
+                                                });
+                                            });
+                                        }
+                                    });
+                                }
+                            });
+                        }
+                    }).detach();
+                }
+                DialogEvent::Save(intent) => {
+                    let intent = *intent;
+                    this.workspace.update(cx, |w, cx| {
+                        if let Some(editor) = w.active_editor_mut() {
+                            let _ = editor.save();
+                        }
+                        cx.notify();
+                    });
+                    this.dialog = None;
+                    cx.notify();
+                    
+                    cx.spawn(move |_, cx: &mut AsyncApp| {
+                        let cx = cx.clone();
+                        async move {
+                            cx.update(|cx| {
+                                // Restore focus
+                                if let Some(window_handle) = cx.active_window() {
+                                    let _ = cx.update_window(window_handle, |any_view, window, cx| {
+                                        if let Ok(view_handle) = any_view.downcast::<WindowView>() {
+                                            view_handle.update(cx, |view, cx| {
+                                                view.editor.update(cx, |editor, cx| {
+                                                    editor.focus_handle.focus(window, cx);
+                                                });
+                                            });
+                                        }
+                                    });
+                                }
+                                
+                                // Dispatch action
+                                match intent {
+                                    UnsavedChangesIntent::Quit => cx.dispatch_action(&Quit {}),
+                                    UnsavedChangesIntent::CloseTab => cx.dispatch_action(&CloseTab {}),
+                                }
+                            });
+                        }
+                    }).detach();
+                }
+                DialogEvent::DontSave(intent) => {
+                    let intent = *intent;
+                    this.workspace.update(cx, |w, cx| {
+                        w.close_active_editor();
+                        cx.notify();
+                    });
+                    this.dialog = None;
+                    cx.notify();
+                    
+                    cx.spawn(move |_, cx: &mut AsyncApp| {
+                        let cx = cx.clone();
+                        async move {
+                            cx.update(|cx| {
+                                // Restore focus
+                                if let Some(window_handle) = cx.active_window() {
+                                    let _ = cx.update_window(window_handle, |any_view, window, cx| {
+                                        if let Ok(view_handle) = any_view.downcast::<WindowView>() {
+                                            view_handle.update(cx, |view, cx| {
+                                                view.editor.update(cx, |editor, cx| {
+                                                    editor.focus_handle.focus(window, cx);
+                                                });
+                                            });
+                                        }
+                                    });
+                                }
+                                
+                                // Dispatch action
+                                if intent == UnsavedChangesIntent::Quit {
+                                    cx.dispatch_action(&Quit {});
+                                }
+                            });
+                        }
+                    }).detach();
+                }
+                _ => {}
+            }
+        }).detach();
+        self.dialog = Some(dialog.clone());
+        if let Some(window) = window {
+            dialog.update(cx, |d, cx| d.focus(window, cx));
+        } else {
+            cx.spawn(|_, cx: &mut AsyncApp| {
+                let cx = cx.clone();
+                async move {
+                    cx.update(|cx| {
+                        if let Some(window_handle) = cx.active_window() {
+                            let _ = cx.update_window(window_handle, |_any_view, window, cx| {
+                                dialog.update(cx, |d, cx| {
+                                    d.focus(window, cx);
+                                });
+                            });
+                        }
+                    });
+                }
+            }).detach();
+        }
+        cx.notify();
+    }
+
+    fn handle_new(&mut self, _: &New, _window: &mut Window, cx: &mut Context<Self>) {
+        self.workspace.update(cx, |w, cx| {
+            w.new_tab();
+            cx.notify();
+        });
+    }
+
+    fn handle_new_tab(&mut self, _: &NewTab, _window: &mut Window, cx: &mut Context<Self>) {
+        self.workspace.update(cx, |w, cx| {
+            w.new_tab();
+            cx.notify();
+        });
+    }
+
+    fn handle_new_window(&mut self, _: &NewWindow, _window: &mut Window, cx: &mut Context<Self>) {
+        let config = self.config.clone();
+        let i18n = self.i18n.clone();
+        cx.spawn(|_, cx: &mut AsyncApp| {
+            let cx = cx.clone();
+            async move {
+                cx.update(|cx| {
+                    crate::app::new_window(config, i18n, cx);
+                });
+            }
+        }).detach();
+    }
+
+    fn handle_open(&mut self, _: &Open, _window: &mut Window, cx: &mut Context<Self>) {
+        let workspace = self.workspace.clone();
+        cx.spawn(|_, cx: &mut AsyncApp| {
+            let cx = cx.clone();
+            async move {
+                let files = rfd::AsyncFileDialog::new()
+                    .pick_files()
+                    .await;
+                
+                if let Some(files) = files {
+                    for file in files {
+                        let path = file.path().to_path_buf();
+                        if let Ok(editor) = Editor::from_file(&path) {
+                            cx.update(|cx| {
+                                workspace.update(cx, |w, cx| {
+                                    w.add_editor(editor);
+                                    cx.notify();
+                                });
+                            });
+                        }
+                    }
+                }
+            }
+        }).detach();
+    }
+
+    fn handle_save(&mut self, _: &Save, _window: &mut Window, cx: &mut Context<Self>) {
+        let workspace = self.workspace.clone();
+        let path_opt = workspace.read(cx).active_editor().and_then(|e| e.path.clone());
+        if path_opt.is_none() && workspace.read(cx).active_editor().is_none() {
+            return;
+        }
+        if let Some(_path) = path_opt {
+            workspace.update(cx, |w, cx| {
+                if let Some(editor) = w.active_editor_mut() {
+                    let _ = editor.save();
+                }
+                cx.notify();
+            });
+        } else {
+            cx.spawn(|_, cx: &mut AsyncApp| {
+                let cx = cx.clone();
+                async move {
+                    let file = rfd::AsyncFileDialog::new()
+                        .save_file()
+                        .await;
+                    if let Some(file) = file {
+                        let path = file.path().to_path_buf();
+                        cx.update(|cx| {
+                            workspace.update(cx, |w, cx| {
+                                if let Some(editor) = w.active_editor_mut() {
+                                    let _ = editor.save_as(&path);
+                                }
+                                cx.notify();
+                            });
+                        });
+                    }
+                }
+            }).detach();
+        }
+    }
+
+    fn handle_save_as(&mut self, _: &SaveAs, _window: &mut Window, cx: &mut Context<Self>) {
+        let workspace = self.workspace.clone();
+        if workspace.read(cx).active_editor().is_none() {
+            return;
+        }
+        cx.spawn(|_, cx: &mut AsyncApp| {
+            let cx = cx.clone();
+            async move {
+                let file = rfd::AsyncFileDialog::new()
+                    .save_file()
+                    .await;
+                
+                if let Some(file) = file {
+                    let path = file.path().to_path_buf();
+                    cx.update(|cx| {
+                        workspace.update(cx, |w, cx| {
+                            if let Some(editor) = w.active_editor_mut() {
+                                let _ = editor.save_as(&path);
+                            }
+                            cx.notify();
+                        });
+                    });
+                }
+            }
+        }).detach();
+    }
+
+    fn handle_close_tab(&mut self, _: &CloseTab, window: &mut Window, cx: &mut Context<Self>) {
+        let workspace = self.workspace.read(cx);
+        if workspace.editors.is_empty() {
+            window.remove_window();
+            return;
+        }
+        let editor = match workspace.active_editor() {
+            Some(e) => e,
+            None => {
+                window.remove_window();
+                return;
+            }
+        };
+        let is_modified = editor.is_modified();
+        if is_modified {
+            let filename = editor.path.as_ref()
+                .map(|p| p.to_string_lossy().into_owned())
+                .unwrap_or(self.i18n.get("status.no_name").to_string());
+            self.show_dialog(DialogType::UnsavedChanges { filename, intent: UnsavedChangesIntent::CloseTab }, Some(window), cx);
+        } else {
+            self.workspace.update(cx, |w, cx| {
+                w.close_active_editor();
+                cx.notify();
+            });
+        }
+    }
+
+    fn handle_next_tab(&mut self, _: &NextTab, _window: &mut Window, cx: &mut Context<Self>) {
+        self.workspace.update(cx, |w, cx| {
+            w.next_tab();
+            cx.notify();
+        });
+    }
+
+    fn handle_prev_tab(&mut self, _: &PrevTab, _window: &mut Window, cx: &mut Context<Self>) {
+        self.workspace.update(cx, |w, cx| {
+            w.prev_tab();
+            cx.notify();
+        });
+    }
+
+    fn handle_undo(&mut self, _: &Undo, _window: &mut Window, cx: &mut Context<Self>) {
+        self.workspace.update(cx, |w, cx| {
+            if let Some(editor) = w.active_editor_mut() {
+                editor.undo();
+            }
+            cx.notify();
+        });
+    }
+
+    fn handle_redo(&mut self, _: &Redo, _window: &mut Window, cx: &mut Context<Self>) {
+        self.workspace.update(cx, |w, cx| {
+            if let Some(editor) = w.active_editor_mut() {
+                editor.redo();
+            }
+            cx.notify();
+        });
+    }
+
+    fn handle_cut(&mut self, _: &Cut, _window: &mut Window, cx: &mut Context<Self>) {
+        let mut text_to_copy = None;
+        self.workspace.update(cx, |w, cx| {
+            if let Some(editor) = w.active_editor_mut() {
+                if let Some(range) = editor.selection.clone() {
+                    text_to_copy = Some(editor.rope.slice(range.clone()).to_string());
+                    editor.delete(range);
+                }
+            }
+            cx.notify();
+        });
+        if let Some(text) = text_to_copy {
+            cx.write_to_clipboard(ClipboardItem::new_string(text));
+        }
+    }
+
+    fn handle_copy(&mut self, _: &Copy, _window: &mut Window, cx: &mut Context<Self>) {
+        let workspace = self.workspace.read(cx);
+        if let Some(editor) = workspace.active_editor() {
+            if let Some(range) = editor.selection.clone() {
+                let text = editor.rope.slice(range).to_string();
+                cx.write_to_clipboard(ClipboardItem::new_string(text));
+            }
+        }
+    }
+
+    fn handle_paste(&mut self, _: &Paste, _window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(item) = cx.read_from_clipboard() {
+            if let Some(text) = item.text() {
+                let text = text.clone();
+                self.workspace.update(cx, |w, cx| {
+                    if let Some(editor) = w.active_editor_mut() {
+                        if let Some(range) = editor.selection.clone() {
+                            editor.delete(range);
+                        }
+                        editor.insert(editor.cursor, &text);
+                    }
+                    cx.notify();
+                });
+            }
+        }
+    }
+
+    fn handle_select_all(&mut self, _: &SelectAll, _window: &mut Window, cx: &mut Context<Self>) {
+        self.workspace.update(cx, |w, cx| {
+            if let Some(editor) = w.active_editor_mut() {
+                editor.select_all();
+            }
+            cx.notify();
+        });
+    }
+
+    fn handle_find(&mut self, _: &Find, window: &mut Window, cx: &mut Context<Self>) {
+        self.find_panel.update(cx, |p, cx| p.show(false, window, cx));
+    }
+
+    fn handle_replace(&mut self, _: &Replace, window: &mut Window, cx: &mut Context<Self>) {
+        self.find_panel.update(cx, |p, cx| p.show(true, window, cx));
+    }
+
+    fn handle_toggle_sidebar(&mut self, _: &ToggleSidebar, _window: &mut Window, cx: &mut Context<Self>) {
+        self.workspace.update(cx, |w, cx| {
+            w.toggle_sidebar();
+            cx.notify();
+        });
+        cx.notify();
+    }
+
+    fn handle_toggle_outline(&mut self, _: &ToggleOutline, _window: &mut Window, cx: &mut Context<Self>) {
+        self.workspace.update(cx, |w, cx| {
+            w.sidebar_visible = true;
+            w.sidebar_tab = crate::workspace::SidebarTab::Outline;
+            w.update_outline();
+            cx.notify();
+        });
+        cx.notify();
+    }
+
+    fn handle_toggle_files(&mut self, _: &ToggleFiles, _window: &mut Window, cx: &mut Context<Self>) {
+        self.workspace.update(cx, |w, cx| {
+            w.sidebar_visible = true;
+            w.sidebar_tab = crate::workspace::SidebarTab::Files;
+            cx.notify();
+        });
+        cx.notify();
+    }
+
+    fn handle_toggle_line_numbers(&mut self, _: &ToggleLineNumbers, _window: &mut Window, cx: &mut Context<Self>) {
+        self.config.line_numbers = !self.config.line_numbers;
+        let line_numbers = self.config.line_numbers;
+        let _ = Config::write_key("line_numbers", &line_numbers.to_string());
+        self.workspace.update(cx, |w, cx| {
+            w.config.line_numbers = line_numbers;
+            cx.notify();
+        });
+        cx.notify();
+    }
+
+    fn handle_toggle_word_wrap(&mut self, _: &ToggleWordWrap, _window: &mut Window, cx: &mut Context<Self>) {
+        self.config.word_wrap = !self.config.word_wrap;
+        let word_wrap = self.config.word_wrap;
+        let _ = Config::write_key("word_wrap", &word_wrap.to_string());
+        self.workspace.update(cx, |w, cx| {
+            w.config.word_wrap = word_wrap;
+            cx.notify();
+        });
+        cx.notify();
+    }
+
+    fn handle_toggle_vi_mode(&mut self, _: &ToggleViMode, _window: &mut Window, cx: &mut Context<Self>) {
+        self.config.vi_mode = !self.config.vi_mode;
+        let vi_mode = self.config.vi_mode;
+        let _ = Config::write_key("vi_mode", &vi_mode.to_string());
+        self.workspace.update(cx, |w, cx| {
+            w.config.vi_mode = vi_mode;
+            for editor in w.editors.iter_mut() {
+                editor.vi_mode = if vi_mode { zee_core::ViMode::Normal } else { zee_core::ViMode::Insert };
+                editor.selection = None;
+                editor.selection_anchor = None;
+            }
+            cx.notify();
+        });
+        cx.notify();
+    }
+
+    fn handle_set_encoding_utf8(&mut self, _: &SetEncodingUtf8, _window: &mut Window, cx: &mut Context<Self>) {
+        self.workspace.update(cx, |w, cx| {
+            if let Some(editor) = w.active_editor_mut() {
+                editor.encoding = zee_core::Encoding::Utf8;
+            }
+            cx.notify();
+        });
+        cx.notify();
+    }
+
+    fn handle_set_encoding_shift_jis(&mut self, _: &SetEncodingShiftJis, _window: &mut Window, cx: &mut Context<Self>) {
+        self.workspace.update(cx, |w, cx| {
+            if let Some(editor) = w.active_editor_mut() {
+                editor.encoding = zee_core::Encoding::ShiftJis;
+            }
+            cx.notify();
+        });
+        cx.notify();
+    }
+
+    fn handle_set_encoding_euc_jp(&mut self, _: &SetEncodingEucJp, _window: &mut Window, cx: &mut Context<Self>) {
+        self.workspace.update(cx, |w, cx| {
+            if let Some(editor) = w.active_editor_mut() {
+                editor.encoding = zee_core::Encoding::EucJp;
+            }
+            cx.notify();
+        });
+        cx.notify();
+    }
+
+    fn handle_set_encoding_utf8_bom(&mut self, _: &SetEncodingUtf8Bom, _window: &mut Window, cx: &mut Context<Self>) {
+        self.workspace.update(cx, |w, cx| {
+            if let Some(editor) = w.active_editor_mut() {
+                editor.encoding = zee_core::Encoding::Utf8Bom;
+            }
+            cx.notify();
+        });
+        cx.notify();
+    }
+
+    fn handle_set_encoding_utf16_le(&mut self, _: &SetEncodingUtf16Le, _window: &mut Window, cx: &mut Context<Self>) {
+        self.workspace.update(cx, |w, cx| {
+            if let Some(editor) = w.active_editor_mut() {
+                editor.encoding = zee_core::Encoding::Utf16Le;
+            }
+            cx.notify();
+        });
+        cx.notify();
+    }
+
+    fn handle_set_encoding_utf16_be(&mut self, _: &SetEncodingUtf16Be, _window: &mut Window, cx: &mut Context<Self>) {
+        self.workspace.update(cx, |w, cx| {
+            if let Some(editor) = w.active_editor_mut() {
+                editor.encoding = zee_core::Encoding::Utf16Be;
+            }
+            cx.notify();
+        });
+        cx.notify();
+    }
+
+    fn handle_set_encoding_iso_2022_jp(&mut self, _: &SetEncodingIso2022Jp, _window: &mut Window, cx: &mut Context<Self>) {
+        self.workspace.update(cx, |w, cx| {
+            if let Some(editor) = w.active_editor_mut() {
+                editor.encoding = zee_core::Encoding::Iso2022Jp;
+            }
+            cx.notify();
+        });
+        cx.notify();
+    }
+
+    fn handle_set_encoding_latin1(&mut self, _: &SetEncodingLatin1, _window: &mut Window, cx: &mut Context<Self>) {
+        self.workspace.update(cx, |w, cx| {
+            if let Some(editor) = w.active_editor_mut() {
+                editor.encoding = zee_core::Encoding::Latin1;
+            }
+            cx.notify();
+        });
+        cx.notify();
+    }
+
+    fn handle_set_line_ending_lf(&mut self, _: &SetLineEndingLf, _window: &mut Window, cx: &mut Context<Self>) {
+        self.workspace.update(cx, |w, cx| {
+            if let Some(editor) = w.active_editor_mut() {
+                editor.line_ending = zee_core::LineEnding::Lf;
+            }
+            cx.notify();
+        });
+        cx.notify();
+    }
+
+    fn handle_set_line_ending_crlf(&mut self, _: &SetLineEndingCrlf, _window: &mut Window, cx: &mut Context<Self>) {
+        self.workspace.update(cx, |w, cx| {
+            if let Some(editor) = w.active_editor_mut() {
+                editor.line_ending = zee_core::LineEnding::Crlf;
+            }
+            cx.notify();
+        });
+        cx.notify();
+    }
+
+    fn handle_set_line_ending_cr(&mut self, _: &SetLineEndingCr, _window: &mut Window, cx: &mut Context<Self>) {
+        self.workspace.update(cx, |w, cx| {
+            if let Some(editor) = w.active_editor_mut() {
+                editor.line_ending = zee_core::LineEnding::Cr;
+            }
+            cx.notify();
+        });
+        cx.notify();
+    }
+
+    fn handle_set_theme(&mut self, action: &SetTheme, _window: &mut Window, cx: &mut Context<Self>) {
+        self.set_theme(&action.name, cx);
+    }
+
+    fn handle_set_syntax(&mut self, action: &SetSyntax, _window: &mut Window, cx: &mut Context<Self>) {
+        self.workspace.update(cx, |w, cx| {
+            if let Some(_buffer) = w.active_editor_mut() {
+                println!("Setting syntax to {}", action.name);
+            }
+            cx.notify();
+        });
+        cx.notify();
+    }
+
+    fn set_theme(&mut self, name: &str, cx: &mut Context<Self>) {
+        let theme = zee_core::theme::Theme::find_by_name(name)
+            .unwrap_or_default();
+        
+        self.workspace.update(cx, |w, cx| {
+            w.theme = theme.clone();
+            cx.notify();
+        });
+        
+        let theme_slug = theme.meta.name.to_lowercase().replace(' ', "-");
+        let _ = Config::write_key("theme", &theme_slug);
+        cx.notify();
+    }
+
+    fn handle_go_to_line(&mut self, _: &GoToLine, window: &mut Window, cx: &mut Context<Self>) {
+        self.show_dialog(DialogType::GoToLine, Some(window), cx);
+    }
+
+    fn handle_open_settings(&mut self, _: &OpenSettings, window: &mut Window, cx: &mut Context<Self>) {
+        self.show_dialog(DialogType::Settings, Some(window), cx);
+    }
+
+    fn handle_zoom_in(&mut self, _: &ZoomIn, _window: &mut Window, cx: &mut Context<Self>) {
+        self.workspace.update(cx, |w, cx| {
+            let size = (w.config.font_size + 1.0).min(48.0);
+            w.config.font_size = size;
+            w.config.line_height = (size * 1.55).round();
+            let _ = Config::write_key("font_size", &format!("{:.1}", size));
+            let _ = Config::write_key("line_height", &format!("{:.1}", w.config.line_height));
+            cx.notify();
+        });
+        cx.notify();
+    }
+
+    fn handle_zoom_out(&mut self, _: &ZoomOut, _window: &mut Window, cx: &mut Context<Self>) {
+        self.workspace.update(cx, |w, cx| {
+            let size = (w.config.font_size - 1.0).max(8.0);
+            w.config.font_size = size;
+            w.config.line_height = (size * 1.55).round();
+            let _ = Config::write_key("font_size", &format!("{:.1}", size));
+            let _ = Config::write_key("line_height", &format!("{:.1}", w.config.line_height));
+            cx.notify();
+        });
+        cx.notify();
+    }
+
+    fn handle_reset_zoom(&mut self, _: &ResetZoom, _window: &mut Window, cx: &mut Context<Self>) {
+        self.workspace.update(cx, |w, cx| {
+            w.config.font_size = 12.0;
+            w.config.line_height = 19.0;
+            let _ = Config::write_key("font_size", "12.0");
+            let _ = Config::write_key("line_height", "19.0");
+            cx.notify();
+        });
+        cx.notify();
+    }
+
+    pub fn has_modified_buffers(&self, cx: &App) -> bool {
+        self.workspace.read(cx).has_modified_buffers()
+    }
+
+    pub fn handle_about(&mut self, _: &About, window: &mut Window, cx: &mut Context<Self>) {
+        self.show_dialog(DialogType::About, Some(window), cx);
+    }
+
+    pub fn handle_quit(&mut self, _action: &Quit, window: &mut Window, cx: &mut Context<Self>) {
+        let mut modified_file = None;
+        let mut target_idx = None;
+        
+        self.workspace.update(cx, |w, _| {
+            for (idx, editor) in w.editors.iter().enumerate() {
+                if editor.is_modified() {
+                    modified_file = Some(editor.path.as_ref().map(|p| p.to_string_lossy().into_owned()).unwrap_or(self.i18n.get("status.no_name").to_string()));
+                    target_idx = Some(idx);
+                    break;
+                }
+            }
+            if let Some(idx) = target_idx {
+                w.active_editor_index = idx;
+            }
+        });
+
+        if let Some(filename) = modified_file {
+            self.show_dialog(DialogType::UnsavedChanges { filename, intent: UnsavedChangesIntent::Quit }, Some(window), cx);
+        } else {
+            cx.propagate();
+        }
+    }
+
+    pub fn handle_exit(&mut self, _action: &Exit, window: &mut Window, cx: &mut Context<Self>) {
+        if self.has_modified_buffers(cx) {
+            self.handle_quit(&Quit {}, window, cx);
+        } else {
+            cx.propagate();
+        }
+    }
+
+    fn handle_reopen_with_encoding(&mut self, action: &ReopenWithEncoding, _window: &mut Window, cx: &mut Context<Self>) {
+        let enc = self.parse_encoding(&action.encoding);
+        self.workspace.update(cx, |w, cx| {
+            if let Some(buffer) = w.active_editor() {
+                if let Some(path) = buffer.path.clone() {
+                    if let Ok(mut new_buffer) = Editor::from_file(&path) {
+                        new_buffer.encoding = enc;
+                        w.editors[w.active_editor_index] = new_buffer;
+                        cx.notify();
+                    }
+                }
+            }
+        });
+        cx.notify();
+    }
+
+    fn handle_convert_to_encoding(&mut self, action: &ConvertToEncoding, _window: &mut Window, cx: &mut Context<Self>) {
+        let enc = self.parse_encoding(&action.encoding);
+        self.workspace.update(cx, |w, cx| {
+            if let Some(editor) = w.active_editor_mut() {
+                editor.encoding = enc;
+            }
+            cx.notify();
+        });
+        cx.notify();
+    }
+
+    fn parse_encoding(&self, name: &str) -> zee_core::Encoding {
+        match name {
+            "UTF-8" => zee_core::Encoding::Utf8,
+            "UTF-8 with BOM" => zee_core::Encoding::Utf8Bom,
+            "UTF-16 LE" => zee_core::Encoding::Utf16Le,
+            "UTF-16 BE" => zee_core::Encoding::Utf16Be,
+            "Shift-JIS" => zee_core::Encoding::ShiftJis,
+            "EUC-JP" => zee_core::Encoding::EucJp,
+            "ISO-2022-JP" => zee_core::Encoding::Iso2022Jp,
+            "Latin-1" => zee_core::Encoding::Latin1,
+            _ => zee_core::Encoding::Utf8,
+        }
+    }
+
+    fn led_color_to_gpui(&self, color: zee_core::theme::Color) -> Rgba {
+        match color {
+            zee_core::theme::Color::Rgb(r, g, b) => {
+                Rgba {
+                    r: r as f32 / 255.0,
+                    g: g as f32 / 255.0,
+                    b: b as f32 / 255.0,
+                    a: 1.0,
+                }
+            }
+            zee_core::theme::Color::Ansi(i) => {
+                let (r, g, b) = match i {
+                    0 => (0, 0, 0),
+                    1 => (170, 0, 0),
+                    2 => (0, 170, 0),
+                    3 => (170, 170, 0),
+                    4 => (0, 0, 170),
+                    5 => (170, 0, 170),
+                    6 => (0, 170, 170),
+                    7 => (170, 170, 170),
+                    8 => (85, 85, 85),
+                    9 => (255, 85, 85),
+                    10 => (85, 255, 85),
+                    11 => (255, 255, 85),
+                    12 => (85, 85, 255),
+                    13 => (255, 85, 255),
+                    14 => (85, 255, 255),
+                    15 => (255, 255, 255),
+                    _ => (128, 128, 128),
+                };
+                Rgba {
+                    r: r as f32 / 255.0,
+                    g: g as f32 / 255.0,
+                    b: b as f32 / 255.0,
+                    a: 1.0,
+                }
+            }
+        }
+    }
+}
+
+impl Render for WindowView {
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let workspace = self.workspace.read(cx);
+        let theme = &workspace.theme;
+        let bg = self.led_color_to_gpui(theme.editor.background);
+
+        let root = div()
+            .w_full()
+            .h_full()
+            .relative() // So dialog can be absolute
+            .bg(bg)
+            .track_focus(&self.focus_handle)
+            .on_action(cx.listener(Self::handle_new))
+            .on_action(cx.listener(Self::handle_new_tab))
+            .on_action(cx.listener(Self::handle_new_window))
+            .on_action(cx.listener(Self::handle_open))
+            .on_action(cx.listener(Self::handle_save))
+            .on_action(cx.listener(Self::handle_save_as))
+            .on_action(cx.listener(Self::handle_close_tab))
+            .on_action(cx.listener(Self::handle_next_tab))
+            .on_action(cx.listener(Self::handle_prev_tab))
+            .on_action(cx.listener(Self::handle_undo))
+            .on_action(cx.listener(Self::handle_redo))
+            .on_action(cx.listener(Self::handle_cut))
+            .on_action(cx.listener(Self::handle_copy))
+            .on_action(cx.listener(Self::handle_paste))
+            .on_action(cx.listener(Self::handle_select_all))
+            .on_action(cx.listener(Self::handle_find))
+            .on_action(cx.listener(Self::handle_replace))
+            .on_action(cx.listener(Self::handle_toggle_sidebar))
+            .on_action(cx.listener(Self::handle_toggle_outline))
+            .on_action(cx.listener(Self::handle_toggle_files))
+            .on_action(cx.listener(Self::handle_toggle_line_numbers))
+            .on_action(cx.listener(Self::handle_toggle_word_wrap))
+            .on_action(cx.listener(Self::handle_toggle_vi_mode))
+            .on_action(cx.listener(Self::handle_set_encoding_utf8))
+            .on_action(cx.listener(Self::handle_set_encoding_utf8_bom))
+            .on_action(cx.listener(Self::handle_set_encoding_utf16_le))
+            .on_action(cx.listener(Self::handle_set_encoding_utf16_be))
+            .on_action(cx.listener(Self::handle_set_encoding_shift_jis))
+            .on_action(cx.listener(Self::handle_set_encoding_euc_jp))
+            .on_action(cx.listener(Self::handle_set_encoding_iso_2022_jp))
+            .on_action(cx.listener(Self::handle_set_encoding_latin1))
+            .on_action(cx.listener(Self::handle_reopen_with_encoding))
+            .on_action(cx.listener(Self::handle_convert_to_encoding))
+            .on_action(cx.listener(Self::handle_set_line_ending_lf))
+            .on_action(cx.listener(Self::handle_set_line_ending_crlf))
+            .on_action(cx.listener(Self::handle_set_line_ending_cr))
+            .on_action(cx.listener(Self::handle_set_theme))
+            .on_action(cx.listener(Self::handle_set_syntax))
+            .on_action(cx.listener(Self::handle_go_to_line))
+            .on_action(cx.listener(Self::handle_open_settings))
+            .on_action(cx.listener(Self::handle_zoom_in))
+            .on_action(cx.listener(Self::handle_zoom_out))
+            .on_action(cx.listener(Self::handle_reset_zoom))
+            .on_action(cx.listener(Self::handle_about))
+            .on_action(cx.listener(Self::handle_quit))
+            .on_action(cx.listener(Self::handle_exit))
+            .on_drop(cx.listener(|this, paths: &ExternalPaths, _window, cx| {
+                let mut opened_any = false;
+                let mut dir_to_open = None;
+                for path in paths.paths() {
+                    if path.is_dir() {
+                        if dir_to_open.is_none() {
+                            dir_to_open = Some(path.clone());
+                        }
+                    } else if let Ok(editor) = Editor::from_file(path) {
+                        this.workspace.update(cx, |w, cx| {
+                            w.add_editor(editor);
+                            w.update_outline();
+                            cx.notify();
+                        });
+                        opened_any = true;
+                    }
+                }
+                if let Some(dir) = dir_to_open {
+                    this.workspace.update(cx, |w, cx| {
+                        w.set_root_path(dir);
+                        cx.notify();
+                    });
+                    opened_any = true;
+                }
+                if opened_any {
+                    cx.notify();
+                }
+            }))
+            .child(self.render_layout(cx));
+
+        #[cfg(not(target_os = "macos"))]
+        let root = root.child(self.render_menu_dropdown(cx));
+
+        root.child(if let Some(ref dialog) = self.dialog {
+            div()
+                .absolute()
+                .top_0()
+                .left_0()
+                .w_full()
+                .h_full()
+                .child(dialog.clone())
+        } else {
+            div()
+        })
+    }
+}
+
+impl WindowView {
+    fn render_layout(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let container = div().w_full().h_full().flex().flex_col();
+
+        #[cfg(not(target_os = "macos"))]
+        let container = container.child(self.menu_bar.clone());
+
+        let is_sidebar_visible = self.workspace.read(cx).sidebar_visible;
+
+        let main_area = div()
+            .flex_grow()
+            .flex()
+            .flex_row()
+            .w_full()
+            .h_full()
+            .overflow_hidden();
+
+        let main_area = if is_sidebar_visible {
+            main_area
+                .child(self.sidebar.clone())
+                .child(div().flex_grow().h_full().child(self.editor.clone()))
+        } else {
+            main_area.child(div().flex_grow().h_full().child(self.editor.clone()))
+        };
+
+        container
+            .child(self.tab_bar.clone())
+            .child(self.find_panel.clone())
+            .child(main_area)
+            .child(self.status_bar.clone())
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+impl WindowView {
+    fn render_menu_dropdown(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let menu_bar = self.menu_bar.read(cx);
+        let open_menu = menu_bar.open_menu;
+
+        if let Some(idx) = open_menu {
+            let workspace = self.workspace.read(cx);
+            let theme = &workspace.theme;
+            let bg = led_color_to_gpui(theme.ui.menu_bar_bg);
+            let fg = led_color_to_gpui(theme.ui.menu_bar_fg);
+            let border = with_alpha(led_color_to_gpui(theme.editor.line_number), 0.35);
+            let hover_bg = with_alpha(fg, 0.15);
+            let muted_fg = with_alpha(fg, 0.55);
+
+            let left_pos = match idx {
+                0 => px(8.0),
+                1 => px(48.0),
+                2 => px(90.0),
+                _ => px(136.0),
+            };
+
+            let menu_content = match idx {
+                0 => self.render_file_menu(fg, hover_bg, muted_fg, border, cx).into_any_element(),
+                1 => self.render_edit_menu(fg, hover_bg, muted_fg, border, cx).into_any_element(),
+                2 => self.render_view_menu(fg, hover_bg, muted_fg, border, cx).into_any_element(),
+                _ => self.render_help_menu(fg, hover_bg, muted_fg, cx).into_any_element(),
+            };
+
+            div()
+                .absolute()
+                .top_0()
+                .left_0()
+                .w_full()
+                .h_full()
+                .child(
+                    div()
+                        .absolute()
+                        .top(px(28.0))
+                        .left_0()
+                        .w_full()
+                        .h_full()
+                        .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, cx| {
+                            this.menu_bar.update(cx, |m, cx| m.close_menu(cx));
+                        }))
+                )
+                .child(
+                    div()
+                        .absolute()
+                        .top(px(28.0))
+                        .left(left_pos)
+                        .w(px(230.0))
+                        .bg(bg)
+                        .text_color(fg)
+                        .font_family(ui_font_family())
+                        .text_size(px(12.5))
+                        .border_1()
+                        .border_color(border)
+                        .rounded_sm()
+                        .shadow_lg()
+                        .py_1()
+                        .child(menu_content)
+                )
+        } else {
+            div()
+        }
+    }
+
+    fn render_menu_item<A: Action + Clone + 'static>(
+        &self,
+        label: String,
+        shortcut: Option<&'static str>,
+        action: A,
+        _fg: Rgba,
+        hover_bg: Rgba,
+        muted_fg: Rgba,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
+        let action = action.clone();
+        div()
+            .h(px(26.0))
+            .px_3()
+            .mx_1()
+            .flex()
+            .items_center()
+            .justify_between()
+            .rounded_sm()
+            .cursor_pointer()
+            .hover(move |s| s.bg(hover_bg))
+            .on_mouse_down(MouseButton::Left, cx.listener(move |this, _, window, cx| {
+                this.menu_bar.update(cx, |m, cx| m.close_menu(cx));
+                window.dispatch_action(Box::new(action.clone()), cx);
+            }))
+            .child(div().child(label))
+            .child(if let Some(sc) = shortcut {
+                div().text_size(px(11.0)).text_color(muted_fg).child(sc)
+            } else {
+                div()
+            })
+    }
+
+    fn render_menu_sep(&self, border: Rgba) -> impl IntoElement {
+        div().h(px(1.0)).bg(border).my_1().mx_2()
+    }
+
+    fn render_file_menu(&self, fg: Rgba, hover_bg: Rgba, muted_fg: Rgba, border: Rgba, cx: &mut Context<Self>) -> impl IntoElement {
+        div()
+            .flex()
+            .flex_col()
+            .child(self.render_menu_item(self.i18n.get("menu.file.new_tab").to_string(), Some("Ctrl+T"), NewTab {}, fg, hover_bg, muted_fg, cx))
+            .child(self.render_menu_item(self.i18n.get("menu.file.new_window").to_string(), Some("Ctrl+N"), NewWindow {}, fg, hover_bg, muted_fg, cx))
+            .child(self.render_menu_item(self.i18n.get("menu.file.open").to_string(), Some("Ctrl+O"), Open {}, fg, hover_bg, muted_fg, cx))
+            .child(self.render_menu_sep(border))
+            .child(self.render_menu_item(self.i18n.get("menu.file.save").to_string(), Some("Ctrl+S"), Save {}, fg, hover_bg, muted_fg, cx))
+            .child(self.render_menu_item(self.i18n.get("menu.file.save_as").to_string(), Some("Ctrl+Shift+S"), SaveAs {}, fg, hover_bg, muted_fg, cx))
+            .child(self.render_menu_sep(border))
+            .child(self.render_menu_item(self.i18n.get("menu.file.close").to_string(), Some("Ctrl+W"), CloseTab {}, fg, hover_bg, muted_fg, cx))
+            .child(self.render_menu_sep(border))
+            .child(self.render_menu_item(self.i18n.get("menu.file.exit").to_string(), Some("Ctrl+Q"), Exit {}, fg, hover_bg, muted_fg, cx))
+    }
+
+    fn render_edit_menu(&self, fg: Rgba, hover_bg: Rgba, muted_fg: Rgba, border: Rgba, cx: &mut Context<Self>) -> impl IntoElement {
+        div()
+            .flex()
+            .flex_col()
+            .child(self.render_menu_item(self.i18n.get("menu.edit.undo").to_string(), Some("Ctrl+Z"), Undo {}, fg, hover_bg, muted_fg, cx))
+            .child(self.render_menu_item(self.i18n.get("menu.edit.redo").to_string(), Some("Ctrl+Y"), Redo {}, fg, hover_bg, muted_fg, cx))
+            .child(self.render_menu_sep(border))
+            .child(self.render_menu_item(self.i18n.get("menu.edit.cut").to_string(), Some("Ctrl+X"), Cut {}, fg, hover_bg, muted_fg, cx))
+            .child(self.render_menu_item(self.i18n.get("menu.edit.copy").to_string(), Some("Ctrl+C"), Copy {}, fg, hover_bg, muted_fg, cx))
+            .child(self.render_menu_item(self.i18n.get("menu.edit.paste").to_string(), Some("Ctrl+V"), Paste {}, fg, hover_bg, muted_fg, cx))
+            .child(self.render_menu_sep(border))
+            .child(self.render_menu_item(self.i18n.get("menu.edit.find").to_string(), Some("Ctrl+F"), Find {}, fg, hover_bg, muted_fg, cx))
+            .child(self.render_menu_item(self.i18n.get("menu.edit.replace").to_string(), Some("Ctrl+H"), Replace {}, fg, hover_bg, muted_fg, cx))
+            .child(self.render_menu_sep(border))
+            .child(self.render_menu_item(self.i18n.get("menu.edit.select_all").to_string(), Some("Ctrl+A"), SelectAll {}, fg, hover_bg, muted_fg, cx))
+    }
+
+    fn render_view_menu(&self, fg: Rgba, hover_bg: Rgba, muted_fg: Rgba, border: Rgba, cx: &mut Context<Self>) -> impl IntoElement {
+        div()
+            .flex()
+            .flex_col()
+            .child(self.render_menu_item(self.i18n.get("menu.view.go_to_line").to_string(), None, GoToLine {}, fg, hover_bg, muted_fg, cx))
+            .child(self.render_menu_sep(border))
+            .child(self.render_menu_item(self.i18n.get("menu.view.zoom_in").to_string(), Some("Ctrl+="), ZoomIn {}, fg, hover_bg, muted_fg, cx))
+            .child(self.render_menu_item(self.i18n.get("menu.view.zoom_out").to_string(), Some("Ctrl+-"), ZoomOut {}, fg, hover_bg, muted_fg, cx))
+            .child(self.render_menu_item(self.i18n.get("menu.view.reset_zoom").to_string(), Some("Ctrl+0"), ResetZoom {}, fg, hover_bg, muted_fg, cx))
+            .child(self.render_menu_sep(border))
+            .child(self.render_menu_item(self.i18n.get("menu.view.sidebar").to_string(), Some("Ctrl+B"), ToggleSidebar {}, fg, hover_bg, muted_fg, cx))
+            .child(self.render_menu_item(self.i18n.get("menu.view.line_numbers").to_string(), None, ToggleLineNumbers {}, fg, hover_bg, muted_fg, cx))
+            .child(self.render_menu_item(self.i18n.get("menu.view.word_wrap").to_string(), None, ToggleWordWrap {}, fg, hover_bg, muted_fg, cx))
+            .child(self.render_menu_item(self.i18n.get("menu.view.vi_mode").to_string(), None, ToggleViMode {}, fg, hover_bg, muted_fg, cx))
+            .child(self.render_menu_sep(border))
+            .child(self.render_menu_item(self.i18n.get("menu.app.preferences").to_string(), Some("Ctrl+,"), OpenSettings {}, fg, hover_bg, muted_fg, cx))
+    }
+
+    fn render_help_menu(&self, fg: Rgba, hover_bg: Rgba, muted_fg: Rgba, cx: &mut Context<Self>) -> impl IntoElement {
+        div()
+            .flex()
+            .flex_col()
+            .child(self.render_menu_item(self.i18n.get("menu.help.about").to_string(), None, About {}, fg, hover_bg, muted_fg, cx))
+    }
+}

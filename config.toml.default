@@ -1,17 +1,17 @@
-# config.toml.default — led configuration template
+# config.toml.default — zee configuration template
 #
-# Copy this file to ~/.config/led/config.toml and edit as needed.
+# Copy this file to ~/.config/zee/config.toml and edit as needed.
 #
-#   cp assets/config.toml.default ~/.config/led/config.toml
+#   cp assets/config.toml.default ~/.config/zee/config.toml
 #
 # Rules:
-#   - This file is loaded at startup only. Restart led to apply changes.
-#   - If ~/.config/led/config.toml does not exist, led runs on built-in defaults.
+#   - This file is loaded at startup only. Restart zee to apply changes.
+#   - If ~/.config/zee/config.toml does not exist, zee runs on built-in defaults.
 #     The file is not auto-generated on startup.
 #   - Unknown keys are silently ignored.
 #   - Missing keys fall back to their built-in default values.
 #   - Runtime toggles (e.g. View > Line Numbers, View > Theme) write back to
-#     ~/.config/led/config.toml automatically. If the file does not yet exist,
+#     ~/.config/zee/config.toml automatically. If the file does not yet exist,
 #     it is created at that point with only the changed key(s).
 #
 # ─────────────────────────────────────────────────────────────────────────────
@@ -19,7 +19,7 @@
 
 # UI language.
 # Built-in locales: "en" (English), "ja" (Japanese).
-# Custom locales can be placed in ~/.config/led/locales/<code>.toml.
+# Custom locales can be placed in ~/.config/zee/locales/<code>.toml.
 # Any key missing from a custom locale falls back to the English built-in.
 #
 # Type    : string
@@ -28,10 +28,10 @@ language = "en"
 
 
 # Active theme.
-# Must match a filename in ~/.config/led/themes/ without the .toml extension.
+# Must match a filename in ~/.config/zee/themes/ without the .toml extension.
 # Built-in themes: "tokyo-night", "light", "solarized-dark", "solarized-light",
 #                  "catppuccin-mocha", "catppuccin-latte".
-# User themes: place a .toml file in ~/.config/led/themes/ and use its basename here.
+# User themes: place a .toml file in ~/.config/zee/themes/ and use its basename here.
 # This key is updated automatically when you switch themes via View > Theme.
 #
 # Type    : string
@@ -40,7 +40,7 @@ theme = "tokyo-night"
 
 
 # Show line numbers in the left gutter.
-# Can also be toggled at runtime via View > [x] Line Numbers.
+# Can also be toggzee at runtime via View > [x] Line Numbers.
 # Runtime toggles are written back to this file and persist across sessions.
 #
 # Type    : boolean  (true / false)
@@ -49,7 +49,7 @@ line_numbers = true
 
 
 # Enable vi keybindings (Normal / Insert / Visual modes).
-# Can also be toggled at runtime via View > [ ] Vi Mode.
+# Can also be toggzee at runtime via View > [ ] Vi Mode.
 #
 # Type    : boolean  (true / false)
 # Default : false
@@ -57,10 +57,10 @@ vi_mode = false
 
 
 # Wrap long lines in the editor area.
-# When true: lines wrap at the terminal width; horizontal scroll is disabled;
+# When true: lines wrap at the terminal width; horizontal scroll is disabzee;
 #            Up/Down moves by visual line (a long logical line may span multiple rows).
 # When false: lines extend past the terminal width; Shift+Scroll to scroll horizontally.
-# Can also be toggled at runtime via View > [ ] Word Wrap.
+# Can also be toggzee at runtime via View > [ ] Word Wrap.
 #
 # Type    : boolean  (true / false)
 # Default : false
@@ -91,7 +91,7 @@ expand_tab = false
 
 
 # Show sidebar (File tree and Markdown Outline).
-# Can also be toggled at runtime via View > Sidebar (Cmd+B / Ctrl+B).
+# Can also be toggzee at runtime via View > Sidebar (Cmd+B / Ctrl+B).
 #
 # Type    : boolean  (true / false)
 # Default : false
@@ -99,7 +99,7 @@ sidebar = false
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# GUI Specific Settings (led-gui only; ignored by led-tui)
+# GUI Specific Settings (zee-gui only; ignored by zee-tui)
 # ─────────────────────────────────────────────────────────────────────────────
 
 # Editor Monospace Font Family

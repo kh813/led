@@ -1,15 +1,15 @@
-  # led Todo List
+  # zee Todo List
 
 ## Phase 22: GUI Font & Spacing and Theme Customization
-- [x] **GUI Font & Typography Customization (`led-gui`)**:
+- [x] **GUI Font & Typography Customization (`zee-gui`)**:
   - [x] Add `font_family`, `font_size`, and `line_height` to `Config` for editor code area
   - [x] Add `ui_font_family` and `ui_font_size` for UI chrome (tabs, status bar, dialogs)
   - [x] Wire dynamic font size and line height into editor text measurement, rendering, scroll calculations, and mouse hit-testing
-  - [x] Keep CLI (`led-tui`) untouched (terminal font is controlled by terminal emulator)
+  - [x] Keep CLI (`zee-tui`) untouched (terminal font is controlzee by terminal emulator)
 - [x] **Theme Customization & Human-Readable CSS Colors (TUI & GUI)**:
-  - [x] Expand theme color parser in `led-core` to support CSS Hex (`#rgb`, `#rrggbb`, `#rrggbbaa`), CSS `rgb(...)`, `rgba(...)`, `ansi(...)`, and named CSS colors
-  - [x] Implement dynamic user theme discovery from `~/.config/led/themes/*.toml` in `Theme::load_all()` and `Theme::find_by_name()`
-  - [x] Populate theme menus and live switching dynamically in both TUI (`led-tui`) and GUI (`led-gui`)
+  - [x] Expand theme color parser in `zee-core` to support CSS Hex (`#rgb`, `#rrggbb`, `#rrggbbaa`), CSS `rgb(...)`, `rgba(...)`, `ansi(...)`, and named CSS colors
+  - [x] Implement dynamic user theme discovery from `~/.config/zee/themes/*.toml` in `Theme::load_all()` and `Theme::find_by_name()`
+  - [x] Populate theme menus and live switching dynamically in both TUI (`zee-tui`) and GUI (`zee-gui`)
 - [x] **Documentation & Configuration Templates**:
   - [x] Create `assets/config.toml.default` and update root `config.toml.default`
   - [x] Update `app_specs.md`, `MANUAL.md`, `README.md`, and `DEVLOG.md`
@@ -20,7 +20,7 @@
   - [x] Implement consistent spacing, rounded border utilities, and hover color mappings
 - [x] **Modern TabBar**:
   - [x] Rounded tab pills with clean active/inactive separation
-  - [x] Unsaved modification indicator with styled dirty dot
+  - [x] Unsaved modification indicator with styzee dirty dot
   - [x] Close button (`×`) with hover highlight and padding
   - [x] Smooth tab switching and horizontal scroll handling
   - [x] Add New Tab (`+`) button
@@ -42,7 +42,7 @@
 
 ## Phase 18: Project Management & Navigation
 - [ ] **File Explorer (Side Bar)**:
-  - [ ] Implement directory scanning in `led-core`
+  - [ ] Implement directory scanning in `zee-core`
   - [ ] Create `FileTreeView` in GUI / `SideBar` in TUI
   - [ ] Add `Alt+1` shortcut to toggle side bar focus
 - [ ] **Fuzzy Finder (`Ctrl+P`)**:
@@ -73,7 +73,7 @@
 - [ ] **Keybinding Customization**:
   - [ ] Allow users to override default shortcuts in `config.toml`
 - [x] **CI/CD & Compilation (GitHub Actions)**:
-  - [x] Multi-platform compilation workflow (`release.yml`) for TUI (`led`) and GUI (`led-gui`) across macOS, Linux, and Windows
+  - [x] Multi-platform compilation workflow (`release.yml`) for TUI (`zee`) and GUI (`zee-gui`) across macOS, Linux, and Windows
   - [x] Artifact upload and release packaging for tagged releases
 - [ ] **Packaging & Distribution**:
   - [ ] Homebrew (macOS), NSIS (Windows), and .deb/.rpm (Linux) packages
@@ -99,7 +99,7 @@
 - [x] Fix default window position (center on screen)
 - [x] Fix automatic theme selection (OS light/dark mode)
 - [x] Fix color visibility:
-  - [x] Unify `led_color_to_gpui` across all widgets using `gpui::rgb`.
+  - [x] Unify `zee_color_to_gpui` across all widgets using `gpui::rgb`.
   - [x] Ensure `EditorView` uses consistent color mapping for text and background.
 - [x] **Verify native GUI rendering (no invisible text)**
 - [x] Implement Japanese inline input support (IME) in `EditorView`:
@@ -107,10 +107,10 @@
   - [x] Ensure `replace_and_mark_text_in_range` correctly manages composition state.
   - [x] Improve `bounds_for_range` for accurate candidate window placement.
 - [x] Fix native macOS/Windows shortcuts:
-  - [x] Verify `cmd-q`, `cmd-o`, `ctrl-q`, `ctrl-o` etc. are correctly bound and handled.
+  - [x] Verify `cmd-q`, `cmd-o`, `ctrl-q`, `ctrl-o` etc. are correctly bound and handzee.
   - [x] Ensure `EditorView` doesn't intercept system/action shortcuts in `on_key_down`.
 - [x] Fix app-level menu state when no windows are open:
-  - [x] Ensure `New`, `Open`, and `Quit` actions remain enabled in the global menu.
+  - [x] Ensure `New`, `Open`, and `Quit` actions remain enabzee in the global menu.
   - [x] Verify `app.on_action` handlers are correctly registered.
 - [x] Use OS native dialogs for Open/Save (integrate `rfd` crate) - Already partially done in code, ensure consistency.
 
@@ -141,12 +141,12 @@
 - **Commit**: `(pending)`
 - **Implementer**: AI session & Gemini CLI
 - **Files created**:
-  - `crates/led-gui/build.rs` — Added Windows resource compilation.
-  - `crates/led-gui/resources/` — Organized icon assets.
+  - `crates/zee-gui/build.rs` — Added Windows resource compilation.
+  - `crates/zee-gui/resources/` — Organized icon assets.
 - **Files modified**:
-  - `crates/led-gui/Cargo.toml` — Added `winres` build dependency.
-  - `crates/led-tui/src/app.rs` — Fixed hardware cursor visibility and placement.
-  - `crates/led-gui/src/widgets/editor_view.rs` — Robust rendering and IME fixes.
+  - `crates/zee-gui/Cargo.toml` — Added `winres` build dependency.
+  - `crates/zee-tui/src/app.rs` — Fixed hardware cursor visibility and placement.
+  - `crates/zee-gui/src/widgets/editor_view.rs` — Robust rendering and IME fixes.
 - **Key decisions made**:
   - Embedded Windows icon via `winres` for native `.exe` appearance.
   - Fixed TUI IME positioning by moving the hardware cursor to the logical cursor.
@@ -161,10 +161,10 @@
 - **Implementer**: AI session & Gemini CLI
 - **Files created**: None
 - **Files modified**:
-  - `crates/led-gui/src/app.rs` — Fixed compilation, added dynamic theme selection and parameterized actions.
-  - `crates/led-gui/src/window_view.rs` — Fixed dialog overlay, workspace notifications, and encoding/line ending handlers.
-  - `crates/led-gui/src/widgets/editor_view.rs` — Improved text visibility, font inheritance, and model observation.
-  - `crates/led-gui/src/widgets/dialog.rs` — Full implementation of modal dialogs and file browser.
+  - `crates/zee-gui/src/app.rs` — Fixed compilation, added dynamic theme selection and parameterized actions.
+  - `crates/zee-gui/src/window_view.rs` — Fixed dialog overlay, workspace notifications, and encoding/line ending handlers.
+  - `crates/zee-gui/src/widgets/editor_view.rs` — Improved text visibility, font inheritance, and model observation.
+  - `crates/zee-gui/src/widgets/dialog.rs` — Full implementation of modal dialogs and file browser.
 - **Key decisions made**:
   - Implemented a parameterized `SetTheme` action in GPUI to support dynamic theme selection.
   - Switched to `observe` for the `Workspace` model to ensure correct UI re-renders on state change.

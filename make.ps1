@@ -1,9 +1,9 @@
 <#
 .SYNOPSIS
-    Build and task automation script for led on Windows (PowerShell alternative to make).
+    Build and task automation script for zee on Windows (PowerShell alternative to make).
 .DESCRIPTION
     Provides familiar make-like targets (all, gui, tui, test, check, package, clean)
-    for building and testing led on Windows without needing GNU make or bash.
+    for building and testing zee on Windows without needing GNU make or bash.
 .EXAMPLE
     .\make.ps1
     .\make.ps1 gui
@@ -58,14 +58,14 @@ switch ($Target) {
 
     { $_ -in 'tui', 'cli' } {
         Ensure-DistDir
-        Write-Host "==> Building Windows TUI (led-cli)..." -ForegroundColor Cyan
+        Write-Host "==> Building Windows TUI (zee.exe)..." -ForegroundColor Cyan
         if ($Release) {
-            cargo build --release -p led-tui
+            cargo build --release -p zee-tui
         } else {
-            cargo build -p led-tui
+            cargo build -p zee-tui
         }
-        $SrcBin = Join-Path $ProjectRoot "target\$TargetFolder\led.exe"
-        $DstBin = Join-Path $DistDir "led-cli.exe"
+        $SrcBin = Join-Path $ProjectRoot "target\$TargetFolder\zee.exe"
+        $DstBin = Join-Path $DistDir "zee.exe"
         if (Test-Path $SrcBin) {
             Copy-Item $SrcBin $DstBin -Force
             Write-Host "Built: $DstBin" -ForegroundColor Green
@@ -74,14 +74,14 @@ switch ($Target) {
 
     'gui' {
         Ensure-DistDir
-        Write-Host "==> Building Windows GUI (led.exe)..." -ForegroundColor Cyan
+        Write-Host "==> Building Windows GUI (zeeg.exe)..." -ForegroundColor Cyan
         if ($Release) {
-            cargo build --release -p led-gui
+            cargo build --release -p zee-gui
         } else {
-            cargo build -p led-gui
+            cargo build -p zee-gui
         }
-        $SrcBin = Join-Path $ProjectRoot "target\$TargetFolder\led-gui.exe"
-        $DstBin = Join-Path $DistDir "led.exe"
+        $SrcBin = Join-Path $ProjectRoot "target\$TargetFolder\zeeg.exe"
+        $DstBin = Join-Path $DistDir "zeeg.exe"
         if (Test-Path $SrcBin) {
             Copy-Item $SrcBin $DstBin -Force
             Write-Host "Built: $DstBin" -ForegroundColor Green
@@ -90,20 +90,23 @@ switch ($Target) {
 
     'package' {
         Ensure-DistDir
-        Write-Host "==> Building GUI for package..." -ForegroundColor Cyan
-        cargo build --release -p led-gui
+        Write-Host "==> Building binaries for package..." -ForegroundColor Cyan
+        cargo build --release -p zee-gui
+        cargo build --release -p zee-tui
         
-        $SrcBin = Join-Path $ProjectRoot "target\release\led-gui.exe"
-        $StageDir = Join-Path $DistDir "led-windows"
+        $GuiSrcBin = Join-Path $ProjectRoot "target\release\zeeg.exe"
+        $TuiSrcBin = Join-Path $ProjectRoot "target\release\zee.exe"
+        $StageDir = Join-Path $DistDir "zee-windows"
         if (Test-Path $StageDir) { Remove-Item -Recurse -Force $StageDir }
         New-Item -ItemType Directory -Path $StageDir | Out-Null
         
-        Copy-Item $SrcBin (Join-Path $StageDir "led.exe") -Force
+        Copy-Item $GuiSrcBin (Join-Path $StageDir "zeeg.exe") -Force
+        Copy-Item $TuiSrcBin (Join-Path $StageDir "zee.exe") -Force
         if (Test-Path "README.md") { Copy-Item "README.md" $StageDir -Force }
         if (Test-Path "MANUAL.md") { Copy-Item "MANUAL.md" $StageDir -Force }
         if (Test-Path "LICENSE") { Copy-Item "LICENSE" $StageDir -Force }
         
-        $ZipPath = Join-Path $DistDir "led-windows-x64.zip"
+        $ZipPath = Join-Path $DistDir "zee-windows-x64.zip"
         if (Test-Path $ZipPath) { Remove-Item -Force $ZipPath }
         
         Write-Host "==> Creating zip archive: $ZipPath" -ForegroundColor Cyan
@@ -114,14 +117,14 @@ switch ($Target) {
 
     { $_ -in 'all', 'default', 'local' } {
         Ensure-DistDir
-        Write-Host "==> Building Windows GUI (led.exe)..." -ForegroundColor Cyan
+        Write-Host "==> Building Windows GUI (zeeg.exe)..." -ForegroundColor Cyan
         if ($Release) {
-            cargo build --release -p led-gui
+            cargo build --release -p zee-gui
         } else {
-            cargo build -p led-gui
+            cargo build -p zee-gui
         }
-        $SrcBin = Join-Path $ProjectRoot "target\$TargetFolder\led-gui.exe"
-        $DstBin = Join-Path $DistDir "led.exe"
+        $SrcBin = Join-Path $ProjectRoot "target\$TargetFolder\zeeg.exe"
+        $DstBin = Join-Path $DistDir "zeeg.exe"
         if (Test-Path $SrcBin) {
             Copy-Item $SrcBin $DstBin -Force
             Write-Host "==> Build complete in $DistDir" -ForegroundColor Green
@@ -130,16 +133,16 @@ switch ($Target) {
     }
 
     'help' {
-        Write-Host "led Windows Build Script (make.ps1)" -ForegroundColor Yellow
+        Write-Host "zee Windows Build Script (make.ps1)" -ForegroundColor Yellow
         Write-Host "Usage: .\make.ps1 [target] [-Release <`$true|`$false>]"
         Write-Host ""
         Write-Host "Available targets:"
-        Write-Host "  .\make.ps1            - Build Windows GUI as dist/led.exe (default)"
-        Write-Host "  .\make.ps1 gui        - Build Windows GUI (dist/led.exe)"
-        Write-Host "  .\make.ps1 tui        - Build Windows TUI (dist/led-cli.exe)"
+        Write-Host "  .\make.ps1            - Build Windows GUI as dist/zeeg.exe (default)"
+        Write-Host "  .\make.ps1 gui        - Build Windows GUI (dist/zeeg.exe)"
+        Write-Host "  .\make.ps1 tui        - Build Windows TUI (dist/zee.exe)"
         Write-Host "  .\make.ps1 test       - Run tests (cargo test --workspace)"
         Write-Host "  .\make.ps1 check      - Check workspace (cargo check --workspace)"
-        Write-Host "  .\make.ps1 package    - Build and package into dist/led-windows-x64.zip"
+        Write-Host "  .\make.ps1 package    - Build and package into dist/zee-windows-x64.zip"
         Write-Host "  .\make.ps1 clean      - Remove build artifacts and dist/ directory"
         Write-Host "  .\make.ps1 help       - Show this help message"
     }

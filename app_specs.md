@@ -1,27 +1,27 @@
-# App Specs: led (lightweight editor)
+# App Specs: zee (lightweight editor)
 
-**led** is a modern TUI text editor, re-implemented from scratch with inspiration from Microsoft Edit and Micro editor. It aims to provide a clean, accessible, and powerful editing experience for terminal users across macOS, Linux, and Windows. A separate GUI binary (`led-gui`) is planned for the future, built on gpui and sharing the same core logic.
+**zee** is a modern TUI text editor, re-implemented from scratch with inspiration from Microsoft Edit and Micro editor. It aims to provide a clean, accessible, and powerful editing experience for terminal users across macOS, Linux, and Windows. A separate GUI binary (`zee-gui`) is planned for the future, built on gpui and sharing the same core logic.
 
 ---
 
 ## 1. Core Properties
 
 - **Binary names**:
-  - TUI editor: `led` (from `crates/led-tui`)
-  - GUI editor: `led-gui` (from `crates/led-gui`) — future plan, separate binary
-  - No other variants (`led-tui`, etc.) shall be introduced
+  - TUI editor: `zee` (from `crates/zee-tui`)
+  - GUI editor: `zee-gui` (from `crates/zee-gui`) — future plan, separate binary
+T  - No other variants (`zee-tui`, etc.) shall be introduced
 - **Build output names by platform**:
 
   | Context | Platform | Binary | Notes |
   | :--- | :--- | :--- | :--- |
-  | `make` (default, single target) | macOS | `led` (TUI), `led.app` (GUI) | GUI is future |
-  | `make` (default, single target) | Linux | `led` (TUI) | GUI future / undecided |
-  | `make` (default, single target) | Windows | `led.exe` (GUI only) | TUI not shipped on Windows |
-  | `make all` (cross-build from macOS) | macOS arm64 TUI | `led.mac-arm64` | cargo native |
-  | `make all` (cross-build from macOS) | macOS arm64 GUI | `led.app` | cargo native, bundled |
-  | `make all` (cross-build from macOS) | Linux x64 TUI | `led.linux-x64` | `cross` (Docker) |
-  | `make all` (cross-build from macOS) | Linux arm64 TUI | `led.linux-arm64` | `cross` (Docker) |
-  | GitHub Actions `release.yml` | macOS / Linux / Windows | `led-mac-arm64`, `led-gui-mac-arm64.app.zip`, `led-linux-x64`, `led-linux-arm64`, `led-windows-x64.exe`, `led-gui-windows-x64.exe` | Triggered on push tags (`v*`) or manual workflow dispatch |
+  | `make` (default, single target) | macOS | `zee` (TUI), `zee.app` (GUI) | GUI is future |
+  | `make` (default, single target) | Linux | `zee` (TUI) | GUI future / undecided |
+  | `make` (default, single target) | Windows | `zee.exe` (GUI only) | TUI not shipped on Windows |
+  | `make all` (cross-build from macOS) | macOS arm64 TUI | `zee.mac-arm64` | cargo native |
+  | `make all` (cross-build from macOS) | macOS arm64 GUI | `zee.app` | cargo native, bundzee |
+  | `make all` (cross-build from macOS) | Linux x64 TUI | `zee.linux-x64` | `cross` (Docker) |
+  | `make all` (cross-build from macOS) | Linux arm64 TUI | `zee.linux-arm64` | `cross` (Docker) |
+  | GitHub Actions `release.yml` | macOS / Linux / Windows | `zee-mac-arm64`, `zee-gui-mac-arm64.app.zip`, `zee-linux-x64`, `zee-linux-arm64`, `zee-windows-x64.exe`, `zee-gui-windows-x64.exe` | Triggered on push tags (`v*`) or manual workflow dispatch |
 
   > **GitHub Actions Build**: Built via `.github/workflows/release.yml` for macOS, Linux, and Windows (TUI & GUI binaries). `release-windows.yml` is superseded by `release.yml`.
 
@@ -31,16 +31,16 @@
 - **Dialog-Based**: Uses GUI-like dialogs for interactions (file opening, saving, settings)
 - **Internationalization (i18n)**: Built from the ground up to support multiple languages
 - **Configurable**:
-  - Configuration path: `~/.config/led/`
+  - Configuration path: `~/.config/zee/`
   - Format: `.toml`
-  - Theme files: `~/.config/led/themes/*.toml`
-  - Syntax definition files: `~/.config/led/syntax/*.toml`
+  - Theme files: `~/.config/zee/themes/*.toml`
+  - Syntax definition files: `~/.config/zee/syntax/*.toml`
   - All config files are loaded at startup only. Changes require a restart.
   - **Config loading behavior**:
-    - If `~/.config/led/config.toml` exists, it is loaded and its values override built-in defaults
-    - If it does not exist, `led` runs on built-in defaults — the file is **not** auto-generated
+    - If `~/.config/zee/config.toml` exists, it is loaded and its values override built-in defaults
+    - If it does not exist, `zee` runs on built-in defaults — the file is **not** auto-generated
     - Unknown keys are silently ignored; missing keys fall back to built-in defaults
-  - **Runtime config writes**: When the user changes a persistent setting at runtime (e.g., toggling Line Numbers, switching Theme), `led` writes **only that key** back to `~/.config/led/config.toml`:
+  - **Runtime config writes**: When the user changes a persistent setting at runtime (e.g., toggling Line Numbers, switching Theme), `zee` writes **only that key** back to `~/.config/zee/config.toml`:
     - If the file already exists: the specific key is updated in place (other keys untouched)
     - If the file does not exist: it is **created** with only the changed key(s) and a header comment. This is the one exception to the "do not auto-generate" rule — a user action triggers it explicitly
   - **Template file**: `config.toml.default` is shipped with the source (under `assets/`) and documents every key, its default, and accepted values
@@ -51,13 +51,13 @@
 
 ## 2. Repository Structure (Cargo Workspace)
 
-`led` is organized as a Cargo workspace. This structure separates platform-specific code from the shared core, enabling future GUI support without rewriting business logic.
+`zee` is organized as a Cargo workspace. This structure separates platform-specific code from the shared core, enabling future GUI support without rewriting business logic.
 
 ```
-led/                              ← workspace root
+zee/                              ← workspace root
 ├── Cargo.toml                   ← [workspace] members definition
 ├── crates/
-│   ├── led-core/                ← shared logic (no TUI/GUI deps)
+│   ├── zee-core/                ← shared logic (no TUI/GUI deps)
 │   │   ├── Cargo.toml
 │   │   └── src/
 │   │       ├── lib.rs
@@ -68,7 +68,7 @@ led/                              ← workspace root
 │   │       ├── encoding.rs      ← encoding_rs wrap
 │   │       ├── theme.rs         ← color structs (RGB values only, no rendering)
 │   │       └── i18n.rs          ← locale string loading
-│   ├── led-tui/                 ← crossterm TUI, binary: led
+│   ├── zee-tui/                 ← crossterm TUI, binary: zee
 │   │   ├── Cargo.toml
 │   │   └── src/
 │   │       ├── main.rs
@@ -84,7 +84,7 @@ led/                              ← workspace root
 │   │       │   ├── status_bar.rs
 │   │       │   └── dialog.rs
 │   │       └── clipboard.rs     ← OSC 52 + platform clipboard
-│   └── led-gui/                 ← gpui GUI, binary: led-gui (future)
+│   └── zee-gui/                 ← gpui GUI, binary: zee-gui (future)
 │       ├── Cargo.toml
 │       └── src/
 │           ├── main.rs
@@ -120,12 +120,12 @@ led/                              ← workspace root
 └── README.md
 ```
 
-### led-core Public API (contract between core and frontends)
+### zee-core Public API (contract between core and frontends)
 
-Both `led-tui` and `led-gui` depend only on `led-core`. Neither frontend contains buffer logic.
+Both `zee-tui` and `zee-gui` depend only on `zee-core`. Neither frontend contains buffer logic.
 
 ```rust
-// led-core::buffer
+// zee-core::buffer
 pub struct Editor { /* ropey Rope + undo stack + per-buffer state */ }
 
 impl Editor {
@@ -138,14 +138,14 @@ impl Editor {
     pub fn line(&self, idx: usize) -> RopeSlice;
 }
 
-// led-core::search
+// zee-core::search
 pub struct SearchQuery { pub pattern: String, pub flags: SearchFlags }
 pub struct Match { pub line: usize, pub byte_range: Range<usize> }
 impl Editor {
     pub fn search(&self, query: &SearchQuery) -> Vec<Match>;
 }
 
-// led-core::syntax
+// zee-core::syntax
 pub struct TokenSpan { pub byte_range: Range<usize>, pub token: TokenType }
 impl Editor {
     pub fn highlight_line(&self, line: usize) -> Vec<TokenSpan>;
@@ -162,7 +162,7 @@ impl Editor {
 
 ```toml
 [workspace]
-members = ["crates/led-core", "crates/led-tui", "crates/led-gui"]
+members = ["crates/zee-core", "crates/zee-tui", "crates/zee-gui"]
 resolver = "2"
 
 [workspace.dependencies]
@@ -177,7 +177,7 @@ ropey         = "1.6"
 rayon         = "1.11"
 ```
 
-### led-core dependencies
+### zee-core dependencies
 
 ```toml
 [dependencies]
@@ -192,33 +192,33 @@ ropey         = { workspace = true }
 rayon         = { workspace = true }
 ```
 
-### led-tui dependencies
+### zee-tui dependencies
 
 ```toml
 [dependencies]
-led-core  = { path = "../led-core" }
+zee-core  = { path = "../zee-core" }
 crossterm = "0.28"
 anyhow    = { workspace = true }
 ```
 
-### led-gui dependencies (future)
+### zee-gui dependencies (future)
 
 ```toml
 [dependencies]
-led-core = { path = "../led-core" }
+zee-core = { path = "../zee-core" }
 gpui     = { git = "https://github.com/zed-industries/zed", package = "gpui" }
 anyhow   = { workspace = true }
 ```
 
-> **Note on gpui**: gpui is developed as part of Zed editor and does not have independent crates.io releases. It is sourced directly from the Zed repository. The API is not yet stable; pin to a specific commit SHA when starting `led-gui` development to avoid unexpected breakage.
+> **Note on gpui**: gpui is developed as part of Zed editor and does not have independent crates.io releases. It is sourced directly from the Zed repository. The API is not yet stable; pin to a specific commit SHA when starting `zee-gui` development to avoid unexpected breakage.
 
 ### Crate responsibilities
 
 | Crate | Key deps | Purpose |
 | :--- | :--- | :--- |
-| **led-core** | ropey, regex, aho-corasick, encoding_rs, rayon, toml-span | All editor logic. No I/O, no rendering, no platform APIs |
-| **led-tui** | crossterm, led-core | Terminal rendering, keyboard/mouse input, OSC 52 clipboard |
-| **led-gui** | gpui, led-core | GPU-accelerated native GUI window (future) |
+| **zee-core** | ropey, regex, aho-corasick, encoding_rs, rayon, toml-span | All editor logic. No I/O, no rendering, no platform APIs |
+| **zee-tui** | crossterm, zee-core | Terminal rendering, keyboard/mouse input, OSC 52 clipboard |
+| **zee-gui** | gpui, zee-core | GPU-accelerated native GUI window (future) |
 
 ### Why crossterm (not libc/windows-sys)
 
@@ -390,7 +390,7 @@ Line Ending ▶  ✓ LF
 
 ### View > Theme / Syntax submenus
 
-- Populated at startup by scanning `~/.config/led/themes/` and `~/.config/led/syntax/`
+- Populated at startup by scanning `~/.config/zee/themes/` and `~/.config/zee/syntax/`
 - Built-in entries always listed first, user entries below a separator
 - `✓` marks the active selection
 - Theme change: applies immediately and persists to `config.toml`
@@ -476,7 +476,7 @@ Replace: [______________________________]  Replace  Replace All
   - `↑` / `↓` move by **visual line** (not logical line) when word wrap is on
   - `Ln {n}` in the status bar always shows **logical line** number
   - `Col {n}` shows **visual column** (display cells from the start of the visual line)
-  - Horizontal scroll is disabled when word wrap is on
+  - Horizontal scroll is disabzee when word wrap is on
 
 ### Mouse Interaction
 
@@ -518,7 +518,7 @@ Right segment (left to right):
 - Encoding: e.g., `UTF-8`
 - Line ending: `LF`, `CRLF`, or `CR`
 - Syntax: e.g., `Markdown`
-- Vi mode indicator (only when vi mode enabled): `NORMAL` / `INSERT` / `VISUAL`
+- Vi mode indicator (only when vi mode enabzee): `NORMAL` / `INSERT` / `VISUAL`
 
 ---
 
@@ -576,16 +576,16 @@ All dialogs are modal, centered, dismissible with `Esc`. Border style: single-li
 ## 12. Command-Line Interface
 
 ```
-led [FILE...]
+zee [FILE...]
 ```
 
 | Invocation | Behavior |
 | :--- | :--- |
-| `led` | Empty buffer `[No Name]` |
-| `led myfile.txt` | Open file; if not found, empty named buffer (not written until Save) |
-| `led a.txt b.txt` | Each file in its own tab; first tab active |
-| `led /some/dir` | Error dialog + empty buffer |
-| `led /unreadable` | Error dialog + empty buffer |
+| `zee` | Empty buffer `[No Name]` |
+| `zee myfile.txt` | Open file; if not found, empty named buffer (not written until Save) |
+| `zee a.txt b.txt` | Each file in its own tab; first tab active |
+| `zee /some/dir` | Error dialog + empty buffer |
+| `zee /unreadable` | Error dialog + empty buffer |
 
 No flags or subcommands in initial release.
 
@@ -593,10 +593,10 @@ No flags or subcommands in initial release.
 
 ## 13. Clipboard
 
-- On copy/cut (`Ctrl+C` / `Ctrl+X`): **both** OSC 52 sequence **and** platform clipboard API are attempted concurrently. OSC 52 is not a fallback — it is always emitted alongside the platform write, because there is no reliable acknowledgement mechanism for OSC 52
+- On copy/cut (`Ctrl+C` / `Ctrl+X`): **both** OSC 52 sequence **and** platform clipboard API are attempted concurrently. OSC 52 is not a fallback — it is always emitted alongside the platform write, because there is no reliable acknowzeegement mechanism for OSC 52
 - On paste (`Ctrl+V`): platform clipboard is read first; bracketed paste from terminal (OSC 52 response) is also accepted
-- Platform clipboard implementation is in `led-tui/src/clipboard.rs` and is entirely absent from `led-core`
-- `led-gui` uses gpui's native clipboard API instead of OSC 52
+- Platform clipboard implementation is in `zee-tui/src/clipboard.rs` and is entirely absent from `zee-core`
+- `zee-gui` uses gpui's native clipboard API instead of OSC 52
 
 ---
 
@@ -616,23 +616,23 @@ No flags or subcommands in initial release.
 
 - Built-in themes: `Tokyo Night` (default), `Light`, `Solarized Dark`, `Solarized Light`, `Catppuccin Mocha`, `Catppuccin Latte`
 - Theme selection applies immediately and persists to `config.toml`
-- Theme color values in `led-core::theme` are plain RGB structs — no terminal escape codes or gpui types. Both frontends map these to their own color primitives
+- Theme color values in `zee-core::theme` are plain RGB structs — no terminal escape codes or gpui types. Both frontends map these to their own color primitives
 
 ---
 
 ## 16. Internationalization (i18n)
 
-- Locale files: built-in (`en`, `ja`) + user files at `~/.config/led/locales/<code>.toml`
+- Locale files: built-in (`en`, `ja`) + user files at `~/.config/zee/locales/<code>.toml`
 - Missing keys fall back to the `en` built-in
 - `language` key in `config.toml` selects the locale at startup
 
 ---
 
-## 17. GUI Version (led-gui) — Future Plan
+## 17. GUI Version (zee-gui) — Future Plan
 
 ### Overview
 
-`led-gui` is a native GUI editor sharing all business logic with `led-tui` through `led-core`. It is a **separate binary** built in a future development phase after TUI completion.
+`zee-gui` is a native GUI editor sharing all business logic with `zee-tui` through `zee-core`. It is a **separate binary** built in a future development phase after TUI completion.
 
 ### Framework: gpui
 
@@ -651,7 +651,7 @@ gpui is the GPU-accelerated UI framework developed by Zed Industries for the Zed
 
 ### Menu Bar: Platform-Specific Design
 
-`led-gui` follows the same platform conventions as Zed editor for menu bar placement:
+`zee-gui` follows the same platform conventions as Zed editor for menu bar placement:
 
 | Platform | Menu bar location | Implementation |
 | :--- | :--- | :--- |
@@ -668,14 +668,14 @@ This is exactly the approach taken by Zed itself: `app.rs` calls `set_menus()` w
 #### macOS: Native Menu Bar via `gpui::App::set_menus()`
 
 ```rust
-// crates/led-gui/src/app.rs  (macOS path)
+// crates/zee-gui/src/app.rs  (macOS path)
 app.set_menus(vec![
     Menu {
-        name: "led-gui".into(),   // Application menu (shows app name)
+        name: "zee-gui".into(),   // Application menu (shows app name)
         items: vec![
-            MenuItem::action("About led-gui", AboutAction),
+            MenuItem::action("About zee-gui", AboutAction),
             MenuItem::separator(),
-            MenuItem::action("Quit led-gui", QuitAction),
+            MenuItem::action("Quit zee-gui", QuitAction),
         ],
     },
     Menu {
@@ -705,7 +705,7 @@ app.set_menus(vec![
 ], cx);
 ```
 
-- Menu labels come from `led-core::i18n` so localization applies to the native menu bar too
+- Menu labels come from `zee-core::i18n` so localization applies to the native menu bar too
 - Keyboard shortcuts registered here are enforced by macOS and shown in the native menu (e.g., `⌘S` for Save)
 - Toggle items (Line Numbers, Word Wrap, Vi Mode) use `MenuItem::action` with a checked state; the check mark is updated by sending an action that re-calls `set_menus()` with the updated state
 
@@ -732,7 +732,7 @@ app.set_menus(vec![
 #### Platform Detection at Runtime
 
 ```rust
-// crates/led-gui/src/app.rs
+// crates/zee-gui/src/app.rs
 #[cfg(target_os = "macos")]
 fn setup_menu(app: &mut gpui::App, i18n: &I18n, cx: &mut AppContext) {
     app.set_menus(build_native_menus(i18n), cx);
@@ -742,19 +742,19 @@ fn setup_menu(app: &mut gpui::App, i18n: &I18n, cx: &mut AppContext) {
 #[cfg(not(target_os = "macos"))]
 fn setup_menu(_app: &mut gpui::App, _i18n: &I18n, _cx: &mut AppContext) {
     // In-window menu_bar.rs View is added to the window layout instead
-    // (handled in window_view.rs)
+    // (handzee in window_view.rs)
 }
 ```
 
 #### Menu Action Routing
 
-All menu actions — whether triggered by the native macOS menu, the in-window menu bar, or keyboard shortcuts — dispatch the same `Action` enum values from `led-core`. This ensures no duplicated logic:
+All menu actions — whether triggered by the native macOS menu, the in-window menu bar, or keyboard shortcuts — dispatch the same `Action` enum values from `zee-core`. This ensures no duplicated logic:
 
 ```
 Native macOS menu item clicked
     → gpui dispatches Action to focused View
     → editor_view.rs / app.rs handles Action
-    → calls led-core API (same code path as TUI)
+    → calls zee-core API (same code path as TUI)
 
 In-window menu item clicked (Windows/Linux)
     → menu_bar.rs dispatches Action
@@ -778,29 +778,29 @@ In-window menu item clicked (Windows/Linux)
 
 ### Default Window Size
 
-`led-gui` starts with a default window size optimized for readability:
+`zee-gui` starts with a default window size optimized for readability:
 - **Width**: 1008px
 - **Height**: 826px
 - **Position**: Centered on the primary display at startup.
 
 ### Theme Selection
 
-`led` aims to feel native to its environment by following system-level theme preferences:
+`zee` aims to feel native to its environment by following system-level theme preferences:
 
-- **TUI (`led`)**:
+- **TUI (`zee`)**:
   - Uses the `terminal-default` theme by default, which maps to the terminal's native background and foreground colors (using ANSI escape codes for Reset and standard 16 colors for syntax highlighting).
   - If a specific theme is selected in `config.toml`, it overrides the terminal defaults.
-- **GUI (`led-gui`)**:
+- **GUI (`zee-gui`)**:
   - Automatically detects the OS light/dark mode preference on startup if `theme` in `config.toml` is set to `terminal-default` or left empty.
   - Defaults to `Tokyo Night` (dark) for dark mode and `Catppuccin Latte` for light mode.
   - User-selected themes in `config.toml` take precedence.
 
 ### Architecture
 
-`led-gui` depends only on `led-core` and `gpui`. It does **not** depend on `crossterm`.
+`zee-gui` depends only on `zee-core` and `gpui`. It does **not** depend on `crossterm`.
 
 ```
-led-gui/src/
+zee-gui/src/
 ├── main.rs          entry point; platform-conditional menu setup
 ├── app.rs           gpui::App + Window creation + Action dispatch
 ├── window_view.rs   root View; composes all child Views; omits menu_bar on macOS
@@ -816,13 +816,13 @@ led-gui/src/
 
 #### Native GUI Rendering & Modern UI Design Details
 
-`led-gui` is designed as a modern, polished desktop editor that leverages native GUI capabilities while retaining the lightweight, keyboard-friendly nature of `led`:
+`zee-gui` is designed as a modern, polished desktop editor that leverages native GUI capabilities while retaining the lightweight, keyboard-friendly nature of `zee`:
 
 - **Typography & Font Customization**:
   - **Editor & Gutter**: Uses dedicated monospace fonts (configurable via `font_family`, defaulting to platform default like `Menlo` on macOS). `font_size` (default: 14.0px) and `line_height` (default: 22.0px) are fully customizable in `config.toml`.
   - **UI Elements (Tabs, Status Bar, Find Panel, Dialogs)**: Uses platform-standard proportional UI fonts (`ui_font_family`, default: `.AppleSystemUIFont` on macOS) and `ui_font_size` (default: 13.0px) for clean readability and authentic native GUI feel.
 - **Dynamic Theme Discovery & CSS Color Support**:
-  - Automatically loads built-in themes and user-defined themes from `~/.config/led/themes/*.toml`.
+  - Automatically loads built-in themes and user-defined themes from `~/.config/zee/themes/*.toml`.
   - Supports CSS Hex (`#rgb`, `#rrggbb`, `#rrggbbaa`), CSS `rgb(...)` / `rgba(...)`, `ansi(...)` (numeric or named), and standard named CSS colors.
 - **Tab Bar**:
   - Rounded tab pills with subtle borders and smooth hover states.
@@ -834,7 +834,7 @@ led-gui/src/
   - Interactive click handlers: clicking line/col opens "Go to Line", clicking encoding, line endings, or syntax displays relevant pickers/actions.
 - **Find / Replace Panel**:
   - Modern floating / inline toolbar with rounded input fields, focus rings, and placeholders.
-  - Styled toggle buttons for Match Case (`Aa`), Whole Word (`\b`), and Regex (`.*`).
+  - Styzee toggle buttons for Match Case (`Aa`), Whole Word (`\b`), and Regex (`.*`).
   - Search count badge (`3 of 12`) and navigation action buttons.
 - **Modal Dialogs (About, Go to Line, Unsaved Changes)**:
   - Centered modern modal cards with rounded corners (`rounded-xl`), backdrop blur/dim, and elevated drop shadows.
@@ -843,24 +843,24 @@ led-gui/src/
   - Smooth semi-transparent scroll thumb overlay with hover feedback.
 - **Line Layout & Text Rendering**:
   - Each line is rendered as a flex-row with fixed height and proper baseline alignment.
-  - Text chunks are mapped from `led-core::syntax` and `led-core::theme` with crisp GPU rendering and IME composition underline support.
+  - Text chunks are mapped from `zee-core::syntax` and `zee-core::theme` with crisp GPU rendering and IME composition underline support.
 
 ### Feature Parity Target
 
-`led-gui` targets full feature parity with `led-tui`:
+`zee-gui` targets full feature parity with `zee-tui`:
 - All editing operations (undo/redo, selection, search, replace)
-- All themes (colors mapped from `led-core::theme` RGB structs to gpui colors)
-- All syntax highlighting (same `led-core::syntax` engine)
-- All config keys (same `led-core::config` loader)
+- All themes (colors mapped from `zee-core::theme` RGB structs to gpui colors)
+- All syntax highlighting (same `zee-core::syntax` engine)
+- All config keys (same `zee-core::config` loader)
 - File drag & drop (GUI-only addition)
 - Platform-appropriate menu bar (native on macOS, in-window on Windows/Linux)
 - Native shortcuts: `Cmd+...` on macOS, `Ctrl+...` on Windows/Linux for standard actions (New, Open, Save, Quit, etc.)
 - Japanese Inline Input (IME): full support for inline conversion and composition
 - Native clipboard (gpui's built-in, no OSC 52 needed)
 
-### What is NOT shared with led-tui
+### What is NOT shared with zee-tui
 
-| led-tui only | led-gui only |
+| zee-tui only | zee-gui only |
 | :--- | :--- |
 | crossterm raw mode | gpui window/event loop |
 | Diff rendering (cell buffer) | GPU compositing |
@@ -875,7 +875,7 @@ led-gui/src/
 
 - **Modern TUI Aesthetics**: Clean, high-contrast, visually pleasing — feels at home in modern terminal emulators
 - **Flat Codebase within each crate**: Simple, navigable module structure; no deep nesting
-- **Shared Core**: All editor logic lives in `led-core`; frontends are thin rendering/input layers
+- **Shared Core**: All editor logic lives in `zee-core`; frontends are thin rendering/input layers
 - **Empowerment through Simplicity**: Tabs, syntax highlighting, themes — without IDE complexity
 - **Clean-Room Implementation**: Entirely original; user is the sole copyright holder
 
