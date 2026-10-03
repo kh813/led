@@ -1,4 +1,4 @@
-# zee (ZEpto Editor / 清浄)
+# zee (ZEpto Editor)
 
 **zee** is a modern, ultra-fast, and lightweight text editor built in Rust. It provides a native, hardware-accelerated **GUI** desktop experience (`zeeg`) alongside a feature-packed **TUI** (Terminal User Interface, `zee`) that shares the exact same shortcuts, menus, dialogs, and intuitive feel.
 
