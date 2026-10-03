@@ -27,11 +27,12 @@ Download the appropriate binary from the [releases page] and place it in your `P
 
 | Platform | Binary | Notes |
 | :--- | :--- | :--- |
-| macOS Apple Silicon (TUI) | `zee-mac-arm64` | TUI binary. Rename to `zee` and `chmod +x`. |
-| macOS Apple Silicon (GUI) | `zeeg-mac-arm64.app.zip` | Extracting provides `Zee.app`. Double-click or move to `/Applications`. |
-| Linux x86-64 | `zee-linux-x64` (TUI), `zeeg-linux-x64` (GUI) | TUI binary (`zee`) and GUI binary (`zeeg`). Launch GUI from applications menu. |
-| Linux ARM64 | `zee-linux-arm64` (TUI), `zeeg-linux-arm64` (GUI) | TUI binary (`zee`) and GUI binary (`zeeg`). Launch GUI from applications menu. |
-| Windows x86-64 | `zee-windows-x64.exe` (TUI), `zeeg-windows-x64.exe` (GUI) | TUI (`zee.exe`) / GUI binary (`zee.exe`). |
+| macOS Apple Silicon (TUI) | `zee-v0.1.0-macos-arm64.tar.gz` | Terminal TUI binary (`zee`). |
+| macOS Apple Silicon (GUI) | `zeeg-v0.1.0-macos-arm64.zip` | macOS App Bundle (`Zee.app`). |
+| Linux x86-64 | `zee-v0.1.0-linux-x64.tar.gz` (TUI), `zeeg-v0.1.0-linux-x64.tar.gz` (GUI) | Linux 64-bit TUI and GUI binaries. |
+| Linux ARM64 | `zee-v0.1.0-linux-arm64.tar.gz` (TUI), `zeeg-v0.1.0-linux-arm64.tar.gz` (GUI) | Linux ARM64 TUI and GUI binaries. |
+| Windows x86-64 | `zee-v0.1.0-windows-x64.zip` | Windows 64-bit binaries (`zee.exe` & `zeeg.exe`). |
+| Windows ARM64 | `zee-v0.1.0-windows-arm64.zip` | Windows ARM64 binaries (`zee.exe` & `zeeg.exe`). |
 
 **macOS / Linux quick install:**
 ```bash
