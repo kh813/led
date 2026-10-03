@@ -1146,13 +1146,22 @@ impl EditorView {
         let line_height = px(workspace.config.line_height);
         let font_size = workspace.config.font_size;
         let gutter_width = if workspace.config.line_numbers { px(52.0) } else { px(0.0) };
+        let sidebar_width = if workspace.sidebar_visible { px(220.0) } else { px(0.0) };
         let char_width = px(font_size * 0.6);
 
-        let relative_y = position.y - px(36.0); // Offset by tab bar (36px)
+        let tab_bar_height = px(36.0);
+        #[cfg(not(target_os = "macos"))]
+        let menu_bar_height = px(28.0);
+        #[cfg(target_os = "macos")]
+        let menu_bar_height = px(0.0);
+
+        let top_offset = tab_bar_height + menu_bar_height;
+        let relative_y = position.y - top_offset;
         let line_idx = (relative_y / line_height).floor() as i32 + editor.scroll_row as i32;
         let line_idx = line_idx.max(0).min(editor.line_count() as i32 - 1) as usize;
 
-        let relative_x = position.x - gutter_width + px(editor.scroll_col as f32 * font_size * 0.6);
+        let left_offset = sidebar_width + gutter_width;
+        let relative_x = position.x - left_offset + px(editor.scroll_col as f32 * font_size * 0.6);
         let col_idx = (relative_x / char_width).round() as i32;
         let col_idx = col_idx.max(0) as usize;
 
@@ -1176,7 +1185,8 @@ impl EditorView {
         let char_pos = self.mouse_pos_to_char_pos(event.position, cx);
         let workspace_read = self.workspace.read(cx);
         let gutter_width = if workspace_read.config.line_numbers { px(52.0) } else { px(0.0) };
-        let is_gutter_click = event.position.x < gutter_width;
+        let sidebar_width = if workspace_read.sidebar_visible { px(220.0) } else { px(0.0) };
+        let is_gutter_click = event.position.x >= sidebar_width && event.position.x < (sidebar_width + gutter_width);
 
         self.workspace.update(cx, |w, cx| {
             let editor = match w.active_editor_mut() {
@@ -1554,6 +1564,7 @@ impl EditorView {
     fn render_line(&self, line_idx: usize, workspace: &Workspace, editor: &zee_core::buffer::Editor) -> impl IntoElement {
         let theme = &workspace.theme;
         let word_wrap = workspace.config.word_wrap;
+        let line_height = px(workspace.config.line_height);
 
         let line = editor.rope.line(line_idx);
         let mut line_str = line.to_string();
@@ -1581,13 +1592,13 @@ impl EditorView {
         let gutter_border = with_alpha(led_color_to_gpui(theme.editor.line_number), 0.2);
 
         // Measure average character width for scrolling/cursor
-        let char_width = 8.4; // Default fallback
+        let char_width = workspace.config.font_size * 0.6;
 
         div()
             .w_full()
             .flex()
-            .when(word_wrap, |d| d.min_h(px(22.0)))
-            .when(!word_wrap, |d| d.h(px(22.0)))
+            .when(word_wrap, |d| d.min_h(line_height))
+            .when(!word_wrap, |d| d.h(line_height))
             .bg(bg)
             .text_color(led_color_to_gpui(theme.editor.foreground))
             .child(
@@ -1596,8 +1607,7 @@ impl EditorView {
                     .w(gutter_width)
                     .h_full()
                     .flex()
-                    .items_start()
-                    .pt(px(1.0))
+                    .items_center()
                     .justify_end()
                     .px_2p5()
                     .border_r_1()
@@ -1610,7 +1620,7 @@ impl EditorView {
                 div()
                     .flex_grow()
                     .w_full()
-                    .min_h(px(22.0))
+                    .min_h(line_height)
                     .relative()
                     .child(
                         div()
@@ -1623,6 +1633,7 @@ impl EditorView {
 
     fn render_line_content(&self, line_idx: usize, line_str: &str, workspace: &Workspace, editor: &zee_core::buffer::Editor, is_cursor_line: bool) -> Vec<AnyElement> {
         let theme = &workspace.theme;
+        let line_height = px(workspace.config.line_height);
 
         let selection = if editor.vi_mode == zee_core::ViMode::VisualBlock {
             let ranges = editor.get_visual_block_ranges();
@@ -1640,6 +1651,7 @@ impl EditorView {
 
         let is_block_cursor = workspace.config.vi_mode && editor.vi_mode != zee_core::ViMode::Insert;
         let char_width_val = workspace.config.font_size * 0.6;
+        let cursor_color = led_color_to_gpui(theme.editor.cursor);
 
         let render_cursor = |elements: &mut Vec<AnyElement>| {
             if let Some(ref preedit) = self.preedit_text {
@@ -1651,35 +1663,37 @@ impl EditorView {
                     div()
                         .relative()
                         .w(px(0.0))
-                        .h_full()
+                        .h(line_height)
+                        .flex_none()
                         .child(
                             div()
                                 .absolute()
                                 .top_0()
                                 .left_0()
                                 .w(px(char_width_val))
-                                .h_full()
-                                .bg(with_alpha(led_color_to_gpui(theme.editor.cursor), 0.5))
+                                .h(line_height)
+                                .bg(with_alpha(cursor_color, 0.5))
                                 .border_1()
-                                .border_color(led_color_to_gpui(theme.editor.cursor))
+                                .border_color(cursor_color)
                         )
                         .into_any_element()
                 );
             } else {
-                // 2px vertical bar cursor
+                // 2.5px vertical bar cursor
                 elements.push(
                     div()
                         .relative()
                         .w(px(0.0))
-                        .h_full()
+                        .h(line_height)
+                        .flex_none()
                         .child(
                             div()
                                 .absolute()
                                 .top_0()
                                 .left_0()
-                                .w(px(2.0))
-                                .h_full()
-                                .bg(led_color_to_gpui(theme.editor.cursor))
+                                .w(px(2.5))
+                                .h(line_height)
+                                .bg(cursor_color)
                         )
                         .into_any_element()
                 );
@@ -1700,15 +1714,15 @@ impl EditorView {
                     let part1 = chunk_chars[..split_idx].iter().collect::<String>();
                     let part2 = chunk_chars[split_idx..].iter().collect::<String>();
                     
-                    self.render_chunk_internal(&part1, start_char, token_color, selection.clone(), theme, elements);
+                    self.render_chunk_internal(&part1, start_char, token_color, selection.clone(), theme, line_height, elements);
                     render_cursor(elements);
                     cursor_rendered = true;
-                    self.render_chunk_internal(&part2, start_char + split_idx, token_color, selection.clone(), theme, elements);
+                    self.render_chunk_internal(&part2, start_char + split_idx, token_color, selection.clone(), theme, line_height, elements);
                     return;
                 }
             }
 
-            self.render_chunk_internal(text, start_char, token_color, selection.clone(), theme, elements);
+            self.render_chunk_internal(text, start_char, token_color, selection.clone(), theme, line_height, elements);
         };
 
         if let Some(Some(tokens)) = editor.line_tokens.get(line_idx) {
@@ -1771,12 +1785,13 @@ impl EditorView {
             .into_any_element()
     }
 
-    fn render_chunk_internal(&self, text: &str, start_char: usize, token_color: Option<Rgba>, selection: Option<std::ops::Range<usize>>, theme: &Theme, elements: &mut Vec<AnyElement>) {
+    fn render_chunk_internal(&self, text: &str, start_char: usize, token_color: Option<Rgba>, selection: Option<std::ops::Range<usize>>, theme: &Theme, line_height: Pixels, elements: &mut Vec<AnyElement>) {
         if text.is_empty() { return; }
         let chunk_chars: Vec<char> = text.chars().collect();
         let chunk_len = chunk_chars.len();
         
         let text_color = token_color.unwrap_or(led_color_to_gpui(theme.editor.foreground));
+        let sel_bg = with_alpha(led_color_to_gpui(theme.editor.selection), 0.75);
 
         if let Some(ref sel) = selection {
             let sel_start = if sel.start > start_char { sel.start - start_char } else { 0 };
@@ -1789,7 +1804,7 @@ impl EditorView {
                 if highlight_start > 0 {
                     elements.push(
                         div()
-                            .h_full()
+                            .h(line_height)
                             .flex()
                             .items_center()
                             .text_color(text_color)
@@ -1801,10 +1816,10 @@ impl EditorView {
 
                 elements.push(
                     div()
-                        .h_full()
+                        .h(line_height)
                         .flex()
                         .items_center()
-                        .bg(led_color_to_gpui(theme.editor.selection))
+                        .bg(sel_bg)
                         .text_color(text_color)
                         .font_family(mono_font_family())
                         .child(chunk_chars[highlight_start..highlight_end].iter().collect::<String>())
@@ -1814,7 +1829,7 @@ impl EditorView {
                 if highlight_end < chunk_len {
                     elements.push(
                         div()
-                            .h_full()
+                            .h(line_height)
                             .flex()
                             .items_center()
                             .text_color(text_color)
@@ -1829,7 +1844,7 @@ impl EditorView {
 
         elements.push(
             div()
-                .h_full()
+                .h(line_height)
                 .flex()
                 .items_center()
                 .text_color(text_color)
