@@ -425,5 +425,51 @@ commands = ["outline.refresh"]
         assert!(manifest.capabilities.outline_provider);
         assert_eq!(manifest.capabilities.commands, vec!["outline.refresh"]);
     }
+
+    #[test]
+    fn test_load_and_run_wasm_plugin() {
+        let plugin_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .unwrap()
+            .parent()
+            .unwrap()
+            .join("plugins/zee-plugin-text");
+        
+        let wasm_file = plugin_dir.join("plugin.wasm");
+        if !wasm_file.exists() {
+            return;
+        }
+
+        let mut manager = PluginManager::default();
+        manager.load_plugin_dir(&plugin_dir).unwrap();
+        assert_eq!(manager.plugins.len(), 1);
+
+        // Test outline extraction via WASM
+        let md_content = "# Chapter 1\nContent 1\n## Sub 1.1\nContent 1.1\n# Chapter 2\n";
+        let outline = manager.parse_outline("markdown", md_content).unwrap();
+        assert_eq!(outline.len(), 2);
+        assert_eq!(outline[0].title, "Chapter 1");
+        assert_eq!(outline[0].children.len(), 1);
+        assert_eq!(outline[0].children[0].title, "Sub 1.1");
+        assert_eq!(outline[1].title, "Chapter 2");
+
+        // Test text transformations
+        // 1. JSON formatting
+        let unformatted_json = r#"{"name":"zee","fast":true,"version":"0.1.1"}"#;
+        let formatted = manager.transform_text("format_json", unformatted_json).unwrap();
+        assert!(formatted.contains("\n  \"name\": \"zee\""));
+
+        // 2. Line sorting
+        let unsorted = "zebra\napple\ncat\nbanana";
+        let sorted = manager.transform_text("sort_lines", unsorted).unwrap();
+        assert_eq!(sorted, "apple\nbanana\ncat\nzebra");
+
+        // 3. Case conversion
+        let camel = manager.transform_text("to_camel_case", "hello_world_text").unwrap();
+        assert_eq!(camel, "helloWorldText");
+
+        let snake = manager.transform_text("to_snake_case", "HelloWorldText").unwrap();
+        assert_eq!(snake, "hello_world_text");
+    }
 }
 

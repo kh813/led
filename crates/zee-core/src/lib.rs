@@ -28,6 +28,13 @@ pub enum Action {
     Find,
     Replace,
     SelectAll,
+    FormatDocument,
+    SortLines,
+    ToUpperCase,
+    ToLowerCase,
+    ToSnakeCase,
+    ToCamelCase,
+    PluginCommand(String),
 
     // View
     GoToLine,

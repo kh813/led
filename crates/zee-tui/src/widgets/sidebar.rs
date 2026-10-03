@@ -41,7 +41,11 @@ pub struct Sidebar {
 impl Sidebar {
     pub fn new(root_path: PathBuf, visible: bool) -> Self {
         let file_tree = FileTree::new(root_path, false);
-        let plugin_manager = zee_core::plugin::PluginManager::new();
+        let mut plugin_manager = zee_core::plugin::PluginManager::new();
+        let dev_plugin_dir = PathBuf::from("plugins/zee-plugin-text");
+        if dev_plugin_dir.exists() {
+            let _ = plugin_manager.load_plugin_dir(&dev_plugin_dir);
+        }
         Self {
             visible,
             active_tab: SidebarTab::Files,

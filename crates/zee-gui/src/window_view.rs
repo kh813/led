@@ -488,6 +488,48 @@ impl WindowView {
         });
     }
 
+    fn handle_format_document(&mut self, _: &crate::app::FormatDocument, _window: &mut Window, cx: &mut Context<Self>) {
+        self.workspace.update(cx, |w, cx| {
+            w.apply_plugin_transform("format_json");
+            cx.notify();
+        });
+    }
+
+    fn handle_sort_lines(&mut self, _: &crate::app::SortLines, _window: &mut Window, cx: &mut Context<Self>) {
+        self.workspace.update(cx, |w, cx| {
+            w.apply_plugin_transform("sort_lines");
+            cx.notify();
+        });
+    }
+
+    fn handle_to_uppercase(&mut self, _: &crate::app::ToUpperCase, _window: &mut Window, cx: &mut Context<Self>) {
+        self.workspace.update(cx, |w, cx| {
+            w.apply_plugin_transform("to_uppercase");
+            cx.notify();
+        });
+    }
+
+    fn handle_to_lowercase(&mut self, _: &crate::app::ToLowerCase, _window: &mut Window, cx: &mut Context<Self>) {
+        self.workspace.update(cx, |w, cx| {
+            w.apply_plugin_transform("to_lowercase");
+            cx.notify();
+        });
+    }
+
+    fn handle_to_snake_case(&mut self, _: &crate::app::ToSnakeCase, _window: &mut Window, cx: &mut Context<Self>) {
+        self.workspace.update(cx, |w, cx| {
+            w.apply_plugin_transform("to_snake_case");
+            cx.notify();
+        });
+    }
+
+    fn handle_to_camel_case(&mut self, _: &crate::app::ToCamelCase, _window: &mut Window, cx: &mut Context<Self>) {
+        self.workspace.update(cx, |w, cx| {
+            w.apply_plugin_transform("to_camel_case");
+            cx.notify();
+        });
+    }
+
     fn handle_find(&mut self, _: &Find, window: &mut Window, cx: &mut Context<Self>) {
         self.find_panel.update(cx, |p, cx| p.show(false, window, cx));
     }
@@ -895,6 +937,12 @@ impl Render for WindowView {
             .on_action(cx.listener(Self::handle_copy))
             .on_action(cx.listener(Self::handle_paste))
             .on_action(cx.listener(Self::handle_select_all))
+            .on_action(cx.listener(Self::handle_format_document))
+            .on_action(cx.listener(Self::handle_sort_lines))
+            .on_action(cx.listener(Self::handle_to_uppercase))
+            .on_action(cx.listener(Self::handle_to_lowercase))
+            .on_action(cx.listener(Self::handle_to_snake_case))
+            .on_action(cx.listener(Self::handle_to_camel_case))
             .on_action(cx.listener(Self::handle_find))
             .on_action(cx.listener(Self::handle_replace))
             .on_action(cx.listener(Self::handle_toggle_sidebar))
@@ -1143,6 +1191,14 @@ impl WindowView {
             .child(self.render_menu_item(self.i18n.get("menu.edit.replace").to_string(), Some("Ctrl+H"), Replace {}, fg, hover_bg, muted_fg, cx))
             .child(self.render_menu_sep(border))
             .child(self.render_menu_item(self.i18n.get("menu.edit.select_all").to_string(), Some("Ctrl+A"), SelectAll {}, fg, hover_bg, muted_fg, cx))
+            .child(self.render_menu_sep(border))
+            .child(self.render_menu_item(self.i18n.get("menu.edit.format_document").to_string(), None, crate::app::FormatDocument {}, fg, hover_bg, muted_fg, cx))
+            .child(self.render_menu_item(self.i18n.get("menu.edit.sort_lines").to_string(), None, crate::app::SortLines {}, fg, hover_bg, muted_fg, cx))
+            .child(self.render_menu_sep(border))
+            .child(self.render_menu_item(self.i18n.get("menu.edit.to_uppercase").to_string(), None, crate::app::ToUpperCase {}, fg, hover_bg, muted_fg, cx))
+            .child(self.render_menu_item(self.i18n.get("menu.edit.to_lowercase").to_string(), None, crate::app::ToLowerCase {}, fg, hover_bg, muted_fg, cx))
+            .child(self.render_menu_item(self.i18n.get("menu.edit.to_snake_case").to_string(), None, crate::app::ToSnakeCase {}, fg, hover_bg, muted_fg, cx))
+            .child(self.render_menu_item(self.i18n.get("menu.edit.to_camel_case").to_string(), None, crate::app::ToCamelCase {}, fg, hover_bg, muted_fg, cx))
     }
 
     fn render_view_menu(&self, fg: Rgba, hover_bg: Rgba, muted_fg: Rgba, border: Rgba, cx: &mut Context<Self>) -> impl IntoElement {

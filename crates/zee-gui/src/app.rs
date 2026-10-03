@@ -615,8 +615,15 @@ fn build_native_menus(i18n: &I18n) -> Vec<Menu> {
                 MenuItem::separator(),
                 MenuItem::action(i18n.get("menu.edit.find"), Find {}),
                 MenuItem::action(i18n.get("menu.edit.replace"), Replace {}),
-                MenuItem::separator(),
                 MenuItem::action(i18n.get("menu.edit.select_all"), SelectAll {}),
+                MenuItem::separator(),
+                MenuItem::action(i18n.get("menu.edit.format_document"), FormatDocument {}),
+                MenuItem::action(i18n.get("menu.edit.sort_lines"), SortLines {}),
+                MenuItem::separator(),
+                MenuItem::action(i18n.get("menu.edit.to_uppercase"), ToUpperCase {}),
+                MenuItem::action(i18n.get("menu.edit.to_lowercase"), ToLowerCase {}),
+                MenuItem::action(i18n.get("menu.edit.to_snake_case"), ToSnakeCase {}),
+                MenuItem::action(i18n.get("menu.edit.to_camel_case"), ToCamelCase {}),
             ],
             disabled: false,
         },
@@ -692,6 +699,7 @@ actions!(zee, [
 
     // Edit
     Undo, Redo, Cut, Copy, Paste, Find, Replace, SelectAll,
+    FormatDocument, SortLines, ToUpperCase, ToLowerCase, ToSnakeCase, ToCamelCase,
     // Tabs
     NextTab, PrevTab,
     // View

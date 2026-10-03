@@ -1,0 +1,18 @@
+id = "text-tools"
+name = "Standard Text Tools"
+version = "0.1.1"
+description = "Text manipulation utilities and Markdown outline provider"
+languages = ["markdown", "md", "json", "txt"]
+
+[capabilities]
+outline_provider = true
+commands = [
+    "format_json",
+    "minify_json",
+    "sort_lines",
+    "reverse_lines",
+    "to_uppercase",
+    "to_lowercase",
+    "to_snake_case",
+    "to_camel_case"
+]

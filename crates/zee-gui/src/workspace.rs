@@ -20,6 +20,7 @@ pub struct Workspace {
     pub sidebar_tab: SidebarTab,
     pub file_tree: FileTree,
     pub outline_nodes: Vec<OutlineNode>,
+    pub plugin_manager: zee_core::plugin::PluginManager,
 }
 
 impl Workspace {
@@ -31,6 +32,13 @@ impl Workspace {
         let root = root_path.unwrap_or_else(zee_core::file_tree::user_root_dir);
         let file_tree = FileTree::new(&root, false);
         let sidebar_visible = config.sidebar;
+        let mut plugin_manager = zee_core::plugin::PluginManager::new();
+        // Check local development plugins directory if present
+        let dev_plugin_dir = PathBuf::from("plugins/zee-plugin-text");
+        if dev_plugin_dir.exists() {
+            let _ = plugin_manager.load_plugin_dir(&dev_plugin_dir);
+        }
+
         Self {
             editors: vec![Editor::new()],
             active_editor_index: 0,
@@ -40,6 +48,7 @@ impl Workspace {
             sidebar_tab: SidebarTab::Files,
             file_tree,
             outline_nodes: Vec::new(),
+            plugin_manager,
         }
     }
 
@@ -48,12 +57,53 @@ impl Workspace {
     }
 
     pub fn update_outline(&mut self) {
-        if let Some(editor) = self.active_editor() {
-            let text = editor.rope.to_string();
-            self.outline_nodes = outline::parse_markdown_outline(&text);
+        if let Some((ext, text)) = self.active_editor().map(|e| {
+            let ext = e.path.as_ref()
+                .and_then(|p| p.extension())
+                .and_then(|e| e.to_str())
+                .unwrap_or("md")
+                .to_string();
+            let text = e.rope.to_string();
+            (ext, text)
+        }) {
+            self.outline_nodes = outline::extract_outline(Some(&mut self.plugin_manager), &ext, &text);
         } else {
             self.outline_nodes.clear();
         }
+    }
+
+    pub fn apply_plugin_transform(&mut self, command: &str) {
+        let (has_selection, range, text_to_transform) = if let Some(editor) = self.active_editor() {
+            if let Some(range) = editor.selection.clone() {
+                if range.start < range.end {
+                    (true, range.clone(), editor.rope.slice(range).to_string())
+                } else {
+                    (false, 0..0, editor.rope.to_string())
+                }
+            } else {
+                (false, 0..0, editor.rope.to_string())
+            }
+        } else {
+            return;
+        };
+
+        let transformed = self.plugin_manager
+            .transform_text(command, &text_to_transform)
+            .unwrap_or(text_to_transform);
+
+        if let Some(editor) = self.active_editor_mut() {
+            if has_selection {
+                editor.delete(range.clone());
+                editor.insert(range.start, &transformed);
+                editor.cursor = range.start + transformed.chars().count();
+                editor.selection = Some(range.start..editor.cursor);
+            } else {
+                editor.delete(0..editor.rope.len_chars());
+                editor.insert(0, &transformed);
+                editor.cursor = editor.cursor.min(editor.rope.len_chars());
+            }
+        }
+        self.update_outline();
     }
 
     pub fn toggle_sidebar(&mut self) {

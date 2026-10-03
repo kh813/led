@@ -111,6 +111,29 @@ pub fn flatten_outline(nodes: &[OutlineNode], depth: usize, out: &mut Vec<FlatOu
     }
 }
 
+/// Extracts outline for a given language / extension, utilizing installed WASM plugins
+/// first, with built-in fallbacks.
+pub fn extract_outline(
+    plugin_manager: Option<&mut crate::plugin::PluginManager>,
+    lang_or_ext: &str,
+    content: &str,
+) -> Vec<OutlineNode> {
+    if let Some(pm) = plugin_manager {
+        if let Some(nodes) = pm.parse_outline(lang_or_ext, content) {
+            if !nodes.is_empty() {
+                return nodes;
+            }
+        }
+    }
+
+    let ext = lang_or_ext.to_lowercase();
+    if ext == "markdown" || ext == "md" {
+        parse_markdown_outline(content)
+    } else {
+        Vec::new()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

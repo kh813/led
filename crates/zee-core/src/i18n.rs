@@ -97,6 +97,12 @@ impl I18n {
         m.insert("menu.edit.find".to_string(), "Find…".to_string());
         m.insert("menu.edit.replace".to_string(), "Replace…".to_string());
         m.insert("menu.edit.select_all".to_string(), "Select All".to_string());
+        m.insert("menu.edit.format_document".to_string(), "Format Document (Plugin)".to_string());
+        m.insert("menu.edit.sort_lines".to_string(), "Sort Lines (Plugin)".to_string());
+        m.insert("menu.edit.to_uppercase".to_string(), "Transform to UPPERCASE".to_string());
+        m.insert("menu.edit.to_lowercase".to_string(), "Transform to lowercase".to_string());
+        m.insert("menu.edit.to_snake_case".to_string(), "Transform to snake_case".to_string());
+        m.insert("menu.edit.to_camel_case".to_string(), "Transform to camelCase".to_string());
 
         m.insert("menu.view".to_string(), "View".to_string());
         m.insert("menu.view.go_to_line".to_string(), "Go to Line…".to_string());
@@ -213,6 +219,12 @@ impl I18n {
         m.insert("menu.edit.find".to_string(), "検索…".to_string());
         m.insert("menu.edit.replace".to_string(), "置換…".to_string());
         m.insert("menu.edit.select_all".to_string(), "すべて選択".to_string());
+        m.insert("menu.edit.format_document".to_string(), "ドキュメント整形 (プラグイン)".to_string());
+        m.insert("menu.edit.sort_lines".to_string(), "行の並び替え (プラグイン)".to_string());
+        m.insert("menu.edit.to_uppercase".to_string(), "大文字に変換".to_string());
+        m.insert("menu.edit.to_lowercase".to_string(), "小文字に変換".to_string());
+        m.insert("menu.edit.to_snake_case".to_string(), "snake_caseに変換".to_string());
+        m.insert("menu.edit.to_camel_case".to_string(), "camelCaseに変換".to_string());
 
         m.insert("menu.view".to_string(), "表示".to_string());
         m.insert("menu.view.go_to_line".to_string(), "行移動…".to_string());

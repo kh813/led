@@ -323,6 +323,14 @@ impl App {
                 MenuItem::Action { label: i18n.get("menu.edit.replace").to_string(), action: Action::Replace, shortcut: Some("Ctrl+R".to_string()) },
                 MenuItem::Separator,
                 MenuItem::Action { label: i18n.get("menu.edit.select_all").to_string(), action: Action::SelectAll, shortcut: Some("Ctrl+A".to_string()) },
+                MenuItem::Separator,
+                MenuItem::Action { label: i18n.get("menu.edit.format_document").to_string(), action: Action::FormatDocument, shortcut: None },
+                MenuItem::Action { label: i18n.get("menu.edit.sort_lines").to_string(), action: Action::SortLines, shortcut: None },
+                MenuItem::Separator,
+                MenuItem::Action { label: i18n.get("menu.edit.to_uppercase").to_string(), action: Action::ToUpperCase, shortcut: None },
+                MenuItem::Action { label: i18n.get("menu.edit.to_lowercase").to_string(), action: Action::ToLowerCase, shortcut: None },
+                MenuItem::Action { label: i18n.get("menu.edit.to_snake_case").to_string(), action: Action::ToSnakeCase, shortcut: None },
+                MenuItem::Action { label: i18n.get("menu.edit.to_camel_case").to_string(), action: Action::ToCamelCase, shortcut: None },
             ]),
             Menu::new(i18n.get("menu.view"), vec![
                 MenuItem::Action { label: i18n.get("menu.view.go_to_line").to_string(), action: Action::GoToLine, shortcut: Some("Ctrl+G".to_string()) },
@@ -369,6 +377,41 @@ impl App {
                 .unwrap_or("markdown");
             self.sidebar.update_outline(&content, lang);
         }
+    }
+
+    pub fn apply_plugin_transform(&mut self, cmd: &str) {
+        let (has_selection, range, text_to_transform) = if let Some(buffer) = self.buffers.get(self.active_buffer) {
+            if let Some(range) = buffer.selection.clone() {
+                if range.start < range.end {
+                    (true, range.clone(), buffer.rope.slice(range).to_string())
+                } else {
+                    (false, 0..0, buffer.rope.to_string())
+                }
+            } else {
+                (false, 0..0, buffer.rope.to_string())
+            }
+        } else {
+            return;
+        };
+
+        let transformed = self.sidebar.plugin_manager
+            .transform_text(cmd, &text_to_transform)
+            .unwrap_or(text_to_transform);
+
+        if let Some(buffer) = self.buffers.get_mut(self.active_buffer) {
+            if has_selection {
+                buffer.delete(range.clone());
+                buffer.insert(range.start, &transformed);
+                buffer.cursor = range.start + transformed.chars().count();
+                buffer.selection = Some(range.start..buffer.cursor);
+            } else {
+                buffer.delete(0..buffer.rope.len_chars());
+                buffer.insert(0, &transformed);
+                buffer.cursor = buffer.cursor.min(buffer.rope.len_chars());
+            }
+        }
+        self.ensure_cursor_visible();
+        self.update_active_outline();
     }
 
     pub fn open_or_switch_to_file(&mut self, path: PathBuf) {
@@ -2402,6 +2445,27 @@ impl App {
                     }
                 }
                 self.ensure_cursor_visible();
+            }
+            Action::FormatDocument => {
+                self.apply_plugin_transform("format_json");
+            }
+            Action::SortLines => {
+                self.apply_plugin_transform("sort_lines");
+            }
+            Action::ToUpperCase => {
+                self.apply_plugin_transform("to_uppercase");
+            }
+            Action::ToLowerCase => {
+                self.apply_plugin_transform("to_lowercase");
+            }
+            Action::ToSnakeCase => {
+                self.apply_plugin_transform("to_snake_case");
+            }
+            Action::ToCamelCase => {
+                self.apply_plugin_transform("to_camel_case");
+            }
+            Action::PluginCommand(ref cmd) => {
+                self.apply_plugin_transform(cmd);
             }
             Action::ToggleSidebar => {
                 self.sidebar.toggle_visibility();

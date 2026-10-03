@@ -715,6 +715,53 @@ impl Editor {
         }
     }
 
+    pub fn replace(&mut self, range: Range<usize>, text: &str) -> EditDelta {
+        let old_line_start = self.rope.char_to_line(range.start);
+        let old_text = self.rope.slice(range.clone()).to_string();
+        
+        self.rope.remove(range.clone());
+        self.rope.insert(range.start, text);
+        self.redo_stack.clear();
+
+        let new_char_count = text.chars().count();
+        let new_line_end = self.rope.char_to_line(range.start + new_char_count);
+        self.update_line_states(old_line_start, new_line_end + 1);
+
+        let delta = EditDelta {
+            char_range: range.clone(),
+            old_text,
+            new_text: text.to_string(),
+            line_range: old_line_start..new_line_end + 1,
+        };
+
+        self.push_undo(delta.clone());
+        self.cursor = range.start + new_char_count;
+        self.selection = None;
+        self.selection_anchor = None;
+        delta
+    }
+
+    pub fn transform_selection_or_buffer(&mut self, transform_fn: impl FnOnce(&str) -> String) {
+        if let Some(range) = self.selection.clone() {
+            if range.start < range.end {
+                let text = self.rope.slice(range.clone()).to_string();
+                let transformed = transform_fn(&text);
+                if transformed != text {
+                    self.replace(range.clone(), &transformed);
+                    self.selection = Some(range.start..self.cursor);
+                }
+                return;
+            }
+        }
+        // Transform entire buffer
+        let text = self.rope.to_string();
+        let transformed = transform_fn(&text);
+        if transformed != text {
+            self.replace(0..self.rope.len_chars(), &transformed);
+            self.cursor = self.cursor.min(self.rope.len_chars());
+        }
+    }
+
     pub fn select_word(&mut self, pos: usize) {
         let range = self.find_word_bounds(pos);
         self.selection_anchor = Some(range.start);
@@ -1118,5 +1165,32 @@ mod tests {
         assert_eq!(editor.scroll_col, 0);
         assert!(editor.scroll_row <= 50);
         assert!(editor.scroll_row + 30 > 50);
+    }
+
+    #[test]
+    fn test_transform_selection_or_buffer() {
+        let mut editor = Editor::new();
+        editor.insert(0, "hello world");
+        
+        // 1. Transform entire buffer
+        editor.transform_selection_or_buffer(|t| t.to_uppercase());
+        assert_eq!(editor.rope.to_string(), "HELLO WORLD");
+
+        // Undo
+        editor.undo();
+        assert_eq!(editor.rope.to_string(), "hello world");
+
+        // Redo
+        editor.redo();
+        assert_eq!(editor.rope.to_string(), "HELLO WORLD");
+
+        // 2. Transform selection only
+        editor.selection = Some(0..5); // "HELLO"
+        editor.transform_selection_or_buffer(|t| t.to_lowercase());
+        assert_eq!(editor.rope.to_string(), "hello WORLD");
+
+        // Undo selection transform
+        editor.undo();
+        assert_eq!(editor.rope.to_string(), "HELLO WORLD");
     }
 }
