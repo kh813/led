@@ -24,25 +24,22 @@ jobs:
             os: macos-14
             target: aarch64-apple-darwin
             is_macos: true
-            archive_name: zee-${{ github.ref_name }}-macos-arm64
-            gui_archive_name: zeeg-${{ github.ref_name }}-macos-arm64
+            platform: macos-arm64
           - name: macos-x64
             os: macos-13
             target: x86_64-apple-darwin
             is_macos: true
-            archive_name: zee-${{ github.ref_name }}-macos-x64
-            gui_archive_name: zeeg-${{ github.ref_name }}-macos-x64
+            platform: macos-x64
           - name: linux-x64
             os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
             is_linux: true
-            archive_name: zee-${{ github.ref_name }}-linux-x64
-            gui_archive_name: zeeg-${{ github.ref_name }}-linux-x64
+            platform: linux-x64
           - name: windows-x64
             os: windows-latest
             target: x86_64-pc-windows-msvc
             is_windows: true
-            archive_name: zee-${{ github.ref_name }}-windows-x64
+            platform: windows-x64
 
     steps:
       - name: Checkout repository
@@ -74,19 +71,23 @@ jobs:
       - name: Build macOS CLI (zee)
         if: matrix.is_macos
         run: |
+          TAG_NAME="${GITHUB_REF_NAME:-v0.1.0}"
+          ARCHIVE_NAME="zee-${TAG_NAME}-${{ matrix.platform }}"
           cargo build --release -p zee-tui --target ${{ matrix.target }}
-          mkdir -p dist/${{ matrix.archive_name }}
-          cp target/${{ matrix.target }}/release/zee dist/${{ matrix.archive_name }}/
-          cp README.md MANUAL.md LICENSE* dist/${{ matrix.archive_name }}/ 2>/dev/null || true
-          tar -czvf dist/${{ matrix.archive_name }}.tar.gz -C dist ${{ matrix.archive_name }}
+          mkdir -p "dist/${ARCHIVE_NAME}"
+          cp "target/${{ matrix.target }}/release/zee" "dist/${ARCHIVE_NAME}/"
+          cp README.md MANUAL.md LICENSE* "dist/${ARCHIVE_NAME}/" 2>/dev/null || true
+          tar -czvf "dist/${ARCHIVE_NAME}.tar.gz" -C dist "${ARCHIVE_NAME}"
 
       - name: Build & Package macOS GUI (Zee.app)
         if: matrix.is_macos
         run: |
+          TAG_NAME="${GITHUB_REF_NAME:-v0.1.0}"
+          GUI_ARCHIVE_NAME="zeeg-${TAG_NAME}-${{ matrix.platform }}"
           cargo build --release -p zee-gui --target ${{ matrix.target }}
           mkdir -p dist/Zee.app/Contents/MacOS
           mkdir -p dist/Zee.app/Contents/Resources
-          cp target/${{ matrix.target }}/release/zeeg dist/Zee.app/Contents/MacOS/zeeg
+          cp "target/${{ matrix.target }}/release/zeeg" dist/Zee.app/Contents/MacOS/zeeg
           chmod +x dist/Zee.app/Contents/MacOS/zeeg
           if [ -f assets/icons/zee.icns ]; then cp assets/icons/zee.icns dist/Zee.app/Contents/Resources/zee.icns; fi
           cat << 'EOF' > dist/Zee.app/Contents/Info.plist
@@ -105,9 +106,9 @@ jobs:
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>
-    <string>0.0.2</string>
+    <string>0.1.0</string>
     <key>CFBundleVersion</key>
-    <string>0.0.2</string>
+    <string>0.1.0</string>
     <key>CFBundleIconFile</key>
     <string>zee.icns</string>
     <key>NSHighResolutionCapable</key>
@@ -135,40 +136,45 @@ jobs:
 </plist>
 EOF
           cd dist
-          zip -r ${{ matrix.gui_archive_name }}.zip Zee.app
+          zip -r "${GUI_ARCHIVE_NAME}.zip" Zee.app
 
       # --- Linux Builds (CLI as 'zee', GUI as 'zeeg') ---
       - name: Build Linux (CLI & GUI)
         if: matrix.is_linux
         run: |
+          TAG_NAME="${GITHUB_REF_NAME:-v0.1.0}"
+          ARCHIVE_NAME="zee-${TAG_NAME}-${{ matrix.platform }}"
+          GUI_ARCHIVE_NAME="zeeg-${TAG_NAME}-${{ matrix.platform }}"
           cargo build --release -p zee-tui --target ${{ matrix.target }}
           cargo build --release -p zee-gui --target ${{ matrix.target }}
           
           # Package CLI (zee)
-          mkdir -p dist/${{ matrix.archive_name }}
-          cp target/${{ matrix.target }}/release/zee dist/${{ matrix.archive_name }}/
-          cp README.md MANUAL.md LICENSE* dist/${{ matrix.archive_name }}/ 2>/dev/null || true
-          tar -czvf dist/${{ matrix.archive_name }}.tar.gz -C dist ${{ matrix.archive_name }}
+          mkdir -p "dist/${ARCHIVE_NAME}"
+          cp "target/${{ matrix.target }}/release/zee" "dist/${ARCHIVE_NAME}/"
+          cp README.md MANUAL.md LICENSE* "dist/${ARCHIVE_NAME}/" 2>/dev/null || true
+          tar -czvf "dist/${ARCHIVE_NAME}.tar.gz" -C dist "${ARCHIVE_NAME}"
 
           # Package GUI (zeeg)
-          mkdir -p dist/${{ matrix.gui_archive_name }}
-          cp target/${{ matrix.target }}/release/zeeg dist/${{ matrix.gui_archive_name }}/
-          cp README.md MANUAL.md LICENSE* dist/${{ matrix.gui_archive_name }}/ 2>/dev/null || true
-          tar -czvf dist/${{ matrix.gui_archive_name }}.tar.gz -C dist ${{ matrix.gui_archive_name }}
+          mkdir -p "dist/${GUI_ARCHIVE_NAME}"
+          cp "target/${{ matrix.target }}/release/zeeg" "dist/${GUI_ARCHIVE_NAME}/"
+          cp README.md MANUAL.md LICENSE* "dist/${GUI_ARCHIVE_NAME}/" 2>/dev/null || true
+          tar -czvf "dist/${GUI_ARCHIVE_NAME}.tar.gz" -C dist "${GUI_ARCHIVE_NAME}"
 
       # --- Windows Builds ---
       - name: Build Windows (zeeg.exe & zee.exe)
         if: matrix.is_windows
         shell: bash
         run: |
+          TAG_NAME="${GITHUB_REF_NAME:-v0.1.0}"
+          ARCHIVE_NAME="zee-${TAG_NAME}-${{ matrix.platform }}"
           cargo build --release -p zee-gui --target ${{ matrix.target }}
           cargo build --release -p zee-tui --target ${{ matrix.target }}
-          mkdir -p dist/${{ matrix.archive_name }}
-          cp target/${{ matrix.target }}/release/zeeg.exe dist/${{ matrix.archive_name }}/zeeg.exe
-          cp target/${{ matrix.target }}/release/zee.exe dist/${{ matrix.archive_name }}/zee.exe
-          cp README.md MANUAL.md LICENSE* dist/${{ matrix.archive_name }}/ 2>/dev/null || true
+          mkdir -p "dist/${ARCHIVE_NAME}"
+          cp "target/${{ matrix.target }}/release/zeeg.exe" "dist/${ARCHIVE_NAME}/zeeg.exe"
+          cp "target/${{ matrix.target }}/release/zee.exe" "dist/${ARCHIVE_NAME}/zee.exe"
+          cp README.md MANUAL.md LICENSE* "dist/${ARCHIVE_NAME}/" 2>/dev/null || true
           cd dist
-          7z a ${{ matrix.archive_name }}.zip ${{ matrix.archive_name }}
+          7z a "${ARCHIVE_NAME}.zip" "${ARCHIVE_NAME}"
 
       - name: Upload Artifacts
         uses: actions/upload-artifact@v4
