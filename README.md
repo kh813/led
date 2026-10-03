@@ -6,7 +6,7 @@ Whether launching `Zee.app` on your desktop or running `zee` over SSH in a termi
 
 ## Features
 
-- **Dual GUI & TUI Experience**: Native GPU-accelerated desktop GUI (`zeeg` on macOS, Linux, Windows) and a responsive terminal TUI (`zee`) sharing identical workflows and shortcuts.
+- **Dual GUI & TUI Experience**: Native GPU-accelerated desktop GUI (`zeeg` on macOS, Windows, and Linux [Experimental]) and a responsive terminal TUI (`zee`) sharing identical workflows and shortcuts.
 - **Modern Aesthetics & Themes**: High-contrast, beautifully themed UI with customizable colors.
 - **Menu & Dialog Driven**: Intuitive top-level menu bar, dropdowns, and modal dialogs (Goto line, Open, Save As, Settings).
 - **Find & Replace Panel**: Interactive search with match counting, regex, case sensitivity, and whole word support.
@@ -55,8 +55,8 @@ cargo build --release -p zee-tui   # Terminal TUI: target/release/zee.exe
 
 ### Desktop GUI
 - **macOS**: Launch `dist/Zee.app` (or open from Launchpad / Applications folder).
-- **Linux**: Launch **zee** from your Desktop Application Menu, or run `zeeg [FILE...]` from terminal.
 - **Windows**: Launch `zeeg.exe [FILE...]`.
+- **Linux (Experimental)**: Launch **zee** from your Desktop Application Menu, or run `zeeg [FILE...]` from terminal.
 
 ### Terminal TUI / Remote (SSH)
 - **All Platforms**: Run `zee [FILE...]` in your terminal.

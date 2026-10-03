@@ -29,10 +29,12 @@ Download the appropriate binary from the [releases page] and place it in your `P
 | :--- | :--- | :--- |
 | macOS Apple Silicon (TUI) | `zee-v0.1.0-macos-arm64.tar.gz` | Terminal TUI binary (`zee`). |
 | macOS Apple Silicon (GUI) | `zeeg-v0.1.0-macos-arm64.zip` | macOS App Bundle (`Zee.app`). |
-| Linux x86-64 | `zee-v0.1.0-linux-x64.tar.gz` (TUI), `zeeg-v0.1.0-linux-x64.tar.gz` (GUI) | Linux 64-bit TUI and GUI binaries. |
-| Linux ARM64 | `zee-v0.1.0-linux-arm64.tar.gz` (TUI), `zeeg-v0.1.0-linux-arm64.tar.gz` (GUI) | Linux ARM64 TUI and GUI binaries. |
 | Windows x86-64 | `zee-v0.1.0-windows-x64.zip` | Windows 64-bit binaries (`zee.exe` & `zeeg.exe`). |
 | Windows ARM64 | `zee-v0.1.0-windows-arm64.zip` | Windows ARM64 binaries (`zee.exe` & `zeeg.exe`). |
+| Linux x86-64 *(Experimental)* | `zee-v0.1.0-linux-x64.tar.gz` (TUI), `zeeg-v0.1.0-linux-x64.tar.gz` (GUI) | Linux 64-bit TUI and GUI binaries (Experimental). |
+| Linux ARM64 *(Experimental)* | `zee-v0.1.0-linux-arm64.tar.gz` (TUI), `zeeg-v0.1.0-linux-arm64.tar.gz` (GUI) | Linux ARM64 TUI and GUI binaries (Experimental). |
+
+> **Note on Linux support**: Linux builds are currently provided on an **Experimental** basis as a dedicated Linux physical test environment is not maintained. Community feedback and issues are welcome.
 
 **macOS / Linux quick install:**
 ```bash
