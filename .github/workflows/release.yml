@@ -165,21 +165,14 @@ jobs:
           cp README.md MANUAL.md LICENSE* "dist/${GUI_ARCHIVE_NAME}/" 2>/dev/null || true
           tar -czvf "dist/${GUI_ARCHIVE_NAME}.tar.gz" -C dist "${GUI_ARCHIVE_NAME}"
 
-      # --- Windows Builds ---
-      - name: Build Windows (zeeg.exe & zee.exe)
+      # --- Windows Builds (GUI only as 'zeeg') ---
+      - name: Build Windows GUI (zeeg.exe)
         if: matrix.is_windows
         shell: bash
         run: |
           TAG_NAME="${GITHUB_REF_NAME:-v0.1.0}"
-          ARCHIVE_NAME="zee-${TAG_NAME}-${{ matrix.platform }}"
           GUI_ARCHIVE_NAME="zeeg-${TAG_NAME}-${{ matrix.platform }}"
           cargo build --release -p zee-gui --target ${{ matrix.target }}
-          cargo build --release -p zee-tui --target ${{ matrix.target }}
-
-          # Package CLI (zee)
-          mkdir -p "dist/${ARCHIVE_NAME}"
-          cp "target/${{ matrix.target }}/release/zee.exe" "dist/${ARCHIVE_NAME}/zee.exe"
-          cp README.md MANUAL.md LICENSE* "dist/${ARCHIVE_NAME}/" 2>/dev/null || true
 
           # Package GUI (zeeg)
           mkdir -p "dist/${GUI_ARCHIVE_NAME}"
@@ -187,7 +180,6 @@ jobs:
           cp README.md MANUAL.md LICENSE* "dist/${GUI_ARCHIVE_NAME}/" 2>/dev/null || true
 
           cd dist
-          7z a "${ARCHIVE_NAME}.zip" "${ARCHIVE_NAME}"
           7z a "${GUI_ARCHIVE_NAME}.zip" "${GUI_ARCHIVE_NAME}"
 
       - name: Upload Artifacts
