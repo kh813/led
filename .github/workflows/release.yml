@@ -91,50 +91,50 @@ jobs:
           chmod +x dist/Zee.app/Contents/MacOS/zeeg
           if [ -f assets/icons/zee.icns ]; then cp assets/icons/zee.icns dist/Zee.app/Contents/Resources/zee.icns; fi
           cat << 'EOF' > dist/Zee.app/Contents/Info.plist
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-    <key>CFBundleExecutable</key>
-    <string>zeeg</string>
-    <key>CFBundleIdentifier</key>
-    <string>dev.hiroshi.zeeg</string>
-    <key>CFBundleName</key>
-    <string>zee</string>
-    <key>CFBundleDisplayName</key>
-    <string>zee</string>
-    <key>CFBundlePackageType</key>
-    <string>APPL</string>
-    <key>CFBundleShortVersionString</key>
-    <string>0.1.0</string>
-    <key>CFBundleVersion</key>
-    <string>0.1.0</string>
-    <key>CFBundleIconFile</key>
-    <string>zee.icns</string>
-    <key>NSHighResolutionCapable</key>
-    <true/>
-    <key>NSSupportsAutomaticGraphicsSwitching</key>
-    <true/>
-    <key>CFBundleDocumentTypes</key>
-    <array>
-        <dict>
-            <key>CFBundleTypeName</key>
-            <string>All Files</string>
-            <key>CFBundleTypeRole</key>
-            <string>Editor</string>
-            <key>LSItemContentTypes</key>
-            <array>
-                <string>public.data</string>
-                <string>public.content</string>
-                <string>public.plain-text</string>
-            </array>
-        </dict>
-    </array>
-    <key>LSMinimumSystemVersion</key>
-    <string>10.15.7</string>
-</dict>
-</plist>
-EOF
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+              <key>CFBundleExecutable</key>
+              <string>zeeg</string>
+              <key>CFBundleIdentifier</key>
+              <string>dev.hiroshi.zeeg</string>
+              <key>CFBundleName</key>
+              <string>zee</string>
+              <key>CFBundleDisplayName</key>
+              <string>zee</string>
+              <key>CFBundlePackageType</key>
+              <string>APPL</string>
+              <key>CFBundleShortVersionString</key>
+              <string>0.1.0</string>
+              <key>CFBundleVersion</key>
+              <string>0.1.0</string>
+              <key>CFBundleIconFile</key>
+              <string>zee.icns</string>
+              <key>NSHighResolutionCapable</key>
+              <true/>
+              <key>NSSupportsAutomaticGraphicsSwitching</key>
+              <true/>
+              <key>CFBundleDocumentTypes</key>
+              <array>
+                  <dict>
+                      <key>CFBundleTypeName</key>
+                      <string>All Files</string>
+                      <key>CFBundleTypeRole</key>
+                      <string>Editor</string>
+                      <key>LSItemContentTypes</key>
+                      <array>
+                          <string>public.data</string>
+                          <string>public.content</string>
+                          <string>public.plain-text</string>
+                      </array>
+                  </dict>
+              </array>
+              <key>LSMinimumSystemVersion</key>
+              <string>10.15.7</string>
+          </dict>
+          </plist>
+          EOF
           cd dist
           zip -r "${GUI_ARCHIVE_NAME}.zip" Zee.app
 
