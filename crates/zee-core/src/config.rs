@@ -28,7 +28,7 @@ impl Default for Config {
             theme: "terminal-default".to_string(),
             line_numbers: true,
             vi_mode: false,
-            word_wrap: false,
+            word_wrap: true,
             sidebar: false,
             tab_size: 4,
             expand_tab: false,

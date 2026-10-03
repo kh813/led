@@ -298,6 +298,25 @@ impl Editor {
         char_idx.saturating_sub(if range.end > range.start && self.is_line_ending(line.char(range.end - 1)) { 1 } else { 0 })
     }
 
+    pub fn ensure_cursor_visible(&mut self, visible_lines: usize, visible_cols: usize, word_wrap: bool) {
+        let (cursor_line, cursor_col) = self.char_to_line_col(self.cursor);
+        if cursor_line < self.scroll_row {
+            self.scroll_row = cursor_line;
+        } else if cursor_line >= self.scroll_row + visible_lines {
+            self.scroll_row = cursor_line.saturating_sub(visible_lines.saturating_sub(1));
+        }
+
+        if !word_wrap {
+            if cursor_col < self.scroll_col {
+                self.scroll_col = cursor_col;
+            } else if cursor_col >= self.scroll_col + visible_cols {
+                self.scroll_col = cursor_col.saturating_sub(visible_cols.saturating_sub(1));
+            }
+        } else {
+            self.scroll_col = 0;
+        }
+    }
+
     fn decode_bytes(bytes: &[u8]) -> (Encoding, String) {
         // Use encoding_rs for BOM detection
         if let Some((enc, bom_len)) = encoding_rs::Encoding::for_bom(bytes) {
@@ -1071,5 +1090,33 @@ mod tests {
 
         editor.insert_visual_block("// ", false);
         assert_eq!(editor.rope.to_string(), "// one\n// two\n// three\n");
+    }
+
+    #[test]
+    fn test_ensure_cursor_visible() {
+        let mut editor = Editor::new();
+        // 100 lines, each with 120 characters
+        let content = (0..100)
+            .map(|i| format!("Line {:03}: {}", i, "x".repeat(110)))
+            .collect::<Vec<_>>()
+            .join("\n");
+        editor.insert(0, &content);
+
+        // Move cursor to line 50, col 90
+        let pos = editor.line_col_to_char(50, 90);
+        editor.cursor = pos;
+
+        // When word_wrap is false
+        editor.ensure_cursor_visible(30, 80, false);
+        assert!(editor.scroll_row <= 50);
+        assert!(editor.scroll_row + 30 > 50);
+        assert!(editor.scroll_col <= 90);
+        assert!(editor.scroll_col + 80 > 90);
+
+        // When word_wrap is true, scroll_col is reset to 0
+        editor.ensure_cursor_visible(30, 80, true);
+        assert_eq!(editor.scroll_col, 0);
+        assert!(editor.scroll_row <= 50);
+        assert!(editor.scroll_row + 30 > 50);
     }
 }

@@ -94,9 +94,16 @@ pub fn check_latest(app_type: AppType) -> Result<ReleaseInfo> {
 
 /// Find matching release asset for the current OS, CPU architecture, and application type.
 pub fn find_matching_asset<'a>(assets: &'a [ReleaseAsset], app_type: AppType) -> Option<&'a ReleaseAsset> {
-    let os = std::env::consts::OS;
-    let arch = std::env::consts::ARCH;
+    find_matching_asset_for_platform(assets, app_type, std::env::consts::OS, std::env::consts::ARCH)
+}
 
+/// Find matching release asset for a specific target OS and architecture.
+pub fn find_matching_asset_for_platform<'a>(
+    assets: &'a [ReleaseAsset],
+    app_type: AppType,
+    os: &str,
+    arch: &str,
+) -> Option<&'a ReleaseAsset> {
     for asset in assets {
         let name = asset.name.to_lowercase();
 
@@ -148,7 +155,11 @@ pub fn find_matching_asset<'a>(assets: &'a [ReleaseAsset], app_type: AppType) ->
             };
 
             if name.contains("windows") && matches_arch && name.ends_with(".zip") {
-                return Some(asset);
+                if app_type == AppType::Gui && name.starts_with("zeeg-") {
+                    return Some(asset);
+                } else if app_type == AppType::Cli && name.starts_with("zee-") && !name.starts_with("zeeg-") {
+                    return Some(asset);
+                }
             }
         }
     }
@@ -441,13 +452,140 @@ mod tests {
 
     #[test]
     fn test_version_comparison() {
+        // Test updating from older (e.g. 2nd newest 0.0.9 / 0.1.0) to latest
+        assert!(is_newer("0.0.9", "0.1.0"));
         assert!(is_newer("0.1.0", "0.1.1"));
         assert!(is_newer("0.1.0", "0.2.0"));
         assert!(is_newer("0.1.0", "1.0.0"));
-        assert!(is_newer("0.0.9", "0.1.0"));
         assert!(!is_newer("0.1.0", "0.1.0"));
         assert!(!is_newer("0.1.1", "0.1.0"));
         assert!(!is_newer("1.0.0", "0.9.9"));
         assert!(is_newer("v0.1.0", "v0.1.1"));
+    }
+
+    #[test]
+    fn test_all_platforms_asset_resolution() {
+        let release_assets = vec![
+            ReleaseAsset { name: "zeeg-macos-arm64.zip".to_string(), browser_download_url: "https://example.com/zeeg-macos-arm64.zip".to_string(), size: 1000 },
+            ReleaseAsset { name: "zee-macos-arm64.tar.gz".to_string(), browser_download_url: "https://example.com/zee-macos-arm64.tar.gz".to_string(), size: 2000 },
+            ReleaseAsset { name: "zeeg-linux-x64.tar.gz".to_string(), browser_download_url: "https://example.com/zeeg-linux-x64.tar.gz".to_string(), size: 3000 },
+            ReleaseAsset { name: "zee-linux-x64.tar.gz".to_string(), browser_download_url: "https://example.com/zee-linux-x64.tar.gz".to_string(), size: 4000 },
+            ReleaseAsset { name: "zeeg-linux-arm64.tar.gz".to_string(), browser_download_url: "https://example.com/zeeg-linux-arm64.tar.gz".to_string(), size: 5000 },
+            ReleaseAsset { name: "zee-linux-arm64.tar.gz".to_string(), browser_download_url: "https://example.com/zee-linux-arm64.tar.gz".to_string(), size: 6000 },
+            ReleaseAsset { name: "zeeg-windows-x64.zip".to_string(), browser_download_url: "https://example.com/zeeg-windows-x64.zip".to_string(), size: 7000 },
+            ReleaseAsset { name: "zee-windows-x64.zip".to_string(), browser_download_url: "https://example.com/zee-windows-x64.zip".to_string(), size: 8000 },
+            ReleaseAsset { name: "zeeg-windows-arm64.zip".to_string(), browser_download_url: "https://example.com/zeeg-windows-arm64.zip".to_string(), size: 9000 },
+            ReleaseAsset { name: "zee-windows-arm64.zip".to_string(), browser_download_url: "https://example.com/zee-windows-arm64.zip".to_string(), size: 10000 },
+        ];
+
+        // macOS arm64
+        let mac_gui = find_matching_asset_for_platform(&release_assets, AppType::Gui, "macos", "aarch64").unwrap();
+        assert_eq!(mac_gui.name, "zeeg-macos-arm64.zip");
+        let mac_cli = find_matching_asset_for_platform(&release_assets, AppType::Cli, "macos", "aarch64").unwrap();
+        assert_eq!(mac_cli.name, "zee-macos-arm64.tar.gz");
+
+        // Linux x64
+        let lin_gui_x64 = find_matching_asset_for_platform(&release_assets, AppType::Gui, "linux", "x86_64").unwrap();
+        assert_eq!(lin_gui_x64.name, "zeeg-linux-x64.tar.gz");
+        let lin_cli_x64 = find_matching_asset_for_platform(&release_assets, AppType::Cli, "linux", "x86_64").unwrap();
+        assert_eq!(lin_cli_x64.name, "zee-linux-x64.tar.gz");
+
+        // Linux arm64
+        let lin_gui_arm64 = find_matching_asset_for_platform(&release_assets, AppType::Gui, "linux", "aarch64").unwrap();
+        assert_eq!(lin_gui_arm64.name, "zeeg-linux-arm64.tar.gz");
+        let lin_cli_arm64 = find_matching_asset_for_platform(&release_assets, AppType::Cli, "linux", "aarch64").unwrap();
+        assert_eq!(lin_cli_arm64.name, "zee-linux-arm64.tar.gz");
+
+        // Windows x64
+        let win_gui_x64 = find_matching_asset_for_platform(&release_assets, AppType::Gui, "windows", "x86_64").unwrap();
+        assert_eq!(win_gui_x64.name, "zeeg-windows-x64.zip");
+        let win_cli_x64 = find_matching_asset_for_platform(&release_assets, AppType::Cli, "windows", "x86_64").unwrap();
+        assert_eq!(win_cli_x64.name, "zee-windows-x64.zip");
+
+        // Windows arm64
+        let win_gui_arm64 = find_matching_asset_for_platform(&release_assets, AppType::Gui, "windows", "aarch64").unwrap();
+        assert_eq!(win_gui_arm64.name, "zeeg-windows-arm64.zip");
+        let win_cli_arm64 = find_matching_asset_for_platform(&release_assets, AppType::Cli, "windows", "aarch64").unwrap();
+        assert_eq!(win_cli_arm64.name, "zee-windows-arm64.zip");
+    }
+
+    #[test]
+    fn test_tar_gz_extraction() {
+        use flate2::write::GzEncoder;
+        use flate2::Compression;
+        use tar::Builder;
+
+        let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
+        {
+            let mut tar = Builder::new(&mut encoder);
+            let test_content = b"fake binary executable content for zee v0.1.1";
+            let mut header = tar::Header::new_gnu();
+            header.set_path("zee").unwrap();
+            header.set_size(test_content.len() as u64);
+            header.set_mode(0o755);
+            header.set_cksum();
+            tar.append(&header, &test_content[..]).unwrap();
+            tar.finish().unwrap();
+        }
+        let tar_gz_bytes = encoder.finish().unwrap();
+
+        let temp_dir = tempfile_staging_dir("test-tar-extract").unwrap();
+        let dest_file = temp_dir.join("zee");
+
+        extract_tar_gz_binary(&tar_gz_bytes, "zee", &dest_file).unwrap();
+        assert!(dest_file.exists());
+        let read_back = fs::read(&dest_file).unwrap();
+        assert_eq!(read_back, b"fake binary executable content for zee v0.1.1");
+        let _ = fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_zip_app_bundle_extraction() {
+        use zip::write::{SimpleFileOptions, ZipWriter};
+        use std::io::{Cursor, Write};
+
+        let mut buf = Vec::new();
+        {
+            let mut zip = ZipWriter::new(Cursor::new(&mut buf));
+            let options = SimpleFileOptions::default();
+            
+            zip.add_directory("zee.app", options).unwrap();
+            zip.add_directory("zee.app/Contents", options).unwrap();
+            zip.add_directory("zee.app/Contents/MacOS", options).unwrap();
+            zip.start_file("zee.app/Contents/MacOS/zeeg", options).unwrap();
+            zip.write_all(b"zeeg macos gui binary").unwrap();
+            zip.finish().unwrap();
+        }
+
+        let temp_dir = tempfile_staging_dir("test-zip-app-extract").unwrap();
+        let app_dir = extract_zip_app_bundle(&buf, &temp_dir).unwrap();
+        assert!(app_dir.exists());
+        assert_eq!(app_dir.file_name().unwrap(), "zee.app");
+        assert!(app_dir.join("Contents/MacOS/zeeg").exists());
+        let content = fs::read(app_dir.join("Contents/MacOS/zeeg")).unwrap();
+        assert_eq!(content, b"zeeg macos gui binary");
+        let _ = fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_zip_windows_binary_extraction() {
+        use zip::write::{SimpleFileOptions, ZipWriter};
+        use std::io::{Cursor, Write};
+
+        let mut buf = Vec::new();
+        {
+            let mut zip = ZipWriter::new(Cursor::new(&mut buf));
+            let options = SimpleFileOptions::default();
+            zip.start_file("zee.exe", options).unwrap();
+            zip.write_all(b"windows binary data").unwrap();
+            zip.finish().unwrap();
+        }
+
+        let temp_dir = tempfile_staging_dir("test-zip-win-extract").unwrap();
+        let dest = temp_dir.join("zee.exe");
+        extract_zip_binary(&buf, "zee.exe", &dest).unwrap();
+        assert!(dest.exists());
+        assert_eq!(fs::read(&dest).unwrap(), b"windows binary data");
+        let _ = fs::remove_dir_all(&temp_dir);
     }
 }

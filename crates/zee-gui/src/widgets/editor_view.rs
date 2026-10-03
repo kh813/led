@@ -1,4 +1,5 @@
 use gpui::*;
+use gpui::prelude::FluentBuilder;
 use crate::workspace::Workspace;
 use zee_core::syntax::TokenType;
 use zee_core::theme::Theme;
@@ -98,10 +99,22 @@ impl EditorView {
                 match vi_mode {
                     zee_core::ViMode::Normal => {
                         self.handle_vi_normal_key(key, shift, cx);
+                        self.workspace.update(cx, |w, _| {
+                            let word_wrap = w.config.word_wrap;
+                            if let Some(editor) = w.active_editor_mut() {
+                                editor.ensure_cursor_visible(30, 80, word_wrap);
+                            }
+                        });
                         return;
                     }
                     zee_core::ViMode::Visual | zee_core::ViMode::VisualLine | zee_core::ViMode::VisualBlock => {
                         self.handle_vi_visual_key(key, cx);
+                        self.workspace.update(cx, |w, _| {
+                            let word_wrap = w.config.word_wrap;
+                            if let Some(editor) = w.active_editor_mut() {
+                                editor.ensure_cursor_visible(30, 80, word_wrap);
+                            }
+                        });
                         return;
                     }
                     zee_core::ViMode::Insert => {
@@ -129,6 +142,7 @@ impl EditorView {
         self.workspace.update(cx, |w, cx| {
             let expand_tab = w.config.expand_tab;
             let tab_size = w.config.tab_size as usize;
+            let word_wrap = w.config.word_wrap;
             let editor = match w.active_editor_mut() {
                 Some(e) => e,
                 None => return,
@@ -181,14 +195,9 @@ impl EditorView {
                     }
                     editor.insert(editor.cursor, "\n");
                 }
-                "space" => {
-                    if let Some(range) = editor.selection.clone() {
-                        editor.delete(range);
-                    }
-                    editor.insert(editor.cursor, " ");
-                }
                 _ => {}
             }
+            editor.ensure_cursor_visible(30, 80, word_wrap);
             cx.notify();
         });
     }
@@ -1296,6 +1305,7 @@ impl EntityInputHandler for EditorView {
         }
 
         self.workspace.update(cx, |w, cx| {
+            let word_wrap = w.config.word_wrap;
             let editor = match w.active_editor_mut() {
                 Some(e) => e,
                 None => return,
@@ -1309,6 +1319,7 @@ impl EntityInputHandler for EditorView {
             } else {
                 editor.insert(editor.cursor, text);
             }
+            editor.ensure_cursor_visible(30, 80, word_wrap);
             self.preedit_text = None;
             self.preedit_range = None;
             cx.notify();
@@ -1527,8 +1538,6 @@ impl EditorView {
     fn render_lines(&self, workspace: &Workspace, editor: &zee_core::buffer::Editor) -> impl IntoElement {
         let line_count = editor.line_count();
         let scroll_row = editor.scroll_row;
-        
-        let word_wrap = false; // Placeholder
 
         div()
             .w_full()
@@ -1537,63 +1546,14 @@ impl EditorView {
             .flex_col()
             .children(
                 (scroll_row..line_count.min(scroll_row + 100)).map(|idx| {
-                    if word_wrap {
-                        self.render_wrapped_line(idx, workspace, editor).into_any_element()
-                    } else {
-                        self.render_line(idx, workspace, editor).into_any_element()
-                    }
+                    self.render_line(idx, workspace, editor).into_any_element()
                 })
             )
     }
 
-    fn render_wrapped_line(&self, line_idx: usize, workspace: &Workspace, editor: &zee_core::buffer::Editor) -> impl IntoElement {
-        let theme = &workspace.theme;
-        let line = editor.rope.line(line_idx);
-        let line_chars: Vec<char> = line.chars().collect();
-
-        let wraps = editor.wrap_line(line_idx, 80, 4); 
-
-        div()
-            .w_full()
-            .flex_col()
-            .children(wraps.into_iter().enumerate().map(move |(vidx, range)| {
-                let start = range.start.min(line_chars.len());
-                let end = range.end.min(line_chars.len());
-                let chunk: String = if end > start {
-                    line_chars[start..end].iter().collect()
-                } else {
-                    String::new()
-                };
-                div()
-                    .w_full()
-                    .flex()
-                    .h(px(22.0))
-                    .text_size(px(14.0))
-                    .child(
-                        div()
-                            .w(px(50.0))
-                            .h_full()
-                            .flex()
-                            .items_center()
-                            .justify_end()
-                            .px_2()
-                            .text_color(led_color_to_gpui(theme.editor.line_number))
-                            .font_family(mono_font_family())
-                            .child(if vidx == 0 { (line_idx + 1).to_string() } else { "".to_string() })
-                    )
-                    .child(
-                        div()
-                            .h_full()
-                            .flex()
-                            .items_center()
-                            .font_family(mono_font_family())
-                            .child(chunk)
-                    )
-            }))
-    }
-
     fn render_line(&self, line_idx: usize, workspace: &Workspace, editor: &zee_core::buffer::Editor) -> impl IntoElement {
         let theme = &workspace.theme;
+        let word_wrap = workspace.config.word_wrap;
 
         let line = editor.rope.line(line_idx);
         let mut line_str = line.to_string();
@@ -1626,7 +1586,8 @@ impl EditorView {
         div()
             .w_full()
             .flex()
-            .h(px(22.0))
+            .when(word_wrap, |d| d.min_h(px(22.0)))
+            .when(!word_wrap, |d| d.h(px(22.0)))
             .bg(bg)
             .text_color(led_color_to_gpui(theme.editor.foreground))
             .child(
@@ -1635,7 +1596,8 @@ impl EditorView {
                     .w(gutter_width)
                     .h_full()
                     .flex()
-                    .items_center()
+                    .items_start()
+                    .pt(px(1.0))
                     .justify_end()
                     .px_2p5()
                     .border_r_1()
@@ -1647,16 +1609,13 @@ impl EditorView {
             .child(
                 div()
                     .flex_grow()
-                    .h_full()
+                    .w_full()
+                    .min_h(px(22.0))
                     .relative()
                     .child(
                         div()
-                            .absolute()
-                            .top_0()
-                            .left(px(-(editor.scroll_col as f32 * char_width)))
-                            .h_full()
-                            .flex()
-                            .items_center()
+                            .when(word_wrap, |d| d.relative().w_full().flex().flex_wrap().items_center())
+                            .when(!word_wrap, |d| d.absolute().top_0().left(px(-(editor.scroll_col as f32 * char_width))).h_full().flex().items_center())
                             .children(self.render_line_content(line_idx, &line_str, workspace, editor, is_cursor_line))
                     )
             )

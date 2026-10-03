@@ -35,6 +35,7 @@ pub struct WasmPlugin {
     dealloc_fn: Option<TypedFunc<(i32, i32), ()>>,
     parse_outline_fn: Option<TypedFunc<(i32, i32), i64>>,
     exec_command_fn: Option<TypedFunc<(i32, i32, i32, i32), i64>>,
+    transform_text_fn: Option<TypedFunc<(i32, i32, i32, i32), i64>>,
 }
 
 impl WasmPlugin {
@@ -65,17 +66,37 @@ impl WasmPlugin {
             .get_memory(&store, "memory")
             .ok_or_else(|| anyhow::anyhow!("Plugin missing 'memory' export"))?;
 
-        let alloc_fn = instance.get_typed_func::<i32, i32>(&store, "led_alloc").ok();
-        let dealloc_fn = instance.get_typed_func::<(i32, i32), ()>(&store, "led_dealloc").ok();
+        // Look up functions with zee_* prefix first, falling back to led_*
+        let alloc_fn = instance
+            .get_typed_func::<i32, i32>(&store, "zee_alloc")
+            .ok()
+            .or_else(|| instance.get_typed_func::<i32, i32>(&store, "led_alloc").ok());
+
+        let dealloc_fn = instance
+            .get_typed_func::<(i32, i32), ()>(&store, "zee_dealloc")
+            .ok()
+            .or_else(|| instance.get_typed_func::<(i32, i32), ()>(&store, "led_dealloc").ok());
+
         let parse_outline_fn = instance
-            .get_typed_func::<(i32, i32), i64>(&store, "led_parse_outline")
-            .ok();
+            .get_typed_func::<(i32, i32), i64>(&store, "zee_parse_outline")
+            .ok()
+            .or_else(|| instance.get_typed_func::<(i32, i32), i64>(&store, "led_parse_outline").ok());
+
         let exec_command_fn = instance
-            .get_typed_func::<(i32, i32, i32, i32), i64>(&store, "led_execute_command")
-            .ok();
+            .get_typed_func::<(i32, i32, i32, i32), i64>(&store, "zee_execute_command")
+            .ok()
+            .or_else(|| instance.get_typed_func::<(i32, i32, i32, i32), i64>(&store, "led_execute_command").ok());
+
+        let transform_text_fn = instance
+            .get_typed_func::<(i32, i32, i32, i32), i64>(&store, "zee_transform_text")
+            .ok()
+            .or_else(|| instance.get_typed_func::<(i32, i32, i32, i32), i64>(&store, "led_transform_text").ok());
 
         // Optional init hook
-        if let Ok(init_fn) = instance.get_typed_func::<(), i32>(&store, "led_init") {
+        if let Ok(init_fn) = instance
+            .get_typed_func::<(), i32>(&store, "zee_init")
+            .or_else(|_| instance.get_typed_func::<(), i32>(&store, "led_init"))
+        {
             let _ = init_fn.call(&mut store, ());
         }
 
@@ -88,16 +109,17 @@ impl WasmPlugin {
             dealloc_fn,
             parse_outline_fn,
             exec_command_fn,
+            transform_text_fn,
         })
     }
 
     pub fn parse_outline(&mut self, content: &str) -> Result<Vec<OutlineNode>> {
         let parse_fn = self
             .parse_outline_fn
-            .ok_or_else(|| anyhow::anyhow!("Plugin does not export led_parse_outline"))?;
+            .ok_or_else(|| anyhow::anyhow!("Plugin does not export zee_parse_outline"))?;
         let alloc_fn = self
             .alloc_fn
-            .ok_or_else(|| anyhow::anyhow!("Plugin does not export led_alloc"))?;
+            .ok_or_else(|| anyhow::anyhow!("Plugin does not export zee_alloc"))?;
 
         let bytes = content.as_bytes();
         let in_len = bytes.len() as i32;
@@ -134,10 +156,10 @@ impl WasmPlugin {
     pub fn execute_command(&mut self, command: &str, args: &str) -> Result<String> {
         let exec_fn = self
             .exec_command_fn
-            .ok_or_else(|| anyhow::anyhow!("Plugin does not export led_execute_command"))?;
+            .ok_or_else(|| anyhow::anyhow!("Plugin does not export zee_execute_command"))?;
         let alloc_fn = self
             .alloc_fn
-            .ok_or_else(|| anyhow::anyhow!("Plugin does not export led_alloc"))?;
+            .ok_or_else(|| anyhow::anyhow!("Plugin does not export zee_alloc"))?;
 
         let cmd_bytes = command.as_bytes();
         let args_bytes = args.as_bytes();
@@ -172,6 +194,56 @@ impl WasmPlugin {
         if let Some(dealloc) = self.dealloc_fn {
             let _ = dealloc.call(&mut self.store, (cmd_ptr, cmd_bytes.len() as i32));
             let _ = dealloc.call(&mut self.store, (args_ptr, args_bytes.len() as i32));
+            if out_len > 0 && out_ptr != 0 {
+                let _ = dealloc.call(&mut self.store, (out_ptr, out_len));
+            }
+        }
+
+        Ok(result_str)
+    }
+
+    pub fn transform_text(&mut self, command: &str, text: &str) -> Result<String> {
+        let transform_fn = self
+            .transform_text_fn
+            .or(self.exec_command_fn)
+            .ok_or_else(|| anyhow::anyhow!("Plugin does not export zee_transform_text or zee_execute_command"))?;
+        let alloc_fn = self
+            .alloc_fn
+            .ok_or_else(|| anyhow::anyhow!("Plugin does not export zee_alloc"))?;
+
+        let cmd_bytes = command.as_bytes();
+        let text_bytes = text.as_bytes();
+
+        let cmd_ptr = alloc_fn.call(&mut self.store, cmd_bytes.len() as i32)?;
+        self.memory.write(&mut self.store, cmd_ptr as usize, cmd_bytes)?;
+
+        let text_ptr = alloc_fn.call(&mut self.store, text_bytes.len() as i32)?;
+        self.memory.write(&mut self.store, text_ptr as usize, text_bytes)?;
+
+        let packed_result = transform_fn.call(
+            &mut self.store,
+            (
+                cmd_ptr,
+                cmd_bytes.len() as i32,
+                text_ptr,
+                text_bytes.len() as i32,
+            ),
+        )?;
+
+        let out_ptr = ((packed_result >> 32) & 0xFFFF_FFFF) as i32;
+        let out_len = (packed_result & 0xFFFF_FFFF) as i32;
+
+        let result_str = if out_len > 0 && out_ptr != 0 {
+            let mut out_bytes = vec![0u8; out_len as usize];
+            self.memory.read(&self.store, out_ptr as usize, &mut out_bytes)?;
+            String::from_utf8_lossy(&out_bytes).to_string()
+        } else {
+            String::new()
+        };
+
+        if let Some(dealloc) = self.dealloc_fn {
+            let _ = dealloc.call(&mut self.store, (cmd_ptr, cmd_bytes.len() as i32));
+            let _ = dealloc.call(&mut self.store, (text_ptr, text_bytes.len() as i32));
             if out_len > 0 && out_ptr != 0 {
                 let _ = dealloc.call(&mut self.store, (out_ptr, out_len));
             }
@@ -295,6 +367,28 @@ impl PluginManager {
                     if !nodes.is_empty() {
                         return Some(nodes);
                     }
+                }
+            }
+        }
+        None
+    }
+
+    pub fn execute_command(&mut self, command: &str, args: &str) -> Option<String> {
+        for plugin in &mut self.plugins {
+            if plugin.manifest.capabilities.commands.iter().any(|c| c == command) {
+                if let Ok(res) = plugin.execute_command(command, args) {
+                    return Some(res);
+                }
+            }
+        }
+        None
+    }
+
+    pub fn transform_text(&mut self, command: &str, text: &str) -> Option<String> {
+        for plugin in &mut self.plugins {
+            if plugin.manifest.capabilities.commands.iter().any(|c| c == command) {
+                if let Ok(res) = plugin.transform_text(command, text) {
+                    return Some(res);
                 }
             }
         }
