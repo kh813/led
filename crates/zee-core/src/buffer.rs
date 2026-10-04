@@ -1707,6 +1707,148 @@ mod tests {
         assert_eq!(line, 0);
         assert_eq!(col, 0);
     }
+
+    #[test]
+    fn test_pixel_wrapping_prevents_premature_wrap_gap() {
+        let mut editor = Editor::new();
+        // Line 23 from sample.md
+        let text = "テキストエディタで手軽に書いた文書からHTMLを生成するために開発されたが、PowerPoint形式やLaTeX形式のファイルへ変換するソフトウェア（コンバータ) も開発されている。各コンバータの開発者によって拡張が施された各種の方言が存在する。\n";
+        editor.insert(0, text);
+
+        let ascii_w: f32 = 7.225; // macOS 12pt Menlo monospace advance
+        let cjk_w: f32 = 12.0;    // macOS 12pt Hiragino Sans advance
+        let max_w: f32 = 944.0;   // Available viewport editor width
+
+        // 1. Column-based wrapping (old approach) assumed 2 columns per CJK char:
+        let wrap_cols = (max_w / ascii_w).floor() as usize; // 130 columns
+        let old_wraps = editor.wrap_line(0, wrap_cols, 4);
+        // The old approach wrapped at char 74 because 2 cols * 7.225 = 14.45px overestimated width by ~2.45px per CJK char
+        assert_eq!(old_wraps[0].end, 74);
+
+        // 2. Pixel-based wrapping (new approach) uses exact font metric advances:
+        let new_wraps = editor.wrap_line_px(0, max_w, ascii_w, cjk_w, 4);
+        assert_eq!(new_wraps[0].start, 0);
+        // New approach packs up to char 87 (13 more characters in the line!)
+        assert_eq!(new_wraps[0].end, 87);
+
+        // Calculate the actual pixel width of the first line under new vs old wrapping:
+        let calc_pixel_width = |range: std::ops::Range<usize>| -> f32 {
+            let line = editor.line(0);
+            let mut w: f32 = 0.0;
+            for c in line.chars().skip(range.start).take(range.end - range.start) {
+                if unicode_width::UnicodeWidthChar::width(c).unwrap_or(1) == 2 {
+                    w += cjk_w;
+                } else {
+                    w += ascii_w;
+                }
+            }
+            w
+        };
+
+        let old_rendered_w = calc_pixel_width(old_wraps[0].clone());
+        let new_rendered_w = calc_pixel_width(new_wraps[0].clone());
+
+        // Old wrap left a huge gap of > 140px (~146.7px)
+        let old_gap = max_w - old_rendered_w;
+        assert!(old_gap > 140.0, "Old wrapping should have left a premature wrap gap > 140px, was {}", old_gap);
+
+        // New wrap leaves less than a single character width of gap (< 12px)
+        let new_gap = max_w - new_rendered_w;
+        assert!(new_gap < cjk_w, "New wrapping must fill the line within 1 character advance, gap was {}", new_gap);
+        assert!(new_rendered_w <= max_w, "New wrapping must not exceed available width");
+    }
+
+    #[test]
+    fn test_pure_cjk_wrapping_eliminates_gap() {
+        let mut editor = Editor::new();
+        // 66 Japanese characters
+        let text = "あいうえおかきくけこさしすせそたちつてとなにぬねのはひふへほまみむめもやゆよらりるれろわをんアイウエオカキクケコサシスセソタチツテト\n";
+        editor.insert(0, text);
+
+        let ascii_w: f32 = 7.225;
+        let cjk_w: f32 = 12.0;
+        // Available width for exactly 40 CJK characters: 40 * 12.0 = 480.0px
+        let max_w: f32 = 480.0;
+
+        let wraps = editor.wrap_line_px(0, max_w, ascii_w, cjk_w, 4);
+        assert_eq!(wraps[0].start, 0);
+        assert_eq!(wraps[0].end, 40, "Exactly 40 fullwidth characters should fit in 480px");
+        assert_eq!(wraps[1].start, 40);
+        assert_eq!(wraps[1].end, 66);
+
+        // Old column wrap would only fit 480 / 7.225 = 66 cols -> 33 CJK chars (leaving 7 * 12 = 84px gap)
+        let old_wrap_cols = (max_w / ascii_w).floor() as usize;
+        let old_wraps = editor.wrap_line(0, old_wrap_cols, 4);
+        assert_eq!(old_wraps[0].end, 33);
+        assert!(wraps[0].end > old_wraps[0].end);
+    }
+
+    #[test]
+    fn test_pixel_visual_coordinate_roundtrip_and_snapping() {
+        let mut editor = Editor::new();
+        let text = "Hello世界！\tTestテスト\n";
+        editor.insert(0, text);
+
+        let ascii_w: f32 = 8.0;
+        let cjk_w: f32 = 14.0;
+        let tab_size = 4;
+        let max_w: f32 = 500.0;
+
+        let wraps = editor.wrap_line_px(0, max_w, ascii_w, cjk_w, tab_size);
+        let range = wraps[0].clone();
+
+        // Check roundtrip for every character: get_visual_px -> get_char_at_v_px returns the char
+        let total_chars = range.end - range.start;
+        for col in 0..total_chars {
+            let vx = editor.get_visual_px(0, col, &range, ascii_w, cjk_w, tab_size);
+            // Clicking slightly to the right of the start of the character (+1.0px) snaps to that character
+            let found_char = editor.get_char_at_v_px(0, range.clone(), vx + 1.0, ascii_w, cjk_w, tab_size);
+            assert_eq!(found_char, col, "Roundtrip failed for col {}", col);
+        }
+
+        // Clicking beyond the end of the line snaps to the end of the line (range.end)
+        let far_x = 1000.0;
+        let end_char = editor.get_char_at_v_px(0, range.clone(), far_x, ascii_w, cjk_w, tab_size);
+        assert_eq!(end_char, range.end);
+    }
+
+    #[test]
+    fn test_pixel_cursor_vertical_navigation_mixed_text() {
+        let mut editor = Editor::new();
+        // Line 0 has 20 ASCII chars
+        // Line 1 has 20 CJK chars
+        let text = "abcdefghijklmnopqrst\nあいうえおかきくけこさしすせそたちつてと\n";
+        editor.insert(0, text);
+
+        let ascii_w: f32 = 7.225;
+        let cjk_w: f32 = 12.0;
+        let tab_size = 4;
+        let max_w: f32 = 200.0; // Lines will wrap into multiple visual lines
+
+        let wraps_line0 = editor.wrap_line_px(0, max_w, ascii_w, cjk_w, tab_size);
+        let wraps_line1 = editor.wrap_line_px(1, max_w, ascii_w, cjk_w, tab_size);
+        assert!(wraps_line0.len() >= 1);
+        assert!(wraps_line1.len() >= 2);
+
+        // Position cursor at col 10 in line 0
+        editor.cursor = 10;
+        let x0 = editor.get_visual_px(0, 10, &wraps_line0[0], ascii_w, cjk_w, tab_size);
+        assert!((x0 - 72.25).abs() < 0.01);
+
+        // Move down to Line 1 (CJK text)
+        editor.move_cursor_vdown_px(max_w, ascii_w, cjk_w, tab_size, false);
+        let (l1, c1) = editor.char_to_line_col(editor.cursor);
+        assert_eq!(l1, 1);
+        // At ~72.25px in CJK text (each 12px), 72.25 / 12.0 = 6.02 -> col 6
+        assert_eq!(c1, 6);
+
+        // Move back up to Line 0
+        editor.move_cursor_vup_px(max_w, ascii_w, cjk_w, tab_size, false);
+        let (l0_again, c0_again) = editor.char_to_line_col(editor.cursor);
+        assert_eq!(l0_again, 0);
+        // Col 6 * 12.0 = 72.0px -> in ASCII text (each 7.225px), 72.0 / 7.225 = 9.96 -> snaps back to col 10!
+        assert_eq!(c0_again, 10);
+    }
 }
 
 
