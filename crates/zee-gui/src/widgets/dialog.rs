@@ -160,10 +160,12 @@ impl Dialog {
                             cx.spawn(|_, cx: &mut AsyncApp| {
                                 let cx = cx.clone();
                                 async move {
-                                    smol::Timer::after(std::time::Duration::from_millis(1500)).await;
+                                    smol::Timer::after(std::time::Duration::from_millis(500)).await;
                                     cx.update(|cx| {
                                         cx.dispatch_action(&Quit {});
                                     });
+                                    smol::Timer::after(std::time::Duration::from_millis(500)).await;
+                                    std::process::exit(0);
                                 }
                             }).detach();
                         }

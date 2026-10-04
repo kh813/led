@@ -195,24 +195,150 @@ pub fn apply_update(asset_url: &str, app_type: AppType) -> Result<()> {
         if app_type == AppType::Gui {
             return apply_macos_gui_bundle(&archive_bytes, &current_exe);
         } else {
-            return apply_unix_binary(&archive_bytes, &current_exe, "zee");
+            return apply_unix_binary(&archive_bytes, &current_exe, "zee", false);
         }
     }
 
     #[cfg(target_os = "linux")]
     {
         let bin_name = if app_type == AppType::Gui { "zeeg" } else { "zee" };
-        return apply_unix_binary(&archive_bytes, &current_exe, bin_name);
+        let is_gui = app_type == AppType::Gui;
+        return apply_unix_binary(&archive_bytes, &current_exe, bin_name, is_gui);
     }
 
     #[cfg(target_os = "windows")]
     {
         let bin_name = if app_type == AppType::Gui { "zeeg.exe" } else { "zee.exe" };
-        return apply_windows_binary(&archive_bytes, &current_exe, bin_name);
+        let is_gui = app_type == AppType::Gui;
+        return apply_windows_binary(&archive_bytes, &current_exe, bin_name, is_gui);
     }
 
     #[allow(unreachable_code)]
     Err(anyhow!("Self-update is not supported on this platform"))
+}
+
+#[cfg(target_os = "macos")]
+pub fn untranslocate_path(path: &Path) -> PathBuf {
+    let path_str = path.to_string_lossy();
+    if !path_str.contains("AppTranslocation") {
+        return path.to_path_buf();
+    }
+
+    use std::ffi::CString;
+    use std::os::unix::ffi::OsStrExt;
+
+    let path_bytes = path.as_os_str().as_bytes();
+    let Ok(c_path) = CString::new(path_bytes) else {
+        return path.to_path_buf();
+    };
+
+    type CFTypeRef = *const std::ffi::c_void;
+    type CFURLRef = *const std::ffi::c_void;
+    type CFErrorRef = *mut std::ffi::c_void;
+    type Boolean = libc::c_uchar;
+    type CFIndex = libc::c_long;
+
+    type FnCFURLCreateFromFileSystemRepresentation = unsafe extern "C" fn(
+        allocator: CFTypeRef,
+        buffer: *const u8,
+        buf_len: CFIndex,
+        is_directory: Boolean,
+    ) -> CFURLRef;
+
+    type FnCFURLGetFileSystemRepresentation = unsafe extern "C" fn(
+        url: CFURLRef,
+        resolve_against_base: Boolean,
+        buffer: *mut u8,
+        max_buf_len: CFIndex,
+    ) -> Boolean;
+
+    type FnCFRelease = unsafe extern "C" fn(cf: CFTypeRef);
+
+    type FnSecTranslocateIsTranslocatedURL = unsafe extern "C" fn(
+        url: CFURLRef,
+        is_translocated: *mut Boolean,
+        error: *mut CFErrorRef,
+    ) -> Boolean;
+
+    type FnSecTranslocateCreateOriginalPathForURL = unsafe extern "C" fn(
+        translocated_url: CFURLRef,
+        error: *mut CFErrorRef,
+    ) -> CFURLRef;
+
+    unsafe {
+        let sec_lib = libc::dlopen(
+            c"/System/Library/Frameworks/Security.framework/Security".as_ptr(),
+            libc::RTLD_LAZY,
+        );
+        let cf_lib = libc::dlopen(
+            c"/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation".as_ptr(),
+            libc::RTLD_LAZY,
+        );
+
+        if sec_lib.is_null() || cf_lib.is_null() {
+            if !sec_lib.is_null() { libc::dlclose(sec_lib); }
+            if !cf_lib.is_null() { libc::dlclose(cf_lib); }
+            return path.to_path_buf();
+        }
+
+        let create_url_sym = libc::dlsym(cf_lib, c"CFURLCreateFromFileSystemRepresentation".as_ptr());
+        let get_fs_sym = libc::dlsym(cf_lib, c"CFURLGetFileSystemRepresentation".as_ptr());
+        let release_sym = libc::dlsym(cf_lib, c"CFRelease".as_ptr());
+        let is_trans_sym = libc::dlsym(sec_lib, c"SecTranslocateIsTranslocatedURL".as_ptr());
+        let create_orig_sym = libc::dlsym(sec_lib, c"SecTranslocateCreateOriginalPathForURL".as_ptr());
+
+        if create_url_sym.is_null() || get_fs_sym.is_null() || release_sym.is_null()
+            || is_trans_sym.is_null() || create_orig_sym.is_null()
+        {
+            libc::dlclose(sec_lib);
+            libc::dlclose(cf_lib);
+            return path.to_path_buf();
+        }
+
+        let cf_create_url: FnCFURLCreateFromFileSystemRepresentation = std::mem::transmute(create_url_sym);
+        let cf_get_fs: FnCFURLGetFileSystemRepresentation = std::mem::transmute(get_fs_sym);
+        let cf_release: FnCFRelease = std::mem::transmute(release_sym);
+        let sec_is_trans: FnSecTranslocateIsTranslocatedURL = std::mem::transmute(is_trans_sym);
+        let sec_create_orig: FnSecTranslocateCreateOriginalPathForURL = std::mem::transmute(create_orig_sym);
+
+        let url = cf_create_url(
+            std::ptr::null(),
+            c_path.as_ptr() as *const u8,
+            path_bytes.len() as CFIndex,
+            1, // isDirectory: true
+        );
+        if url.is_null() {
+            libc::dlclose(sec_lib);
+            libc::dlclose(cf_lib);
+            return path.to_path_buf();
+        }
+
+        let mut is_trans: Boolean = 0;
+        let mut err: CFErrorRef = std::ptr::null_mut();
+        let _ = sec_is_trans(url, &mut is_trans, &mut err);
+
+        let mut resolved_path = None;
+        if is_trans != 0 {
+            let orig_url = sec_create_orig(url, &mut err);
+            if !orig_url.is_null() {
+                let mut buf = vec![0u8; 4096];
+                if cf_get_fs(orig_url, 1, buf.as_mut_ptr(), buf.len() as CFIndex) != 0 {
+                    if let Some(nul_pos) = buf.iter().position(|&b| b == 0) {
+                        buf.truncate(nul_pos);
+                        use std::os::unix::ffi::OsStringExt;
+                        resolved_path = Some(PathBuf::from(std::ffi::OsString::from_vec(buf)));
+                    }
+                }
+                cf_release(orig_url);
+            }
+        }
+
+        cf_release(url);
+        libc::dlclose(sec_lib);
+        libc::dlclose(cf_lib);
+
+        resolved_path.unwrap_or_else(|| path.to_path_buf())
+    }
 }
 
 #[cfg(target_os = "macos")]
@@ -229,19 +355,50 @@ fn apply_macos_gui_bundle(zip_bytes: &[u8], current_exe: &Path) -> Result<()> {
         ));
     };
 
+    // If app is currently translocated by Gatekeeper, resolve its real on-disk location
+    let app_path = untranslocate_path(&app_path);
+
     let staging_dir = tempfile_staging_dir("zee-update")?;
     let new_app_path = extract_zip_app_bundle(zip_bytes, &staging_dir)?;
+    let pid = std::process::id();
 
-    // Spawn detached helper script to swap .app and relaunch
-    let script = r#"set -e
-sleep 1
-rm -rf "$1"
-mv "$2" "$1"
-xattr -cr "$1" 2>/dev/null || true
-codesign --force --deep --sign - "$1" 2>/dev/null || true
-rm -rf "$3"
-open "$1"
+    // Spawn detached helper script to wait for the running app process to exit,
+    // swap the .app bundle, remove quarantine attributes, and relaunch the new app.
+    let script = r#"APP="$1"
+NEW_APP="$2"
+STAGING="$3"
+PID="$4"
+
+# Wait up to 6 seconds for the running app process to exit cleanly
+for i in $(seq 1 30); do
+    if ! kill -0 "$PID" 2>/dev/null; then
+        break
+    fi
+    sleep 0.2
+done
+
+# If still running, force terminate
+if kill -0 "$PID" 2>/dev/null; then
+    kill -9 "$PID" 2>/dev/null || true
+    sleep 0.2
+fi
+
+# Replace the application bundle
+rm -rf "$APP"
+mv "$NEW_APP" "$APP"
+
+# Strip quarantine and ad-hoc sign so Gatekeeper doesn't block relaunch
+xattr -dr com.apple.quarantine "$APP" 2>/dev/null || true
+xattr -cr "$APP" 2>/dev/null || true
+codesign --force --deep --sign - "$APP" 2>/dev/null || true
+
+# Clean up staging directory
+rm -rf "$STAGING"
+
+# Automatically relaunch the updated application!
+open -n "$APP"
 "#;
+
     let child = Command::new("/bin/sh")
         .arg("-c")
         .arg(script)
@@ -249,10 +406,10 @@ open "$1"
         .arg(&app_path)
         .arg(&new_app_path)
         .arg(&staging_dir)
+        .arg(pid.to_string())
         .spawn()
         .context("Failed to spawn macOS update helper process")?;
 
-    // Let child process detach
     drop(child);
     Ok(())
 }
@@ -301,7 +458,7 @@ fn extract_zip_app_bundle(zip_bytes: &[u8], dest_dir: &Path) -> Result<PathBuf> 
 }
 
 #[cfg(unix)]
-fn apply_unix_binary(archive_bytes: &[u8], current_exe: &Path, target_bin_name: &str) -> Result<()> {
+fn apply_unix_binary(archive_bytes: &[u8], current_exe: &Path, target_bin_name: &str, is_gui: bool) -> Result<()> {
     let staging_dir = tempfile_staging_dir("zee-update")?;
     let new_bin_path = staging_dir.join(target_bin_name);
 
@@ -316,22 +473,44 @@ fn apply_unix_binary(archive_bytes: &[u8], current_exe: &Path, target_bin_name: 
     fs::set_permissions(&new_bin_path, fs::Permissions::from_mode(0o755))
         .context("Failed to set executable permissions on updated binary")?;
 
-    let script = r#"set -e
-sleep 0.5
-rm -f "$1"
-mv "$2" "$1"
-chmod +x "$1"
-xattr -d com.apple.quarantine "$1" 2>/dev/null || true
-codesign --force --sign - "$1" 2>/dev/null || true
-rm -rf "$3"
-"#;
+    let pid = std::process::id();
+    let relaunch_cmd = if is_gui { "open -n \"$EXE\" 2>/dev/null || \"$EXE\" &" } else { "" };
+
+    let script = format!(r#"EXE="$1"
+NEW_EXE="$2"
+STAGING="$3"
+PID="$4"
+
+for i in $(seq 1 30); do
+    if ! kill -0 "$PID" 2>/dev/null; then
+        break
+    fi
+    sleep 0.2
+done
+
+if kill -0 "$PID" 2>/dev/null; then
+    kill -9 "$PID" 2>/dev/null || true
+    sleep 0.2
+fi
+
+rm -f "$EXE"
+mv "$NEW_EXE" "$EXE"
+chmod +x "$EXE"
+xattr -d com.apple.quarantine "$EXE" 2>/dev/null || true
+codesign --force --sign - "$EXE" 2>/dev/null || true
+rm -rf "$STAGING"
+
+{}
+"#, relaunch_cmd);
+
     let child = Command::new("/bin/sh")
         .arg("-c")
-        .arg(script)
+        .arg(&script)
         .arg("zee-updater")
         .arg(current_exe)
         .arg(&new_bin_path)
         .arg(&staging_dir)
+        .arg(pid.to_string())
         .spawn()
         .context("Failed to spawn update helper script")?;
 
@@ -365,26 +544,56 @@ fn extract_tar_gz_binary(tar_gz_bytes: &[u8], target_name: &str, dest_file: &Pat
 }
 
 #[cfg(target_os = "windows")]
-fn apply_windows_binary(zip_bytes: &[u8], current_exe: &Path, target_bin_name: &str) -> Result<()> {
+fn apply_windows_binary(zip_bytes: &[u8], current_exe: &Path, target_bin_name: &str, is_gui: bool) -> Result<()> {
     let staging_dir = tempfile_staging_dir("zee-update")?;
     let new_bin_path = staging_dir.join(target_bin_name);
 
     extract_zip_binary(zip_bytes, target_bin_name, &new_bin_path)?;
 
-    // On Windows, use cmd /c with timeout and move to overwrite locked executable
-    let script = format!(
-        "timeout /t 1 /nobreak >nul & move /y \"{}\" \"{}\" >nul & rmdir /s /q \"{}\" >nul",
-        new_bin_path.display(),
-        current_exe.display(),
-        staging_dir.display()
-    );
+    let pid = std::process::id();
+    let relaunch_cmd = if is_gui { "start \"\" \"%EXE%\"" } else { "" };
+    let old_exe = current_exe.with_extension("old");
+
+    let script = format!(r#"@echo off
+setlocal
+set "EXE=%~1"
+set "NEWEXE=%~2"
+set "OLDEXE=%~3"
+set "PID=%~4"
+
+ping -n 2 127.0.0.1 <nul >nul 2>&1
+taskkill /F /PID %PID% <nul >nul 2>&1
+ping -n 2 127.0.0.1 <nul >nul 2>&1
+
+if exist "%OLDEXE%" del /f /q "%OLDEXE%" >nul 2>&1
+
+for /L %%i in (1,1,10) do (
+    if exist "%EXE%" move /y "%EXE%" "%OLDEXE%" >nul 2>&1
+    if exist "%NEWEXE%" move /y "%NEWEXE%" "%EXE%" >nul 2>&1
+    if not exist "%NEWEXE%" goto swapped
+    ping -n 2 127.0.0.1 <nul >nul 2>&1
+)
+
+if exist "%OLDEXE%" move /y "%OLDEXE%" "%EXE%" >nul 2>&1
+if exist "%EXE%" {}
+del /f /q "%~f0" >nul 2>&1
+exit /b 1
+
+:swapped
+{}
+if exist "%OLDEXE%" del /f /q "%OLDEXE%" >nul 2>&1
+del /f /q "%~f0" >nul 2>&1
+"#, relaunch_cmd, relaunch_cmd);
+
+    let script_path = std::env::temp_dir().join(format!("zee-update-{}.bat", pid));
+    fs::write(&script_path, script.replace("\n", "\r\n"))?;
 
     use std::os::windows::process::CommandExt;
     const CREATE_NO_WINDOW: u32 = 0x08000000;
     const DETACHED_PROCESS: u32 = 0x00000008;
 
-    let mut child = Command::new("cmd")
-        .args(["/c", &script])
+    let child = Command::new("cmd")
+        .args(["/c", script_path.to_str().unwrap(), current_exe.to_str().unwrap(), new_bin_path.to_str().unwrap(), old_exe.to_str().unwrap(), &pid.to_string()])
         .creation_flags(CREATE_NO_WINDOW | DETACHED_PROCESS)
         .spawn()
         .context("Failed to spawn Windows update helper process")?;
@@ -565,5 +774,13 @@ mod tests {
         assert!(dest.exists());
         assert_eq!(fs::read(&dest).unwrap(), b"windows binary data");
         let _ = fs::remove_dir_all(&temp_dir);
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn test_untranslocate_path() {
+        // Non-translocated path returns itself unchanged
+        let normal_path = PathBuf::from("/Applications/Zee.app");
+        assert_eq!(untranslocate_path(&normal_path), normal_path);
     }
 }
