@@ -63,8 +63,8 @@ vi_mode = false
 # Can also be toggzee at runtime via View > [ ] Word Wrap.
 #
 # Type    : boolean  (true / false)
-# Default : false
-word_wrap = false
+# Default : true
+word_wrap = true
 
 
 # Tab stop width in display cells.

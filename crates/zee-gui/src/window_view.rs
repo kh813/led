@@ -51,7 +51,30 @@ impl WindowView {
             editor.focus_handle.focus(window, cx);
         });
 
-        cx.observe(&workspace, |_, _, cx| {
+        cx.observe(&workspace, |this, workspace, cx| {
+            let w_config = &workspace.read(cx).config;
+            #[allow(unused_mut)]
+            let mut menu_changed = false;
+            if this.config.word_wrap != w_config.word_wrap {
+                this.config.word_wrap = w_config.word_wrap;
+                menu_changed = true;
+            }
+            if this.config.line_numbers != w_config.line_numbers {
+                this.config.line_numbers = w_config.line_numbers;
+                menu_changed = true;
+            }
+            if this.config.vi_mode != w_config.vi_mode {
+                this.config.vi_mode = w_config.vi_mode;
+                menu_changed = true;
+            }
+            if this.config.theme != w_config.theme {
+                this.config.theme = w_config.theme.clone();
+                menu_changed = true;
+            }
+            if menu_changed {
+                #[cfg(target_os = "macos")]
+                cx.set_menus(crate::app::build_native_menus(&this.i18n, &this.config));
+            }
             cx.notify();
         }).detach();
 

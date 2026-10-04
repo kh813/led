@@ -229,11 +229,23 @@ impl Editor {
 
         use unicode_width::UnicodeWidthChar;
 
-        for (i, c) in line.chars().enumerate() {
+        let mut len_without_newline = line.len_chars();
+        while len_without_newline > 0 {
+            let c = line.char(len_without_newline - 1);
+            if c == '\n' || c == '\r' {
+                len_without_newline -= 1;
+            } else {
+                break;
+            }
+        }
+
+        if len_without_newline == 0 {
+            return vec![0..0];
+        }
+
+        for (i, c) in line.chars().take(len_without_newline).enumerate() {
             let char_w = if c == '\t' {
                 tab_size - (cur_width % tab_size)
-            } else if c == '\n' || c == '\r' {
-                0
             } else {
                 c.width().unwrap_or(0)
             };
@@ -247,7 +259,7 @@ impl Editor {
             cur_width += char_w;
         }
         
-        result.push(start..line.len_chars());
+        result.push(start..len_without_newline);
         result
     }
 
@@ -479,6 +491,83 @@ impl Editor {
 
         if extend_selection {
             self.update_selection();
+        }
+    }
+
+    pub fn move_cursor_vup(&mut self, width: usize, tab_size: usize, extend_selection: bool) {
+        if extend_selection {
+            self.ensure_selection();
+        } else {
+            self.selection = None;
+        }
+
+        let (line, col) = self.char_to_line_col(self.cursor);
+        let wraps = self.wrap_line(line, width, tab_size);
+        
+        let mut v_idx = 0;
+        for (i, range) in wraps.iter().enumerate() {
+            if col >= range.start && (col < range.end || (col == range.end && i == wraps.len() - 1)) {
+                v_idx = i;
+                break;
+            }
+        }
+
+        let current_vcol = self.get_visual_col(line, col, &wraps[v_idx], tab_size);
+
+        if v_idx > 0 {
+            let target_range = &wraps[v_idx - 1];
+            self.cursor = self.get_char_at_vcol(line, target_range.clone(), current_vcol, tab_size);
+        } else if line > 0 {
+            let prev_line = line - 1;
+            let prev_wraps = self.wrap_line(prev_line, width, tab_size);
+            let target_range = prev_wraps.last().unwrap();
+            self.cursor = self.get_char_at_vcol(prev_line, target_range.clone(), current_vcol, tab_size);
+        }
+
+        if extend_selection {
+            self.update_selection();
+        } else {
+            self.selection = None;
+        }
+    }
+
+    pub fn move_cursor_vdown(&mut self, width: usize, tab_size: usize, extend_selection: bool) {
+        if extend_selection {
+            self.ensure_selection();
+        } else {
+            self.selection = None;
+        }
+
+        let (line, col) = self.char_to_line_col(self.cursor);
+        let wraps = self.wrap_line(line, width, tab_size);
+        
+        let mut v_idx = 0;
+        for (i, range) in wraps.iter().enumerate() {
+            if col >= range.start && (col < range.end || (col == range.end && i == wraps.len() - 1)) {
+                v_idx = i;
+                break;
+            }
+        }
+
+        let current_vcol = self.get_visual_col(line, col, &wraps[v_idx], tab_size);
+
+        if v_idx + 1 < wraps.len() {
+            let target_range = &wraps[v_idx + 1];
+            self.cursor = self.get_char_at_vcol(line, target_range.clone(), current_vcol, tab_size);
+        } else if line + 1 < self.line_count() {
+            let next_line = line + 1;
+            let next_wraps = self.wrap_line(next_line, width, tab_size);
+            let target_range = &next_wraps[0];
+            self.cursor = self.get_char_at_vcol(next_line, target_range.clone(), current_vcol, tab_size);
+        } else if line == self.line_count().saturating_sub(1) {
+            let target_range = wraps.last().unwrap();
+            self.cursor = self.line_col_to_char(line, target_range.end);
+        }
+
+        if extend_selection {
+            self.update_selection();
+        } else {
+            self.selection = None;
         }
     }
 
@@ -1058,6 +1147,44 @@ mod tests {
         assert_eq!(wraps[0], 0..4); // abcd
         assert_eq!(wraps[1], 4..8); // efgh
         assert_eq!(wraps[2], 8..10); // ij
+
+        // Test with trailing newline
+        let mut editor_nl = Editor::new();
+        editor_nl.insert(0, "abcdefghij\n");
+        let wraps_nl = editor_nl.wrap_line(0, 4, 4);
+        assert_eq!(wraps_nl.len(), 3);
+        assert_eq!(wraps_nl[0], 0..4);
+        assert_eq!(wraps_nl[1], 4..8);
+        assert_eq!(wraps_nl[2], 8..10); // newline stripped from range
+
+        // Test with Japanese wide characters
+        let mut editor_ja = Editor::new();
+        editor_ja.insert(0, "Markdown (マークダウン) とは、プレーンテキスト形式で書式付きテキストを記述する軽量マークアップ言語である。\n");
+        let wraps_ja = editor_ja.wrap_line(0, 96, 4);
+        assert_eq!(wraps_ja.len(), 2);
+        let line_chars: Vec<char> = editor_ja.rope.line(0).chars().collect();
+        let chunk0: String = line_chars[wraps_ja[0].clone()].iter().collect();
+        let chunk1: String = line_chars[wraps_ja[1].clone()].iter().collect();
+        assert!(chunk0.ends_with('言'));
+        assert_eq!(chunk1, "語である。");
+    }
+
+    #[test]
+    fn test_move_cursor_vup_and_vdown() {
+        let mut editor = Editor::new();
+        editor.insert(0, "line 1 is a long sentence that will wrap\nline 2");
+        // width 10
+        let wraps = editor.wrap_line(0, 10, 4);
+        assert!(wraps.len() > 1);
+
+        editor.cursor = 0; // line 1 visual 0
+        editor.move_cursor_vdown(10, 4, false);
+        let (l, c) = editor.char_to_line_col(editor.cursor);
+        assert_eq!(l, 0);
+        assert_eq!(c, wraps[1].start);
+
+        editor.move_cursor_vup(10, 4, false);
+        assert_eq!(editor.cursor, 0);
     }
 
     #[test]
@@ -1290,6 +1417,34 @@ mod tests {
         let (l, c) = editor.char_to_line_col(pos1);
         assert_eq!(l, 1);
         assert_eq!(c, 8);
+    }
+
+    #[test]
+    fn test_visual_line_rendering_and_text_slicing() {
+        let mut editor = Editor::new();
+        let text = "Rust（ラスト）は、性能、信頼性、生産性を重視したマルチパラダイムの汎用プログラミング言語である。\n";
+        editor.insert(0, text);
+
+        let wraps = editor.wrap_line(0, 86, 4);
+        assert_eq!(wraps.len(), 2);
+        
+        let line = editor.rope.line(0);
+        let mut line_str = line.to_string();
+        if line_str.ends_with('\n') {
+            line_str.pop();
+        }
+
+        let char_offsets: Vec<usize> = line_str.char_indices().map(|(b, _)| b).collect();
+        let total_chars = char_offsets.len();
+
+        let slice_vrow = |range: std::ops::Range<usize>| -> String {
+            let byte_start = if range.start >= total_chars { line_str.len() } else { char_offsets[range.start] };
+            let byte_end = if range.end >= total_chars { line_str.len() } else { char_offsets[range.end] };
+            line_str[byte_start..byte_end].to_string()
+        };
+
+        assert_eq!(slice_vrow(wraps[0].clone()), "Rust（ラスト）は、性能、信頼性、生産性を重視したマルチパラダイムの汎用プログラミング言");
+        assert_eq!(slice_vrow(wraps[1].clone()), "語である。");
     }
 }
 

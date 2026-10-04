@@ -17,6 +17,7 @@ pub struct EditorView {
     pending_c: bool,
     pending_g: bool,
     pending_r: bool,
+    pub last_wrap_cols: usize,
 }
 
 impl EditorView {
@@ -37,6 +38,7 @@ impl EditorView {
             pending_c: false,
             pending_g: false,
             pending_r: false,
+            last_wrap_cols: 80,
         }
     }
 
@@ -143,25 +145,46 @@ impl EditorView {
             let expand_tab = w.config.expand_tab;
             let tab_size = w.config.tab_size as usize;
             let word_wrap = w.config.word_wrap;
+            let wrap_cols = self.last_wrap_cols;
             let editor = match w.active_editor_mut() {
                 Some(e) => e,
                 None => return,
             };
             match key.as_str() {
-                "up" => editor.move_cursor_up(shift),
-                "down" => editor.move_cursor_down(shift),
+                "up" => {
+                    if word_wrap {
+                        editor.move_cursor_vup(wrap_cols, tab_size, shift);
+                    } else {
+                        editor.move_cursor_up(shift);
+                    }
+                }
+                "down" => {
+                    if word_wrap {
+                        editor.move_cursor_vdown(wrap_cols, tab_size, shift);
+                    } else {
+                        editor.move_cursor_down(shift);
+                    }
+                }
                 "left" => editor.move_cursor_left(shift),
                 "right" => editor.move_cursor_right(shift),
                 "home" => editor.move_cursor_home(shift),
                 "end" => editor.move_cursor_end(shift),
                 "pageup" => {
                     for _ in 0..20 {
-                        editor.move_cursor_up(shift);
+                        if word_wrap {
+                            editor.move_cursor_vup(wrap_cols, tab_size, shift);
+                        } else {
+                            editor.move_cursor_up(shift);
+                        }
                     }
                 }
                 "pagedown" => {
                     for _ in 0..20 {
-                        editor.move_cursor_down(shift);
+                        if word_wrap {
+                            editor.move_cursor_vdown(wrap_cols, tab_size, shift);
+                        } else {
+                            editor.move_cursor_down(shift);
+                        }
                     }
                 }
                 "tab" => {
@@ -545,17 +568,31 @@ impl EditorView {
                 });
             }
             "j" => {
+                let wrap_cols = self.last_wrap_cols;
                 self.workspace.update(cx, |w, cx| {
+                    let word_wrap = w.config.word_wrap;
+                    let tab_size = w.config.tab_size as usize;
                     if let Some(editor) = w.active_editor_mut() {
-                        editor.move_cursor_down(false);
+                        if word_wrap {
+                            editor.move_cursor_vdown(wrap_cols, tab_size, false);
+                        } else {
+                            editor.move_cursor_down(false);
+                        }
                     }
                     cx.notify();
                 });
             }
             "k" => {
+                let wrap_cols = self.last_wrap_cols;
                 self.workspace.update(cx, |w, cx| {
+                    let word_wrap = w.config.word_wrap;
+                    let tab_size = w.config.tab_size as usize;
                     if let Some(editor) = w.active_editor_mut() {
-                        editor.move_cursor_up(false);
+                        if word_wrap {
+                            editor.move_cursor_vup(wrap_cols, tab_size, false);
+                        } else {
+                            editor.move_cursor_up(false);
+                        }
                     }
                     cx.notify();
                 });
@@ -861,23 +898,46 @@ impl EditorView {
                 self.pending_r = false;
             }
             "up" | "down" | "left" | "right" | "home" | "end" | "pageup" | "pagedown" => {
+                let wrap_cols = self.last_wrap_cols;
                 self.workspace.update(cx, |w, cx| {
+                    let word_wrap = w.config.word_wrap;
+                    let tab_size = w.config.tab_size as usize;
                     if let Some(editor) = w.active_editor_mut() {
                         match key {
-                            "up" => editor.move_cursor_up(shift),
-                            "down" => editor.move_cursor_down(shift),
+                            "up" => {
+                                if word_wrap {
+                                    editor.move_cursor_vup(wrap_cols, tab_size, shift);
+                                } else {
+                                    editor.move_cursor_up(shift);
+                                }
+                            }
+                            "down" => {
+                                if word_wrap {
+                                    editor.move_cursor_vdown(wrap_cols, tab_size, shift);
+                                } else {
+                                    editor.move_cursor_down(shift);
+                                }
+                            }
                             "left" => editor.move_cursor_left(shift),
                             "right" => editor.move_cursor_right(shift),
                             "home" => editor.move_cursor_home(shift),
                             "end" => editor.move_cursor_end(shift),
                             "pageup" => {
                                 for _ in 0..20 {
-                                    editor.move_cursor_up(shift);
+                                    if word_wrap {
+                                        editor.move_cursor_vup(wrap_cols, tab_size, shift);
+                                    } else {
+                                        editor.move_cursor_up(shift);
+                                    }
                                 }
                             }
                             "pagedown" => {
                                 for _ in 0..20 {
-                                    editor.move_cursor_down(shift);
+                                    if word_wrap {
+                                        editor.move_cursor_vdown(wrap_cols, tab_size, shift);
+                                    } else {
+                                        editor.move_cursor_down(shift);
+                                    }
                                 }
                             }
                             _ => {}
@@ -950,17 +1010,31 @@ impl EditorView {
                 });
             }
             "j" => {
+                let wrap_cols = self.last_wrap_cols;
                 self.workspace.update(cx, |w, cx| {
+                    let word_wrap = w.config.word_wrap;
+                    let tab_size = w.config.tab_size as usize;
                     if let Some(editor) = w.active_editor_mut() {
-                        editor.move_cursor_down(true);
+                        if word_wrap {
+                            editor.move_cursor_vdown(wrap_cols, tab_size, true);
+                        } else {
+                            editor.move_cursor_down(true);
+                        }
                     }
                     cx.notify();
                 });
             }
             "k" => {
+                let wrap_cols = self.last_wrap_cols;
                 self.workspace.update(cx, |w, cx| {
+                    let word_wrap = w.config.word_wrap;
+                    let tab_size = w.config.tab_size as usize;
                     if let Some(editor) = w.active_editor_mut() {
-                        editor.move_cursor_up(true);
+                        if word_wrap {
+                            editor.move_cursor_vup(wrap_cols, tab_size, true);
+                        } else {
+                            editor.move_cursor_up(true);
+                        }
                     }
                     cx.notify();
                 });
@@ -1146,8 +1220,10 @@ impl EditorView {
         let line_height = px(workspace.config.line_height);
         let font_size = workspace.config.font_size;
         let gutter_width = if workspace.config.line_numbers { px(52.0) } else { px(0.0) };
-        let sidebar_width = if workspace.sidebar_visible { px(220.0) } else { px(0.0) };
+        let sidebar_width = if workspace.sidebar_visible { px(240.0) } else { px(0.0) };
         let char_width = px(font_size * 0.6);
+        let tab_size = workspace.config.tab_size as usize;
+        let word_wrap = workspace.config.word_wrap;
 
         let tab_bar_height = px(36.0);
         #[cfg(not(target_os = "macos"))]
@@ -1157,15 +1233,40 @@ impl EditorView {
 
         let top_offset = tab_bar_height + menu_bar_height;
         let relative_y = position.y - top_offset;
-        let line_idx = (relative_y / line_height).floor() as i32 + editor.scroll_row as i32;
-        let line_idx = line_idx.max(0).min(editor.line_count() as i32 - 1) as usize;
-
         let left_offset = sidebar_width + gutter_width;
-        let relative_x = position.x - left_offset + px(editor.scroll_col as f32 * font_size * 0.6);
-        let col_idx = (relative_x / char_width).round() as i32;
-        let col_idx = col_idx.max(0) as usize;
+        let relative_x = (position.x - left_offset).max(px(0.0));
 
-        editor.line_col_to_char(line_idx, col_idx)
+        if !word_wrap {
+            let line_idx = (relative_y / line_height).floor() as i32 + editor.scroll_row as i32;
+            let line_idx = line_idx.max(0).min(editor.line_count() as i32 - 1) as usize;
+
+            let relative_x = relative_x + px(editor.scroll_col as f32 * font_size * 0.6);
+            let col_idx = (relative_x / char_width).round() as i32;
+            let col_idx = col_idx.max(0) as usize;
+
+            editor.line_col_to_char(line_idx, col_idx)
+        } else {
+            let visual_row = (relative_y / line_height).floor() as i32;
+            if visual_row < 0 {
+                return editor.line_col_to_char(editor.scroll_row, 0);
+            }
+            let mut current_vrow = 0;
+            let target_vcol = (relative_x / char_width).round() as usize;
+
+            for line_idx in editor.scroll_row..editor.line_count() {
+                let wraps = editor.wrap_line(line_idx, self.last_wrap_cols, tab_size);
+                let line_vrows = wraps.len();
+                if visual_row < current_vrow + line_vrows as i32 {
+                    let v_idx = (visual_row - current_vrow).max(0) as usize;
+                    let v_idx = v_idx.min(line_vrows.saturating_sub(1));
+                    let range = wraps[v_idx].clone();
+                    return editor.get_char_at_vcol(line_idx, range, target_vcol, tab_size);
+                }
+                current_vrow += line_vrows as i32;
+            }
+
+            editor.rope.len_chars()
+        }
     }
 
     fn handle_mouse_down(&mut self, event: &MouseDownEvent, window: &mut Window, cx: &mut Context<Self>) {
@@ -1185,7 +1286,7 @@ impl EditorView {
         let char_pos = self.mouse_pos_to_char_pos(event.position, cx);
         let workspace_read = self.workspace.read(cx);
         let gutter_width = if workspace_read.config.line_numbers { px(52.0) } else { px(0.0) };
-        let sidebar_width = if workspace_read.sidebar_visible { px(220.0) } else { px(0.0) };
+        let sidebar_width = if workspace_read.sidebar_visible { px(240.0) } else { px(0.0) };
         let is_gutter_click = event.position.x >= sidebar_width && event.position.x < (sidebar_width + gutter_width);
 
         self.workspace.update(cx, |w, cx| {
@@ -1245,6 +1346,7 @@ impl EditorView {
         let char_width_px = px(self.workspace.read(cx).config.font_size * 0.6);
 
         self.workspace.update(cx, |w, cx| {
+            let word_wrap = w.config.word_wrap;
             let editor = match w.active_editor_mut() {
                 Some(e) => e,
                 None => return,
@@ -1261,8 +1363,8 @@ impl EditorView {
                 }
             }
 
-            // Horizontal scroll
-            if delta.x != px(0.0) {
+            // Horizontal scroll - only when word_wrap is false
+            if !word_wrap && delta.x != px(0.0) {
                 let cols = (delta.x / char_width_px).floor() as i32;
                 if cols > 0 {
                     editor.scroll_col = editor.scroll_col.saturating_sub(cols as usize);
@@ -1367,12 +1469,36 @@ impl EntityInputHandler for EditorView {
         if line < editor.scroll_row {
             return None;
         }
-        
-        let visual_row = line - editor.scroll_row;
-        let visual_col = (col as i32) - (editor.scroll_col as i32);
-        if visual_col < 0 {
-            return None;
-        }
+
+        let word_wrap = workspace.config.word_wrap;
+        let tab_size = workspace.config.tab_size as usize;
+        let (visual_row, visual_col) = if !word_wrap {
+            let vr = line - editor.scroll_row;
+            let vc = (col as i32) - (editor.scroll_col as i32);
+            if vc < 0 {
+                return None;
+            }
+            (vr, vc as usize)
+        } else {
+            let mut vrow = 0;
+            for l in editor.scroll_row..line {
+                let wraps = editor.wrap_line(l, self.last_wrap_cols, tab_size);
+                vrow += wraps.len();
+            }
+            let wraps = editor.wrap_line(line, self.last_wrap_cols, tab_size);
+            let wraps_len = wraps.len();
+            let mut found = false;
+            let mut target_vcol = 0;
+            for (v_idx, r) in wraps.into_iter().enumerate() {
+                if col >= r.start && (col < r.end || v_idx == wraps_len.saturating_sub(1)) {
+                    vrow += v_idx;
+                    target_vcol = editor.get_visual_col(line, col, &r, tab_size);
+                    found = true;
+                    break;
+                }
+            }
+            if !found { (vrow, 0) } else { (vrow, target_vcol) }
+        };
 
         let origin_x = bounds.origin.x + gutter_width + (char_width * visual_col as f32);
         let origin_y = bounds.origin.y + (line_height * visual_row as f32);
@@ -1389,7 +1515,7 @@ impl EntityInputHandler for EditorView {
 }
 
 impl Render for EditorView {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let workspace = self.workspace.read(cx);
         let theme = &workspace.theme;
 
@@ -1443,6 +1569,14 @@ impl Render for EditorView {
         let font_size = px(workspace.config.font_size);
         let line_height = px(workspace.config.line_height);
 
+        let gutter_width = if workspace.config.line_numbers { px(52.0) } else { px(0.0) };
+        let sidebar_width = if workspace.sidebar_visible { px(240.0) } else { px(0.0) };
+        let char_width_val = workspace.config.font_size * 0.6;
+        let viewport_width = window.viewport_size().width;
+        let available_width_px = (viewport_width - sidebar_width - gutter_width - px(24.0)).max(px(100.0));
+        let wrap_cols = ((available_width_px / px(char_width_val)).floor() as usize).max(20);
+        self.last_wrap_cols = wrap_cols;
+
         let focus_handle = self.focus_handle.clone();
         let entity = cx.entity().clone();
 
@@ -1491,7 +1625,7 @@ impl Render for EditorView {
                     .w_full()
                     .h_full()
                     .font_family(font_family)
-                    .child(self.render_lines(workspace, editor))
+                    .child(self.render_lines(workspace, editor, wrap_cols))
             )
             .child(self.render_scrollbar(workspace, editor))
             .into_any_element()
@@ -1545,26 +1679,55 @@ impl EditorView {
             .into_any_element()
     }
 
-    fn render_lines(&self, workspace: &Workspace, editor: &zee_core::buffer::Editor) -> impl IntoElement {
+    fn render_lines(&self, workspace: &Workspace, editor: &zee_core::buffer::Editor, wrap_cols: usize) -> impl IntoElement {
         let line_count = editor.line_count();
         let scroll_row = editor.scroll_row;
+        let word_wrap = workspace.config.word_wrap;
+        let tab_size = workspace.config.tab_size as usize;
+
+        let mut rows = Vec::new();
+        let max_visual_rows = 100;
+
+        for line_idx in scroll_row..line_count {
+            if rows.len() >= max_visual_rows {
+                break;
+            }
+            if word_wrap {
+                let wraps = editor.wrap_line(line_idx, wrap_cols, tab_size);
+                let wraps_len = wraps.len();
+                for (v_idx, range) in wraps.into_iter().enumerate() {
+                    rows.push(self.render_visual_line(line_idx, v_idx, wraps_len, range, workspace, editor).into_any_element());
+                    if rows.len() >= max_visual_rows {
+                        break;
+                    }
+                }
+            } else {
+                let len = editor.line(line_idx).len_chars();
+                rows.push(self.render_visual_line(line_idx, 0, 1, 0..len, workspace, editor).into_any_element());
+            }
+        }
 
         div()
             .w_full()
             .h_full()
             .flex()
             .flex_col()
-            .children(
-                (scroll_row..line_count.min(scroll_row + 100)).map(|idx| {
-                    self.render_line(idx, workspace, editor).into_any_element()
-                })
-            )
+            .children(rows)
     }
 
-    fn render_line(&self, line_idx: usize, workspace: &Workspace, editor: &zee_core::buffer::Editor) -> impl IntoElement {
+    fn render_visual_line(
+        &self,
+        line_idx: usize,
+        v_idx: usize,
+        wraps_len: usize,
+        range: std::ops::Range<usize>,
+        workspace: &Workspace,
+        editor: &zee_core::buffer::Editor,
+    ) -> impl IntoElement {
         let theme = &workspace.theme;
         let word_wrap = workspace.config.word_wrap;
         let line_height = px(workspace.config.line_height);
+        let char_width = workspace.config.font_size * 0.6;
 
         let line = editor.rope.line(line_idx);
         let mut line_str = line.to_string();
@@ -1577,7 +1740,7 @@ impl EditorView {
         } else if line_str.ends_with('\r') {
             line_str.pop();
         }
-        
+
         let (cursor_line, _) = editor.char_to_line_col(editor.cursor);
         let is_cursor_line = line_idx == cursor_line;
 
@@ -1591,23 +1754,20 @@ impl EditorView {
         let gutter_width = if workspace.config.line_numbers { px(52.0) } else { px(0.0) };
         let gutter_border = with_alpha(led_color_to_gpui(theme.editor.line_number), 0.2);
 
-        // Measure average character width for scrolling/cursor
-        let char_width = workspace.config.font_size * 0.6;
-
         div()
             .w_full()
+            .h(line_height)
             .flex()
-            .when(word_wrap, |d| d.min_h(line_height))
-            .when(!word_wrap, |d| d.h(line_height))
+            .flex_row()
             .bg(bg)
             .text_color(led_color_to_gpui(theme.editor.foreground))
             .child(
                 div()
                     .flex_none()
                     .w(gutter_width)
-                    .h_full()
+                    .h(line_height)
                     .flex()
-                    .items_start()
+                    .items_center()
                     .justify_end()
                     .px_2p5()
                     .border_r_1()
@@ -1615,44 +1775,121 @@ impl EditorView {
                     .text_color(led_color_to_gpui(theme.editor.line_number))
                     .font_family(mono_font_family())
                     .child(
-                        div()
-                            .h(line_height)
-                            .flex()
-                            .items_center()
-                            .justify_end()
-                            .child(if workspace.config.line_numbers { (line_idx + 1).to_string() } else { "".to_string() })
+                        if workspace.config.line_numbers && v_idx == 0 {
+                            (line_idx + 1).to_string()
+                        } else {
+                            "".to_string()
+                        }
                     )
             )
             .child(
                 div()
                     .flex_grow()
-                    .w_full()
-                    .min_h(line_height)
+                    .h(line_height)
                     .relative()
+                    .overflow_hidden()
                     .child(
                         div()
-                            .when(word_wrap, |d| d.relative().w_full().flex().flex_wrap().items_center())
-                            .when(!word_wrap, |d| d.absolute().top_0().left(px(-(editor.scroll_col as f32 * char_width))).h_full().flex().items_center())
-                            .children(self.render_line_content(line_idx, &line_str, workspace, editor, is_cursor_line))
+                            .when(!word_wrap, |d| {
+                                d.absolute()
+                                    .top_0()
+                                    .left(px(-(editor.scroll_col as f32 * char_width)))
+                                    .h_full()
+                                    .flex()
+                                    .items_center()
+                            })
+                            .when(word_wrap, |d| {
+                                d.absolute()
+                                    .top_0()
+                                    .left_0()
+                                    .h_full()
+                                    .flex()
+                                    .items_center()
+                            })
+                            .children(self.render_visual_line_content(
+                                line_idx,
+                                v_idx,
+                                wraps_len,
+                                range,
+                                &line_str,
+                                workspace,
+                                editor,
+                                is_cursor_line,
+                            ))
                     )
             )
     }
 
-    fn render_line_content(&self, line_idx: usize, line_str: &str, workspace: &Workspace, editor: &zee_core::buffer::Editor, is_cursor_line: bool) -> Vec<AnyElement> {
+    fn render_visual_line_content(
+        &self,
+        line_idx: usize,
+        v_idx: usize,
+        wraps_len: usize,
+        range: std::ops::Range<usize>,
+        line_str: &str,
+        workspace: &Workspace,
+        editor: &zee_core::buffer::Editor,
+        is_cursor_line: bool,
+    ) -> Vec<AnyElement> {
         let theme = &workspace.theme;
         let line_height = px(workspace.config.line_height);
-        let word_wrap = workspace.config.word_wrap;
 
-        let selection = if editor.vi_mode == zee_core::ViMode::VisualBlock {
+        let char_offsets: Vec<usize> = line_str.char_indices().map(|(b, _)| b).collect();
+        let total_chars = char_offsets.len();
+        let byte_start = if range.start >= total_chars {
+            line_str.len()
+        } else {
+            char_offsets[range.start]
+        };
+        let byte_end = if range.end >= total_chars {
+            line_str.len()
+        } else {
+            char_offsets[range.end]
+        };
+        let v_text = &line_str[byte_start..byte_end];
+        let v_len_chars = v_text.chars().count();
+
+        let (_cursor_line, cursor_col) = editor.char_to_line_col(editor.cursor);
+        let is_last_vrow = v_idx == wraps_len - 1;
+        let is_cursor_on_vrow = is_cursor_line && if is_last_vrow {
+            cursor_col >= range.start && cursor_col <= range.end
+        } else {
+            cursor_col >= range.start && cursor_col < range.end
+        };
+        let cursor_vcol = if is_cursor_on_vrow {
+            cursor_col.saturating_sub(range.start)
+        } else {
+            usize::MAX
+        };
+
+        let line_start_char = editor.rope.line_to_char(line_idx);
+        let v_start_char = line_start_char + range.start;
+        let v_end_char = line_start_char + range.end;
+
+        let global_selection = if editor.vi_mode == zee_core::ViMode::VisualBlock {
             let ranges = editor.get_visual_block_ranges();
-            let line_start = editor.rope.line_to_char(line_idx);
-            let line_end = line_start + editor.rope.line(line_idx).len_chars();
-            ranges.into_iter().find(|r| r.start >= line_start && r.start <= line_end)
+            ranges.into_iter().find(|r| r.start >= v_start_char && r.start <= v_end_char)
         } else {
             editor.selection.clone()
         };
-        let line_start_char = editor.rope.line_to_char(line_idx);
-        let (_, cursor_col) = editor.char_to_line_col(editor.cursor);
+
+        let v_selection: Option<std::ops::Range<usize>> = if let Some(ref sel) = global_selection {
+            let sel_min = sel.start.min(sel.end);
+            let sel_max = sel.start.max(sel.end);
+            if sel_min < v_end_char && sel_max > v_start_char {
+                let s = sel_min.saturating_sub(v_start_char).min(v_len_chars);
+                let e = sel_max.saturating_sub(v_start_char).min(v_len_chars);
+                if s < e {
+                    Some(s..e)
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        } else {
+            None
+        };
 
         let mut elements = Vec::new();
         let mut cursor_rendered = false;
@@ -1666,7 +1903,6 @@ impl EditorView {
                 elements.push(self.render_preedit_element(preedit, theme));
             }
             if is_block_cursor {
-                // Block cursor with alpha overlay
                 elements.push(
                     div()
                         .relative()
@@ -1687,7 +1923,6 @@ impl EditorView {
                         .into_any_element()
                 );
             } else {
-                // 2.5px vertical bar cursor
                 elements.push(
                     div()
                         .relative()
@@ -1708,71 +1943,59 @@ impl EditorView {
             }
         };
 
-        // Helper to render a chunk of text with potential selection highlight
-        let mut render_chunk = |text: &str, start_char: usize, token_color: Option<Rgba>, elements: &mut Vec<AnyElement>| {
+        let mut render_chunk = |text: &str, chunk_start_char: usize, token_color: Option<Rgba>, elements: &mut Vec<AnyElement>| {
             if text.is_empty() { return; }
             let chunk_chars: Vec<char> = text.chars().collect();
             let chunk_len = chunk_chars.len();
-            let chunk_start_col = start_char - line_start_char;
-            
-            // If this is the cursor line, we might need to split this chunk to insert the preedit text and cursor
-            if is_cursor_line && !cursor_rendered {
-                if cursor_col >= chunk_start_col && cursor_col <= chunk_start_col + chunk_len {
-                    let split_idx = cursor_col - chunk_start_col;
+
+            if is_cursor_on_vrow && !cursor_rendered {
+                if cursor_vcol >= chunk_start_char && cursor_vcol <= chunk_start_char + chunk_len {
+                    let split_idx = cursor_vcol - chunk_start_char;
                     let part1 = chunk_chars[..split_idx].iter().collect::<String>();
                     let part2 = chunk_chars[split_idx..].iter().collect::<String>();
-                    
-                    self.render_chunk_internal(&part1, start_char, token_color, selection.clone(), theme, line_height, word_wrap, elements);
+
+                    self.render_chunk_internal(&part1, chunk_start_char, token_color, v_selection.clone(), theme, line_height, elements);
                     render_cursor(elements);
                     cursor_rendered = true;
-                    self.render_chunk_internal(&part2, start_char + split_idx, token_color, selection.clone(), theme, line_height, word_wrap, elements);
+                    self.render_chunk_internal(&part2, chunk_start_char + split_idx, token_color, v_selection.clone(), theme, line_height, elements);
                     return;
                 }
             }
 
-            self.render_chunk_internal(text, start_char, token_color, selection.clone(), theme, line_height, word_wrap, elements);
+            self.render_chunk_internal(text, chunk_start_char, token_color, v_selection.clone(), theme, line_height, elements);
         };
 
         if let Some(Some(tokens)) = editor.line_tokens.get(line_idx) {
-            let mut last_offset = 0;
-            let str_len = line_str.len();
+            let mut last_v_offset = 0;
             for token in tokens {
-                let mut start = token.byte_range.start.min(str_len);
-                let mut end = token.byte_range.end.min(str_len);
+                let tok_start = token.byte_range.start.clamp(byte_start, byte_end);
+                let tok_end = token.byte_range.end.clamp(byte_start, byte_end);
+                if tok_end > tok_start {
+                    let v_tok_start = tok_start - byte_start;
+                    let v_tok_end = tok_end - byte_start;
 
-                // Ensure start and end are on valid UTF-8 character boundaries
-                while start > 0 && !line_str.is_char_boundary(start) {
-                    start -= 1;
-                }
-                while end > 0 && !line_str.is_char_boundary(end) {
-                    end -= 1;
-                }
+                    if v_tok_start > last_v_offset {
+                        let text = &v_text[last_v_offset..v_tok_start];
+                        let start_char = v_text[..last_v_offset].chars().count();
+                        render_chunk(text, start_char, None, &mut elements);
+                    }
 
-                if start > last_offset {
-                    let text = &line_str[last_offset..start];
-                    let start_char = start_char_from_byte_offset(line_str, last_offset, line_start_char);
-                    render_chunk(text, start_char, None, &mut elements);
-                    last_offset = start;
-                }
-
-                if end > last_offset {
-                    let text = &line_str[last_offset..end];
-                    let start_char = start_char_from_byte_offset(line_str, last_offset, line_start_char);
+                    let text = &v_text[v_tok_start..v_tok_end];
+                    let start_char = v_text[..v_tok_start].chars().count();
                     render_chunk(text, start_char, Some(self.token_color(token.token, theme)), &mut elements);
-                    last_offset = end;
+                    last_v_offset = v_tok_end;
                 }
             }
-            if last_offset < str_len {
-                let text = &line_str[last_offset..];
-                let start_char = start_char_from_byte_offset(line_str, last_offset, line_start_char);
+            if last_v_offset < v_text.len() {
+                let text = &v_text[last_v_offset..];
+                let start_char = v_text[..last_v_offset].chars().count();
                 render_chunk(text, start_char, None, &mut elements);
             }
         } else {
-            render_chunk(line_str, line_start_char, None, &mut elements);
+            render_chunk(v_text, 0, None, &mut elements);
         }
 
-        // If line is empty or cursor was at the very end and no chunk captured it
-        if is_cursor_line && !cursor_rendered {
+        if is_cursor_on_vrow && !cursor_rendered {
             render_cursor(&mut elements);
         }
 
@@ -1793,113 +2016,82 @@ impl EditorView {
             .into_any_element()
     }
 
-    fn render_chunk_internal(&self, text: &str, start_char: usize, token_color: Option<Rgba>, selection: Option<std::ops::Range<usize>>, theme: &Theme, line_height: Pixels, word_wrap: bool, elements: &mut Vec<AnyElement>) {
+    fn render_chunk_internal(
+        &self,
+        text: &str,
+        start_char: usize,
+        token_color: Option<Rgba>,
+        selection: Option<std::ops::Range<usize>>,
+        theme: &Theme,
+        line_height: Pixels,
+        elements: &mut Vec<AnyElement>,
+    ) {
         if text.is_empty() { return; }
-        
+
         let text_color = token_color.unwrap_or(led_color_to_gpui(theme.editor.foreground));
         let sel_bg = with_alpha(led_color_to_gpui(theme.editor.selection), 0.75);
 
-        // When word wrap is enabled, split long chunks into word/whitespace segments
-        // so GPUI flex_wrap can cleanly wrap at whitespace or punctuation boundaries
-        let sub_chunks: Vec<(String, usize)> = if word_wrap {
-            let mut result = Vec::new();
-            let mut current = String::new();
-            let mut cur_offset = 0;
-            let mut chunk_start = 0;
-            let mut in_whitespace = None;
+        let chunk_chars: Vec<char> = text.chars().collect();
+        let chunk_len = chunk_chars.len();
 
-            for c in text.chars() {
-                let is_ws = c.is_whitespace();
-                if let Some(prev_ws) = in_whitespace {
-                    if is_ws != prev_ws || (!is_ws && current.chars().count() >= 12) {
-                        result.push((current, start_char + chunk_start));
-                        current = String::new();
-                        chunk_start = cur_offset;
-                    }
-                }
-                in_whitespace = Some(is_ws);
-                current.push(c);
-                cur_offset += 1;
-            }
-            if !current.is_empty() {
-                result.push((current, start_char + chunk_start));
-            }
-            result
-        } else {
-            vec![(text.to_string(), start_char)]
-        };
+        if let Some(ref sel) = selection {
+            let sel_start = if sel.start > start_char { sel.start - start_char } else { 0 };
+            let sel_end = if sel.end > start_char { sel.end - start_char } else { 0 };
 
-        for (sub_text, sub_start) in sub_chunks {
-            let chunk_chars: Vec<char> = sub_text.chars().collect();
-            let chunk_len = chunk_chars.len();
+            if sel_start < chunk_len && sel_end > 0 {
+                let highlight_start = sel_start;
+                let highlight_end = sel_end.min(chunk_len);
 
-            if let Some(ref sel) = selection {
-                let sel_start = if sel.start > sub_start { sel.start - sub_start } else { 0 };
-                let sel_end = if sel.end > sub_start { sel.end - sub_start } else { 0 };
-
-                if sel_start < chunk_len && sel_end > 0 {
-                    let highlight_start = sel_start;
-                    let highlight_end = sel_end.min(chunk_len);
-
-                    if highlight_start > 0 {
-                        elements.push(
-                            div()
-                                .h(line_height)
-                                .flex()
-                                .items_center()
-                                .text_color(text_color)
-                                .font_family(mono_font_family())
-                                .child(chunk_chars[..highlight_start].iter().collect::<String>())
-                                .into_any_element()
-                        );
-                    }
-
+                if highlight_start > 0 {
                     elements.push(
                         div()
                             .h(line_height)
                             .flex()
                             .items_center()
-                            .bg(sel_bg)
                             .text_color(text_color)
                             .font_family(mono_font_family())
-                            .child(chunk_chars[highlight_start..highlight_end].iter().collect::<String>())
+                            .child(chunk_chars[..highlight_start].iter().collect::<String>())
                             .into_any_element()
                     );
-
-                    if highlight_end < chunk_len {
-                        elements.push(
-                            div()
-                                .h(line_height)
-                                .flex()
-                                .items_center()
-                                .text_color(text_color)
-                                .font_family(mono_font_family())
-                                .child(chunk_chars[highlight_end..].iter().collect::<String>())
-                                .into_any_element()
-                        );
-                    }
-                    continue;
                 }
+
+                elements.push(
+                    div()
+                        .h(line_height)
+                        .flex()
+                        .items_center()
+                        .bg(sel_bg)
+                        .text_color(text_color)
+                        .font_family(mono_font_family())
+                        .child(chunk_chars[highlight_start..highlight_end].iter().collect::<String>())
+                        .into_any_element()
+                );
+
+                if highlight_end < chunk_len {
+                    elements.push(
+                        div()
+                            .h(line_height)
+                            .flex()
+                            .items_center()
+                            .text_color(text_color)
+                            .font_family(mono_font_family())
+                            .child(chunk_chars[highlight_end..].iter().collect::<String>())
+                            .into_any_element()
+                    );
+                }
+                return;
             }
-
-            elements.push(
-                div()
-                    .h(line_height)
-                    .flex()
-                    .items_center()
-                    .text_color(text_color)
-                    .font_family(mono_font_family())
-                    .child(sub_text)
-                    .into_any_element()
-            );
         }
-    }
-}
 
-fn start_char_from_byte_offset(s: &str, byte_offset: usize, line_start_char: usize) -> usize {
-    let mut safe_offset = byte_offset.min(s.len());
-    while safe_offset > 0 && !s.is_char_boundary(safe_offset) {
-        safe_offset -= 1;
+        elements.push(
+            div()
+                .h(line_height)
+                .flex()
+                .items_center()
+                .text_color(text_color)
+                .font_family(mono_font_family())
+                .child(text.to_string())
+                .into_any_element()
+        );
     }
-    line_start_char + s[..safe_offset].chars().count()
 }

@@ -303,8 +303,8 @@ line_numbers = true
 # Enable vi keybindings (Normal / Insert / Visual modes)
 vi_mode = false
 
-# Wrap long lines in the editor area
-word_wrap = false
+# Wrap long lines in the editor area (default: true)
+word_wrap = true
 
 # Tab stop width in display cells (1–16)
 # Controls how wide a tab character (\t) appears on screen.
