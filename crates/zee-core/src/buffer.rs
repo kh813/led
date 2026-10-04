@@ -310,6 +310,148 @@ impl Editor {
         char_idx.saturating_sub(if range.end > range.start && self.is_line_ending(line.char(range.end - 1)) { 1 } else { 0 })
     }
 
+    pub fn wrap_line_px(
+        &self,
+        line_idx: usize,
+        max_width_px: f32,
+        ascii_width_px: f32,
+        cjk_width_px: f32,
+        tab_size: usize,
+    ) -> Vec<Range<usize>> {
+        if max_width_px <= 0.0 || ascii_width_px <= 0.0 {
+            return vec![0..self.line(line_idx).len_chars()];
+        }
+        let line = self.line(line_idx);
+        let mut result = Vec::new();
+        let mut start = 0;
+        let mut cur_px = 0.0;
+        let tab_width_px = tab_size as f32 * ascii_width_px;
+
+        use unicode_width::UnicodeWidthChar;
+
+        let mut len_without_newline = line.len_chars();
+        while len_without_newline > 0 {
+            let c = line.char(len_without_newline - 1);
+            if c == '\n' || c == '\r' {
+                len_without_newline -= 1;
+            } else {
+                break;
+            }
+        }
+
+        if len_without_newline == 0 {
+            return vec![0..0];
+        }
+
+        for (i, c) in line.chars().take(len_without_newline).enumerate() {
+            let char_px = if c == '\t' {
+                let col_px = cur_px % tab_width_px;
+                tab_width_px - col_px
+            } else if c.width() == Some(2) {
+                cjk_width_px
+            } else if c.width() == Some(0) {
+                0.0
+            } else {
+                ascii_width_px
+            };
+
+            if cur_px + char_px > max_width_px && i > start {
+                result.push(start..i);
+                start = i;
+                cur_px = 0.0;
+            }
+
+            cur_px += char_px;
+        }
+
+        result.push(start..len_without_newline);
+        result
+    }
+
+    pub fn get_visual_px(
+        &self,
+        line_idx: usize,
+        char_offset: usize,
+        range: &Range<usize>,
+        ascii_width_px: f32,
+        cjk_width_px: f32,
+        tab_size: usize,
+    ) -> f32 {
+        let line = self.rope.line(line_idx);
+        let mut visual_x = 0.0;
+        let tab_width_px = tab_size as f32 * ascii_width_px;
+        use unicode_width::UnicodeWidthChar;
+
+        for (i, c) in line.chars().enumerate() {
+            if i < range.start {
+                continue;
+            }
+            if i >= char_offset {
+                break;
+            }
+            let char_px = if c == '\t' {
+                let col_px = visual_x % tab_width_px;
+                tab_width_px - col_px
+            } else if c.width() == Some(2) {
+                cjk_width_px
+            } else if c.width() == Some(0) {
+                0.0
+            } else {
+                ascii_width_px
+            };
+            visual_x += char_px;
+        }
+        visual_x
+    }
+
+    pub fn get_char_at_v_px(
+        &self,
+        line_idx: usize,
+        range: Range<usize>,
+        target_x: f32,
+        ascii_width_px: f32,
+        cjk_width_px: f32,
+        tab_size: usize,
+    ) -> usize {
+        let line = self.rope.line(line_idx);
+        let mut visual_x = 0.0;
+        let mut char_idx = self.rope.line_to_char(line_idx) + range.start;
+        let tab_width_px = tab_size as f32 * ascii_width_px;
+        use unicode_width::UnicodeWidthChar;
+
+        for (i, c) in line.chars().enumerate() {
+            if i < range.start {
+                continue;
+            }
+            if i >= range.end {
+                break;
+            }
+
+            let char_px = if c == '\t' {
+                let col_px = visual_x % tab_width_px;
+                tab_width_px - col_px
+            } else if c.width() == Some(2) {
+                cjk_width_px
+            } else if c.width() == Some(0) {
+                0.0
+            } else {
+                ascii_width_px
+            };
+
+            if visual_x + char_px / 2.0 > target_x {
+                return char_idx;
+            }
+
+            visual_x += char_px;
+            char_idx += 1;
+
+            if c == '\n' || c == '\r' {
+                return char_idx.saturating_sub(1);
+            }
+        }
+        char_idx.saturating_sub(if range.end > range.start && self.is_line_ending(line.char(range.end - 1)) { 1 } else { 0 })
+    }
+
     pub fn ensure_cursor_visible(&mut self, visible_lines: usize, visible_cols: usize, word_wrap: bool) {
         let (cursor_line, cursor_col) = self.char_to_line_col(self.cursor);
         if cursor_line < self.scroll_row {
@@ -559,6 +701,97 @@ impl Editor {
             let next_wraps = self.wrap_line(next_line, width, tab_size);
             let target_range = &next_wraps[0];
             self.cursor = self.get_char_at_vcol(next_line, target_range.clone(), current_vcol, tab_size);
+        } else if line == self.line_count().saturating_sub(1) {
+            let target_range = wraps.last().unwrap();
+            self.cursor = self.line_col_to_char(line, target_range.end);
+        }
+
+        if extend_selection {
+            self.update_selection();
+        } else {
+            self.selection = None;
+        }
+    }
+
+    pub fn move_cursor_vup_px(
+        &mut self,
+        max_width_px: f32,
+        ascii_width_px: f32,
+        cjk_width_px: f32,
+        tab_size: usize,
+        extend_selection: bool,
+    ) {
+        if extend_selection {
+            self.ensure_selection();
+        } else {
+            self.selection = None;
+        }
+
+        let (line, col) = self.char_to_line_col(self.cursor);
+        let wraps = self.wrap_line_px(line, max_width_px, ascii_width_px, cjk_width_px, tab_size);
+        
+        let mut v_idx = 0;
+        for (i, range) in wraps.iter().enumerate() {
+            if col >= range.start && (col < range.end || (col == range.end && i == wraps.len() - 1)) {
+                v_idx = i;
+                break;
+            }
+        }
+
+        let current_v_x = self.get_visual_px(line, col, &wraps[v_idx], ascii_width_px, cjk_width_px, tab_size);
+
+        if v_idx > 0 {
+            let target_range = &wraps[v_idx - 1];
+            self.cursor = self.get_char_at_v_px(line, target_range.clone(), current_v_x, ascii_width_px, cjk_width_px, tab_size);
+        } else if line > 0 {
+            let prev_line = line - 1;
+            let prev_wraps = self.wrap_line_px(prev_line, max_width_px, ascii_width_px, cjk_width_px, tab_size);
+            let target_range = prev_wraps.last().unwrap();
+            self.cursor = self.get_char_at_v_px(prev_line, target_range.clone(), current_v_x, ascii_width_px, cjk_width_px, tab_size);
+        }
+
+        if extend_selection {
+            self.update_selection();
+        } else {
+            self.selection = None;
+        }
+    }
+
+    pub fn move_cursor_vdown_px(
+        &mut self,
+        max_width_px: f32,
+        ascii_width_px: f32,
+        cjk_width_px: f32,
+        tab_size: usize,
+        extend_selection: bool,
+    ) {
+        if extend_selection {
+            self.ensure_selection();
+        } else {
+            self.selection = None;
+        }
+
+        let (line, col) = self.char_to_line_col(self.cursor);
+        let wraps = self.wrap_line_px(line, max_width_px, ascii_width_px, cjk_width_px, tab_size);
+        
+        let mut v_idx = 0;
+        for (i, range) in wraps.iter().enumerate() {
+            if col >= range.start && (col < range.end || (col == range.end && i == wraps.len() - 1)) {
+                v_idx = i;
+                break;
+            }
+        }
+
+        let current_v_x = self.get_visual_px(line, col, &wraps[v_idx], ascii_width_px, cjk_width_px, tab_size);
+
+        if v_idx + 1 < wraps.len() {
+            let target_range = &wraps[v_idx + 1];
+            self.cursor = self.get_char_at_v_px(line, target_range.clone(), current_v_x, ascii_width_px, cjk_width_px, tab_size);
+        } else if line + 1 < self.line_count() {
+            let next_line = line + 1;
+            let next_wraps = self.wrap_line_px(next_line, max_width_px, ascii_width_px, cjk_width_px, tab_size);
+            let target_range = &next_wraps[0];
+            self.cursor = self.get_char_at_v_px(next_line, target_range.clone(), current_v_x, ascii_width_px, cjk_width_px, tab_size);
         } else if line == self.line_count().saturating_sub(1) {
             let target_range = wraps.last().unwrap();
             self.cursor = self.line_col_to_char(line, target_range.end);
@@ -1446,5 +1679,34 @@ mod tests {
         assert_eq!(slice_vrow(wraps[0].clone()), "Rust（ラスト）は、性能、信頼性、生産性を重視したマルチパラダイムの汎用プログラミング言");
         assert_eq!(slice_vrow(wraps[1].clone()), "語である。");
     }
+
+    #[test]
+    fn test_wrap_line_px_and_cursor_movement() {
+        let mut editor = Editor::new();
+        let text = "テキストエディタで手軽に書いた文書からHTMLを生成するために開発されたが、PowerPoint形式やLaTeX形式のファイルへ変換するソフトウェア（コンバータ) も開発されている。各コンバータの開発者によって拡張が施された各種の方言が存在する。\n";
+        editor.insert(0, text);
+
+        let ascii_w = 7.225;
+        let cjk_w = 12.0;
+        let max_w = 944.0;
+
+        let wraps = editor.wrap_line_px(0, max_w, ascii_w, cjk_w, 4);
+        assert_eq!(wraps.len(), 2);
+        assert_eq!(wraps[0], 0..87);
+        assert_eq!(wraps[1], 87..123);
+
+        // Test cursor movement across pixel-wrapped visual lines
+        editor.cursor = 0;
+        editor.move_cursor_vdown_px(max_w, ascii_w, cjk_w, 4, false);
+        let (line, col) = editor.char_to_line_col(editor.cursor);
+        assert_eq!(line, 0);
+        assert_eq!(col, 87);
+
+        editor.move_cursor_vup_px(max_w, ascii_w, cjk_w, 4, false);
+        let (line, col) = editor.char_to_line_col(editor.cursor);
+        assert_eq!(line, 0);
+        assert_eq!(col, 0);
+    }
 }
+
 

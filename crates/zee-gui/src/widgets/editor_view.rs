@@ -18,6 +18,9 @@ pub struct EditorView {
     pending_g: bool,
     pending_r: bool,
     pub last_wrap_cols: usize,
+    pub last_wrap_width_px: f32,
+    pub ascii_width_px: f32,
+    pub cjk_width_px: f32,
 }
 
 impl EditorView {
@@ -26,6 +29,11 @@ impl EditorView {
             cx.notify();
         }).detach();
         
+        let config = workspace.read(cx).config.clone();
+        let font_size = config.font_size;
+        let ascii_width = if cfg!(target_os = "macos") { font_size * 0.602 } else { font_size * 0.6 };
+        let cjk_width = font_size * 1.0;
+
         Self {
             workspace,
             focus_handle: cx.focus_handle(),
@@ -39,6 +47,9 @@ impl EditorView {
             pending_g: false,
             pending_r: false,
             last_wrap_cols: 80,
+            last_wrap_width_px: 800.0,
+            ascii_width_px: ascii_width,
+            cjk_width_px: cjk_width,
         }
     }
 
@@ -145,7 +156,9 @@ impl EditorView {
             let expand_tab = w.config.expand_tab;
             let tab_size = w.config.tab_size as usize;
             let word_wrap = w.config.word_wrap;
-            let wrap_cols = self.last_wrap_cols;
+            let max_w = self.last_wrap_width_px;
+            let ascii_w = self.ascii_width_px;
+            let cjk_w = self.cjk_width_px;
             let editor = match w.active_editor_mut() {
                 Some(e) => e,
                 None => return,
@@ -153,14 +166,14 @@ impl EditorView {
             match key.as_str() {
                 "up" => {
                     if word_wrap {
-                        editor.move_cursor_vup(wrap_cols, tab_size, shift);
+                        editor.move_cursor_vup_px(max_w, ascii_w, cjk_w, tab_size, shift);
                     } else {
                         editor.move_cursor_up(shift);
                     }
                 }
                 "down" => {
                     if word_wrap {
-                        editor.move_cursor_vdown(wrap_cols, tab_size, shift);
+                        editor.move_cursor_vdown_px(max_w, ascii_w, cjk_w, tab_size, shift);
                     } else {
                         editor.move_cursor_down(shift);
                     }
@@ -172,7 +185,7 @@ impl EditorView {
                 "pageup" => {
                     for _ in 0..20 {
                         if word_wrap {
-                            editor.move_cursor_vup(wrap_cols, tab_size, shift);
+                            editor.move_cursor_vup_px(max_w, ascii_w, cjk_w, tab_size, shift);
                         } else {
                             editor.move_cursor_up(shift);
                         }
@@ -181,7 +194,7 @@ impl EditorView {
                 "pagedown" => {
                     for _ in 0..20 {
                         if word_wrap {
-                            editor.move_cursor_vdown(wrap_cols, tab_size, shift);
+                            editor.move_cursor_vdown_px(max_w, ascii_w, cjk_w, tab_size, shift);
                         } else {
                             editor.move_cursor_down(shift);
                         }
@@ -568,13 +581,15 @@ impl EditorView {
                 });
             }
             "j" => {
-                let wrap_cols = self.last_wrap_cols;
+                let max_w = self.last_wrap_width_px;
+                let ascii_w = self.ascii_width_px;
+                let cjk_w = self.cjk_width_px;
                 self.workspace.update(cx, |w, cx| {
                     let word_wrap = w.config.word_wrap;
                     let tab_size = w.config.tab_size as usize;
                     if let Some(editor) = w.active_editor_mut() {
                         if word_wrap {
-                            editor.move_cursor_vdown(wrap_cols, tab_size, false);
+                            editor.move_cursor_vdown_px(max_w, ascii_w, cjk_w, tab_size, false);
                         } else {
                             editor.move_cursor_down(false);
                         }
@@ -583,13 +598,15 @@ impl EditorView {
                 });
             }
             "k" => {
-                let wrap_cols = self.last_wrap_cols;
+                let max_w = self.last_wrap_width_px;
+                let ascii_w = self.ascii_width_px;
+                let cjk_w = self.cjk_width_px;
                 self.workspace.update(cx, |w, cx| {
                     let word_wrap = w.config.word_wrap;
                     let tab_size = w.config.tab_size as usize;
                     if let Some(editor) = w.active_editor_mut() {
                         if word_wrap {
-                            editor.move_cursor_vup(wrap_cols, tab_size, false);
+                            editor.move_cursor_vup_px(max_w, ascii_w, cjk_w, tab_size, false);
                         } else {
                             editor.move_cursor_up(false);
                         }
@@ -898,7 +915,9 @@ impl EditorView {
                 self.pending_r = false;
             }
             "up" | "down" | "left" | "right" | "home" | "end" | "pageup" | "pagedown" => {
-                let wrap_cols = self.last_wrap_cols;
+                let max_w = self.last_wrap_width_px;
+                let ascii_w = self.ascii_width_px;
+                let cjk_w = self.cjk_width_px;
                 self.workspace.update(cx, |w, cx| {
                     let word_wrap = w.config.word_wrap;
                     let tab_size = w.config.tab_size as usize;
@@ -906,14 +925,14 @@ impl EditorView {
                         match key {
                             "up" => {
                                 if word_wrap {
-                                    editor.move_cursor_vup(wrap_cols, tab_size, shift);
+                                    editor.move_cursor_vup_px(max_w, ascii_w, cjk_w, tab_size, shift);
                                 } else {
                                     editor.move_cursor_up(shift);
                                 }
                             }
                             "down" => {
                                 if word_wrap {
-                                    editor.move_cursor_vdown(wrap_cols, tab_size, shift);
+                                    editor.move_cursor_vdown_px(max_w, ascii_w, cjk_w, tab_size, shift);
                                 } else {
                                     editor.move_cursor_down(shift);
                                 }
@@ -925,7 +944,7 @@ impl EditorView {
                             "pageup" => {
                                 for _ in 0..20 {
                                     if word_wrap {
-                                        editor.move_cursor_vup(wrap_cols, tab_size, shift);
+                                        editor.move_cursor_vup_px(max_w, ascii_w, cjk_w, tab_size, shift);
                                     } else {
                                         editor.move_cursor_up(shift);
                                     }
@@ -934,7 +953,7 @@ impl EditorView {
                             "pagedown" => {
                                 for _ in 0..20 {
                                     if word_wrap {
-                                        editor.move_cursor_vdown(wrap_cols, tab_size, shift);
+                                        editor.move_cursor_vdown_px(max_w, ascii_w, cjk_w, tab_size, shift);
                                     } else {
                                         editor.move_cursor_down(shift);
                                     }
@@ -1010,13 +1029,15 @@ impl EditorView {
                 });
             }
             "j" => {
-                let wrap_cols = self.last_wrap_cols;
+                let max_w = self.last_wrap_width_px;
+                let ascii_w = self.ascii_width_px;
+                let cjk_w = self.cjk_width_px;
                 self.workspace.update(cx, |w, cx| {
                     let word_wrap = w.config.word_wrap;
                     let tab_size = w.config.tab_size as usize;
                     if let Some(editor) = w.active_editor_mut() {
                         if word_wrap {
-                            editor.move_cursor_vdown(wrap_cols, tab_size, true);
+                            editor.move_cursor_vdown_px(max_w, ascii_w, cjk_w, tab_size, true);
                         } else {
                             editor.move_cursor_down(true);
                         }
@@ -1025,13 +1046,15 @@ impl EditorView {
                 });
             }
             "k" => {
-                let wrap_cols = self.last_wrap_cols;
+                let max_w = self.last_wrap_width_px;
+                let ascii_w = self.ascii_width_px;
+                let cjk_w = self.cjk_width_px;
                 self.workspace.update(cx, |w, cx| {
                     let word_wrap = w.config.word_wrap;
                     let tab_size = w.config.tab_size as usize;
                     if let Some(editor) = w.active_editor_mut() {
                         if word_wrap {
-                            editor.move_cursor_vup(wrap_cols, tab_size, true);
+                            editor.move_cursor_vup_px(max_w, ascii_w, cjk_w, tab_size, true);
                         } else {
                             editor.move_cursor_up(true);
                         }
@@ -1251,16 +1274,29 @@ impl EditorView {
                 return editor.line_col_to_char(editor.scroll_row, 0);
             }
             let mut current_vrow = 0;
-            let target_vcol = (relative_x / char_width).round() as usize;
+            let target_vx: f32 = relative_x / px(1.0);
 
             for line_idx in editor.scroll_row..editor.line_count() {
-                let wraps = editor.wrap_line(line_idx, self.last_wrap_cols, tab_size);
+                let wraps = editor.wrap_line_px(
+                    line_idx,
+                    self.last_wrap_width_px,
+                    self.ascii_width_px,
+                    self.cjk_width_px,
+                    tab_size,
+                );
                 let line_vrows = wraps.len();
                 if visual_row < current_vrow + line_vrows as i32 {
                     let v_idx = (visual_row - current_vrow).max(0) as usize;
                     let v_idx = v_idx.min(line_vrows.saturating_sub(1));
                     let range = wraps[v_idx].clone();
-                    return editor.get_char_at_vcol(line_idx, range, target_vcol, tab_size);
+                    return editor.get_char_at_v_px(
+                        line_idx,
+                        range,
+                        target_vx,
+                        self.ascii_width_px,
+                        self.cjk_width_px,
+                        tab_size,
+                    );
                 }
                 current_vrow += line_vrows as i32;
             }
@@ -1472,35 +1508,54 @@ impl EntityInputHandler for EditorView {
 
         let word_wrap = workspace.config.word_wrap;
         let tab_size = workspace.config.tab_size as usize;
-        let (visual_row, visual_col) = if !word_wrap {
+        let (visual_row, visual_x) = if !word_wrap {
             let vr = line - editor.scroll_row;
             let vc = (col as i32) - (editor.scroll_col as i32);
             if vc < 0 {
                 return None;
             }
-            (vr, vc as usize)
+            (vr, char_width * vc as f32)
         } else {
             let mut vrow = 0;
             for l in editor.scroll_row..line {
-                let wraps = editor.wrap_line(l, self.last_wrap_cols, tab_size);
+                let wraps = editor.wrap_line_px(
+                    l,
+                    self.last_wrap_width_px,
+                    self.ascii_width_px,
+                    self.cjk_width_px,
+                    tab_size,
+                );
                 vrow += wraps.len();
             }
-            let wraps = editor.wrap_line(line, self.last_wrap_cols, tab_size);
+            let wraps = editor.wrap_line_px(
+                line,
+                self.last_wrap_width_px,
+                self.ascii_width_px,
+                self.cjk_width_px,
+                tab_size,
+            );
             let wraps_len = wraps.len();
             let mut found = false;
-            let mut target_vcol = 0;
+            let mut target_vx = 0.0;
             for (v_idx, r) in wraps.into_iter().enumerate() {
                 if col >= r.start && (col < r.end || v_idx == wraps_len.saturating_sub(1)) {
                     vrow += v_idx;
-                    target_vcol = editor.get_visual_col(line, col, &r, tab_size);
+                    target_vx = editor.get_visual_px(
+                        line,
+                        col,
+                        &r,
+                        self.ascii_width_px,
+                        self.cjk_width_px,
+                        tab_size,
+                    );
                     found = true;
                     break;
                 }
             }
-            if !found { (vrow, 0) } else { (vrow, target_vcol) }
+            if !found { (vrow, px(0.0)) } else { (vrow, px(target_vx)) }
         };
 
-        let origin_x = bounds.origin.x + gutter_width + (char_width * visual_col as f32);
+        let origin_x = bounds.origin.x + gutter_width + visual_x;
         let origin_y = bounds.origin.y + (line_height * visual_row as f32);
 
         Some(Bounds {
@@ -1571,10 +1626,16 @@ impl Render for EditorView {
 
         let gutter_width = if workspace.config.line_numbers { px(52.0) } else { px(0.0) };
         let sidebar_width = if workspace.sidebar_visible { px(240.0) } else { px(0.0) };
-        let char_width_val = workspace.config.font_size * 0.6;
+        let font_size_val = workspace.config.font_size;
+        let ascii_width = if cfg!(target_os = "macos") { font_size_val * 0.602 } else { font_size_val * 0.6 };
+        let cjk_width = font_size_val * 1.0;
+        self.ascii_width_px = ascii_width;
+        self.cjk_width_px = cjk_width;
         let viewport_width = window.viewport_size().width;
-        let available_width_px = (viewport_width - sidebar_width - gutter_width - px(24.0)).max(px(100.0));
-        let wrap_cols = ((available_width_px / px(char_width_val)).floor() as usize).max(20);
+        let available_width_px = (viewport_width - sidebar_width - gutter_width - px(16.0)).max(px(100.0));
+        let available_width_val: f32 = available_width_px / px(1.0);
+        self.last_wrap_width_px = available_width_val;
+        let wrap_cols = ((available_width_px / px(ascii_width)).floor() as usize).max(20);
         self.last_wrap_cols = wrap_cols;
 
         let focus_handle = self.focus_handle.clone();
@@ -1625,7 +1686,7 @@ impl Render for EditorView {
                     .w_full()
                     .h_full()
                     .font_family(font_family)
-                    .child(self.render_lines(workspace, editor, wrap_cols))
+                    .child(self.render_lines(workspace, editor))
             )
             .child(self.render_scrollbar(workspace, editor))
             .into_any_element()
@@ -1679,7 +1740,7 @@ impl EditorView {
             .into_any_element()
     }
 
-    fn render_lines(&self, workspace: &Workspace, editor: &zee_core::buffer::Editor, wrap_cols: usize) -> impl IntoElement {
+    fn render_lines(&self, workspace: &Workspace, editor: &zee_core::buffer::Editor) -> impl IntoElement {
         let line_count = editor.line_count();
         let scroll_row = editor.scroll_row;
         let word_wrap = workspace.config.word_wrap;
@@ -1693,7 +1754,13 @@ impl EditorView {
                 break;
             }
             if word_wrap {
-                let wraps = editor.wrap_line(line_idx, wrap_cols, tab_size);
+                let wraps = editor.wrap_line_px(
+                    line_idx,
+                    self.last_wrap_width_px,
+                    self.ascii_width_px,
+                    self.cjk_width_px,
+                    tab_size,
+                );
                 let wraps_len = wraps.len();
                 for (v_idx, range) in wraps.into_iter().enumerate() {
                     rows.push(self.render_visual_line(line_idx, v_idx, wraps_len, range, workspace, editor).into_any_element());
