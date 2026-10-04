@@ -21,6 +21,7 @@ pub struct EditorView {
     pub last_wrap_width_px: f32,
     pub ascii_width_px: f32,
     pub cjk_width_px: f32,
+    pub is_mouse_down: bool,
 }
 
 impl EditorView {
@@ -50,6 +51,7 @@ impl EditorView {
             last_wrap_width_px: 800.0,
             ascii_width_px: ascii_width,
             cjk_width_px: cjk_width,
+            is_mouse_down: false,
         }
     }
 
@@ -1307,6 +1309,7 @@ impl EditorView {
 
     fn handle_mouse_down(&mut self, event: &MouseDownEvent, window: &mut Window, cx: &mut Context<Self>) {
         self.focus_handle.focus(window, cx);
+        self.is_mouse_down = true;
         let now = std::time::Instant::now();
         if let Some(last) = self.last_click_at {
             if now.duration_since(last).as_millis() < 300 {
@@ -1361,20 +1364,50 @@ impl EditorView {
         });
     }
 
-    fn handle_mouse_move(&mut self, event: &MouseMoveEvent, _window: &mut Window, cx: &mut Context<Self>) {
-        if event.pressed_button.is_some() {
+    fn handle_mouse_move(&mut self, event: &MouseMoveEvent, window: &mut Window, cx: &mut Context<Self>) {
+        if self.is_mouse_down || event.pressed_button == Some(MouseButton::Left) {
+            let tab_bar_height = px(36.0);
+            #[cfg(not(target_os = "macos"))]
+            let menu_bar_height = px(28.0);
+            #[cfg(target_os = "macos")]
+            let menu_bar_height = px(0.0);
+            let top_offset = tab_bar_height + menu_bar_height;
+            let viewport_height = window.viewport_size().height;
+
             let char_pos = self.mouse_pos_to_char_pos(event.position, cx);
             self.workspace.update(cx, |w, cx| {
                 let editor = match w.active_editor_mut() {
                     Some(e) => e,
                     None => return,
                 };
+
+                // Auto-scroll when dragging near top or bottom
+                if event.position.y < top_offset + px(24.0) && editor.scroll_row > 0 {
+                    editor.scroll_row = editor.scroll_row.saturating_sub(1);
+                } else if event.position.y > viewport_height - px(24.0) && editor.scroll_row + 1 < editor.line_count() {
+                    editor.scroll_row += 1;
+                }
+
+                if editor.selection_anchor.is_none() {
+                    editor.selection_anchor = Some(editor.cursor);
+                }
                 editor.cursor = char_pos;
-                editor.ensure_selection();
                 editor.update_selection();
                 cx.notify();
             });
         }
+    }
+
+    fn handle_mouse_up(&mut self, _event: &MouseUpEvent, _window: &mut Window, cx: &mut Context<Self>) {
+        self.is_mouse_down = false;
+        self.workspace.update(cx, |w, cx| {
+            if let Some(editor) = w.active_editor_mut() {
+                if editor.selection.is_none() {
+                    editor.selection_anchor = None;
+                }
+            }
+            cx.notify();
+        });
     }
 
     fn handle_scroll(&mut self, event: &ScrollWheelEvent, _window: &mut Window, cx: &mut Context<Self>) {
@@ -1649,6 +1682,12 @@ impl Render for EditorView {
             }))
             .on_mouse_down(MouseButton::Left, cx.listener(|this, event, window, cx| {
                 this.handle_mouse_down(event, window, cx);
+            }))
+            .on_mouse_up(MouseButton::Left, cx.listener(|this, event, window, cx| {
+                this.handle_mouse_up(event, window, cx);
+            }))
+            .on_mouse_up_out(MouseButton::Left, cx.listener(|this, event, window, cx| {
+                this.handle_mouse_up(event, window, cx);
             }))
             .on_mouse_move(cx.listener(|this, event, window, cx| {
                 this.handle_mouse_move(event, window, cx);

@@ -2813,11 +2813,31 @@ impl App {
                 }
             }
             MouseEventKind::Drag(event::MouseButton::Left) => {
-                if let Some(pos) = self.mouse_to_buffer_pos(x, y) {
+                let (ex, ey, ew, eh) = self.layout.editor_bounds();
+                if ew > 0 && eh > 0 {
                     let buffer = &mut self.buffers[self.active_buffer];
-                    buffer.ensure_selection();
-                    buffer.cursor = pos;
-                    buffer.update_selection();
+                    if y < ey && buffer.scroll_row > 0 {
+                        buffer.scroll_row = buffer.scroll_row.saturating_sub(1);
+                    } else if y >= ey + eh && buffer.scroll_row + (eh as usize) < buffer.line_count() {
+                        buffer.scroll_row += 1;
+                    }
+
+                    let clamped_x = x.clamp(ex, ex + ew - 1);
+                    let clamped_y = y.clamp(ey, ey + eh - 1);
+                    if let Some(pos) = self.mouse_to_buffer_pos(clamped_x, clamped_y) {
+                        let buffer = &mut self.buffers[self.active_buffer];
+                        if buffer.selection_anchor.is_none() {
+                            buffer.selection_anchor = Some(buffer.cursor);
+                        }
+                        buffer.cursor = pos;
+                        buffer.update_selection();
+                    }
+                }
+            }
+            MouseEventKind::Up(event::MouseButton::Left) => {
+                let buffer = &mut self.buffers[self.active_buffer];
+                if buffer.selection.is_none() {
+                    buffer.selection_anchor = None;
                 }
             }
             MouseEventKind::ScrollUp => {
@@ -4172,6 +4192,75 @@ mod tests {
         // Press Left arrow again on top level menu -> Should move to Edit menu (index 1)
         app.handle_key(make_key(KeyCode::Left));
         assert_eq!(app.active_menu, Some(1));
+    }
+
+    #[test]
+    fn test_mouse_drag_selection_workflow_tui() {
+        let mut app = App::new(vec![]).expect("Failed to init App");
+        app.buffers[0].insert(0, "Hello World from Zee editor!\n");
+        app.width = 80;
+        app.height = 24;
+        app.recompute_layout();
+
+        let (ex, ey, _ew, _eh) = app.layout.editor_bounds();
+
+        // 1. Mouse down at 'W' (column 6 in line 0)
+        let mouse_down = MouseEvent {
+            kind: MouseEventKind::Down(crossterm::event::MouseButton::Left),
+            column: ex + 6,
+            row: ey,
+            modifiers: KeyModifiers::empty(),
+        };
+        app.handle_mouse(mouse_down);
+        assert_eq!(app.buffers[0].cursor, 6);
+        assert_eq!(app.buffers[0].selection_anchor, Some(6));
+        assert_eq!(app.buffers[0].selection, None);
+
+        // 2. Mouse drag to 'd' (column 11)
+        let mouse_drag1 = MouseEvent {
+            kind: MouseEventKind::Drag(crossterm::event::MouseButton::Left),
+            column: ex + 11,
+            row: ey,
+            modifiers: KeyModifiers::empty(),
+        };
+        app.handle_mouse(mouse_drag1);
+        assert_eq!(app.buffers[0].cursor, 11);
+        assert_eq!(app.buffers[0].selection_anchor, Some(6));
+        assert_eq!(app.buffers[0].selection, Some(6..11));
+
+        // 3. Mouse drag back to anchor (column 6)
+        let mouse_drag_back = MouseEvent {
+            kind: MouseEventKind::Drag(crossterm::event::MouseButton::Left),
+            column: ex + 6,
+            row: ey,
+            modifiers: KeyModifiers::empty(),
+        };
+        app.handle_mouse(mouse_drag_back);
+        assert_eq!(app.buffers[0].cursor, 6);
+        assert_eq!(app.buffers[0].selection_anchor, Some(6));
+        assert_eq!(app.buffers[0].selection, None);
+
+        // 4. Mouse drag backward to 'H' (column 0)
+        let mouse_drag_rev = MouseEvent {
+            kind: MouseEventKind::Drag(crossterm::event::MouseButton::Left),
+            column: ex,
+            row: ey,
+            modifiers: KeyModifiers::empty(),
+        };
+        app.handle_mouse(mouse_drag_rev);
+        assert_eq!(app.buffers[0].cursor, 0);
+        assert_eq!(app.buffers[0].selection_anchor, Some(6));
+        assert_eq!(app.buffers[0].selection, Some(0..6));
+
+        // 5. Mouse up
+        let mouse_up = MouseEvent {
+            kind: MouseEventKind::Up(crossterm::event::MouseButton::Left),
+            column: ex,
+            row: ey,
+            modifiers: KeyModifiers::empty(),
+        };
+        app.handle_mouse(mouse_up);
+        assert_eq!(app.buffers[0].selection, Some(0..6));
     }
 }
 

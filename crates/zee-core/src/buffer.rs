@@ -901,8 +901,10 @@ impl Editor {
     }
 
     pub fn ensure_selection(&mut self) {
-        if self.selection.is_none() {
+        if self.selection_anchor.is_none() {
             self.selection_anchor = Some(self.cursor);
+        }
+        if self.selection.is_none() {
             self.selection = Some(self.cursor..self.cursor);
         }
     }
@@ -926,10 +928,10 @@ impl Editor {
                 _ => {
                     let start = anchor.min(self.cursor);
                     let end = anchor.max(self.cursor);
-                    self.selection = Some(start..end);
                     if start == end && self.vi_mode != crate::ViMode::Visual && self.vi_mode != crate::ViMode::VisualBlock {
                         self.selection = None;
-                        self.selection_anchor = None;
+                    } else {
+                        self.selection = Some(start..end);
                     }
                 }
             }
@@ -1848,6 +1850,45 @@ mod tests {
         assert_eq!(l0_again, 0);
         // Col 6 * 12.0 = 72.0px -> in ASCII text (each 7.225px), 72.0 / 7.225 = 9.96 -> snaps back to col 10!
         assert_eq!(c0_again, 10);
+    }
+
+    #[test]
+    fn test_mouse_drag_selection_workflow() {
+        let mut editor = Editor::new();
+        editor.insert(0, "Hello World, this is a test.\n");
+
+        // 1. Mouse down at character 6 ('W')
+        let down_pos = 6;
+        editor.cursor = down_pos;
+        editor.selection = None;
+        editor.selection_anchor = Some(down_pos);
+
+        // 2. Mouse drag to character 11 ('d')
+        let drag_pos1 = 11;
+        editor.ensure_selection();
+        editor.cursor = drag_pos1;
+        editor.update_selection();
+        assert_eq!(editor.selection, Some(6..11));
+        assert_eq!(editor.selection_anchor, Some(6));
+
+        // 3. Drag back to starting point (6)
+        editor.cursor = 6;
+        editor.update_selection();
+        assert_eq!(editor.selection, None);
+        // Anchor must NOT be lost!
+        assert_eq!(editor.selection_anchor, Some(6));
+
+        // 4. Drag backward to character 0 ('H')
+        editor.cursor = 0;
+        editor.update_selection();
+        assert_eq!(editor.selection, Some(0..6));
+        assert_eq!(editor.selection_anchor, Some(6));
+
+        // 5. Drag forward to character 17 ('t')
+        editor.cursor = 17;
+        editor.update_selection();
+        assert_eq!(editor.selection, Some(6..17));
+        assert_eq!(editor.selection_anchor, Some(6));
     }
 }
 
