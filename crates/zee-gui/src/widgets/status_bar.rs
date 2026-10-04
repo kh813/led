@@ -52,11 +52,7 @@ impl Render for StatusBar {
         
         let (line, col) = editor.char_to_line_col(editor.cursor);
 
-        let selection_info = if let Some(ref sel) = editor.selection {
-            Some(format!("{} chars", (sel.end as isize - sel.start as isize).abs()))
-        } else {
-            None
-        };
+        let selection_info = editor.selection.as_ref().map(|sel| format!("{} chars", (sel.end as isize - sel.start as isize).abs()));
 
         let encoding = format!("{:?}", editor.encoding).to_uppercase();
         let line_ending = format!("{:?}", editor.line_ending).to_uppercase();

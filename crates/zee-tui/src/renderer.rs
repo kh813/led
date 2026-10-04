@@ -148,9 +148,11 @@ impl Renderer {
                         writer.queue(cursor::MoveTo(x, y))?;
                     }
 
-                    let mut style = ContentStyle::default();
-                    style.foreground_color = Some(curr.fg);
-                    style.background_color = Some(curr.bg);
+                    let mut style = ContentStyle {
+                        foreground_color: Some(curr.fg),
+                        background_color: Some(curr.bg),
+                        ..Default::default()
+                    };
                     
                     if curr.bold {
                         style.attributes.set(style::Attribute::Bold);

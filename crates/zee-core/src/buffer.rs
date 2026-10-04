@@ -44,6 +44,12 @@ pub struct Editor {
     pub line_tokens: Vec<Option<Vec<crate::syntax::TokenSpan>>>,
 }
 
+impl Default for Editor {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Editor {
     pub fn new() -> Self {
         Self {
@@ -220,6 +226,7 @@ impl Editor {
         }
     }
 
+    #[allow(clippy::single_range_in_vec_init)]
     pub fn wrap_line(&self, line_idx: usize, width: usize, tab_size: usize) -> Vec<Range<usize>> {
         if width == 0 { return vec![0..self.line(line_idx).len_chars()]; }
         let line = self.line(line_idx);
@@ -310,6 +317,7 @@ impl Editor {
         char_idx.saturating_sub(if range.end > range.start && self.is_line_ending(line.char(range.end - 1)) { 1 } else { 0 })
     }
 
+    #[allow(clippy::single_range_in_vec_init)]
     pub fn wrap_line_px(
         &self,
         line_idx: usize,
@@ -1603,9 +1611,9 @@ mod tests {
 
         // Selection slicing logic
         // Selection is 12..17 ("uncti")
-        let sel = 12..17;
-        let sel_start = if sel.start > chunk_start_char { sel.start - chunk_start_char } else { 0 };
-        let sel_end = if sel.end > chunk_start_char { sel.end - chunk_start_char } else { 0 };
+        let sel: std::ops::Range<usize> = 12..17;
+        let sel_start = sel.start.saturating_sub(chunk_start_char);
+        let sel_end = sel.end.saturating_sub(chunk_start_char);
         assert_eq!(sel_start, 2);
         assert_eq!(sel_end, 7);
 
@@ -1829,7 +1837,7 @@ mod tests {
 
         let wraps_line0 = editor.wrap_line_px(0, max_w, ascii_w, cjk_w, tab_size);
         let wraps_line1 = editor.wrap_line_px(1, max_w, ascii_w, cjk_w, tab_size);
-        assert!(wraps_line0.len() >= 1);
+        assert!(!wraps_line0.is_empty());
         assert!(wraps_line1.len() >= 2);
 
         // Position cursor at col 10 in line 0

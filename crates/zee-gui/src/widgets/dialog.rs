@@ -161,7 +161,7 @@ impl Dialog {
                                 let cx = cx.clone();
                                 async move {
                                     smol::Timer::after(std::time::Duration::from_millis(1500)).await;
-                                    let _ = cx.update(|cx| {
+                                    cx.update(|cx| {
                                         cx.dispatch_action(&Quit {});
                                     });
                                 }
@@ -243,14 +243,12 @@ impl Dialog {
                     }
                 }
             }
-            "down" => {
-                if matches!(self.dialog_type, DialogType::OpenFile | DialogType::SaveAs) {
-                    if !self.files.is_empty() {
+            "down"
+                if matches!(self.dialog_type, DialogType::OpenFile | DialogType::SaveAs)
+                    && !self.files.is_empty() => {
                         self.selected_idx = (self.selected_idx + 1).min(self.files.len() - 1);
                         self.input_text = self.files[self.selected_idx].name.clone();
                     }
-                }
-            }
             "backspace" => {
                 if matches!(self.dialog_type, DialogType::OpenFile | DialogType::SaveAs) && event.keystroke.modifiers.platform {
                     if let Some(parent) = self.current_dir.parent() {
@@ -419,7 +417,7 @@ impl Dialog {
                         div()
                             .text_size(px(13.0))
                             .text_color(with_alpha(led_color_to_gpui(theme.editor.foreground), 0.7))
-                            .child(format!("{} 0.1.0", self.i18n.get("about.version")))
+                            .child(format!("{} {}", self.i18n.get("about.version"), env!("CARGO_PKG_VERSION")))
                     )
                     .child(
                         div()

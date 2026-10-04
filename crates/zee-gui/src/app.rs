@@ -5,7 +5,6 @@ use zee_core::theme::Theme;
 use crate::window_view::WindowView;
 use crate::workspace::Workspace;
 use anyhow::Result;
-use serde_json;
 use futures::StreamExt;
 use url::Url;
 
@@ -407,14 +406,14 @@ pub fn new_window(config: Config, i18n: I18n, cx: &mut App) {
     let theme_to_use = if config.theme == "terminal-default" || config.theme.is_empty() {
         match cx.window_appearance() {
             WindowAppearance::Dark | WindowAppearance::VibrantDark => {
-                Theme::find_by_name("tokyo-night").unwrap_or_else(Theme::default)
+                Theme::find_by_name("tokyo-night").unwrap_or_default()
             }
             WindowAppearance::Light | WindowAppearance::VibrantLight => {
-                Theme::find_by_name("catppuccin-latte").unwrap_or_else(Theme::default)
+                Theme::find_by_name("catppuccin-latte").unwrap_or_default()
             }
         }
     } else {
-        Theme::find_by_name(&config.theme).unwrap_or_else(Theme::default)
+        Theme::find_by_name(&config.theme).unwrap_or_default()
     };
 
     let options = centered_window_options(cx);
@@ -434,14 +433,14 @@ pub fn open_paths(paths: Vec<std::path::PathBuf>, config: Config, i18n: I18n, cx
     let theme_to_use = if config.theme == "terminal-default" || config.theme.is_empty() {
         match cx.window_appearance() {
             WindowAppearance::Dark | WindowAppearance::VibrantDark => {
-                Theme::find_by_name("tokyo-night").unwrap_or_else(Theme::default)
+                Theme::find_by_name("tokyo-night").unwrap_or_default()
             }
             WindowAppearance::Light | WindowAppearance::VibrantLight => {
-                Theme::find_by_name("catppuccin-latte").unwrap_or_else(Theme::default)
+                Theme::find_by_name("catppuccin-latte").unwrap_or_default()
             }
         }
     } else {
-        Theme::find_by_name(&config.theme).unwrap_or_else(Theme::default)
+        Theme::find_by_name(&config.theme).unwrap_or_default()
     };
 
     let options = centered_window_options(cx);
@@ -567,10 +566,8 @@ pub fn build_native_menus(i18n: &I18n, config: &zee_core::config::Config) -> Vec
         ));
     }
 
-    let encodings = vec![
-        "UTF-8", "UTF-8 with BOM", "UTF-16 LE", "UTF-16 BE", 
-        "Shift-JIS", "EUC-JP", "ISO-2022-JP", "Latin-1"
-    ];
+    let encodings = ["UTF-8", "UTF-8 with BOM", "UTF-16 LE", "UTF-16 BE", 
+        "Shift-JIS", "EUC-JP", "ISO-2022-JP", "Latin-1"];
 
     let reopen_items = encodings.iter().map(|e| {
         MenuItem::action(e.to_string(), ReopenWithEncoding { encoding: e.to_string() })

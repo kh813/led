@@ -156,7 +156,7 @@ impl EditorView {
 
         self.workspace.update(cx, |w, cx| {
             let expand_tab = w.config.expand_tab;
-            let tab_size = w.config.tab_size as usize;
+            let tab_size = w.config.tab_size;
             let word_wrap = w.config.word_wrap;
             let max_w = self.last_wrap_width_px;
             let ascii_w = self.ascii_width_px;
@@ -588,7 +588,7 @@ impl EditorView {
                 let cjk_w = self.cjk_width_px;
                 self.workspace.update(cx, |w, cx| {
                     let word_wrap = w.config.word_wrap;
-                    let tab_size = w.config.tab_size as usize;
+                    let tab_size = w.config.tab_size;
                     if let Some(editor) = w.active_editor_mut() {
                         if word_wrap {
                             editor.move_cursor_vdown_px(max_w, ascii_w, cjk_w, tab_size, false);
@@ -605,7 +605,7 @@ impl EditorView {
                 let cjk_w = self.cjk_width_px;
                 self.workspace.update(cx, |w, cx| {
                     let word_wrap = w.config.word_wrap;
-                    let tab_size = w.config.tab_size as usize;
+                    let tab_size = w.config.tab_size;
                     if let Some(editor) = w.active_editor_mut() {
                         if word_wrap {
                             editor.move_cursor_vup_px(max_w, ascii_w, cjk_w, tab_size, false);
@@ -697,7 +697,6 @@ impl EditorView {
             }
             "r" => {
                 self.pending_r = true;
-                return;
             }
             "s" => {
                 self.workspace.update(cx, |w, cx| {
@@ -806,15 +805,12 @@ impl EditorView {
             }
             "d" => {
                 self.pending_d = true;
-                return;
             }
             "c" => {
                 self.pending_c = true;
-                return;
             }
             "y" => {
                 self.pending_y = true;
-                return;
             }
             "p" => {
                 if let Some(item) = cx.read_from_clipboard() {
@@ -887,7 +883,6 @@ impl EditorView {
                 } else {
                     self.pending_g = true;
                 }
-                return;
             }
             "G" => {
                 self.workspace.update(cx, |w, cx| {
@@ -922,7 +917,7 @@ impl EditorView {
                 let cjk_w = self.cjk_width_px;
                 self.workspace.update(cx, |w, cx| {
                     let word_wrap = w.config.word_wrap;
-                    let tab_size = w.config.tab_size as usize;
+                    let tab_size = w.config.tab_size;
                     if let Some(editor) = w.active_editor_mut() {
                         match key {
                             "up" => {
@@ -1036,7 +1031,7 @@ impl EditorView {
                 let cjk_w = self.cjk_width_px;
                 self.workspace.update(cx, |w, cx| {
                     let word_wrap = w.config.word_wrap;
-                    let tab_size = w.config.tab_size as usize;
+                    let tab_size = w.config.tab_size;
                     if let Some(editor) = w.active_editor_mut() {
                         if word_wrap {
                             editor.move_cursor_vdown_px(max_w, ascii_w, cjk_w, tab_size, true);
@@ -1053,7 +1048,7 @@ impl EditorView {
                 let cjk_w = self.cjk_width_px;
                 self.workspace.update(cx, |w, cx| {
                     let word_wrap = w.config.word_wrap;
-                    let tab_size = w.config.tab_size as usize;
+                    let tab_size = w.config.tab_size;
                     if let Some(editor) = w.active_editor_mut() {
                         if word_wrap {
                             editor.move_cursor_vup_px(max_w, ascii_w, cjk_w, tab_size, true);
@@ -1247,7 +1242,7 @@ impl EditorView {
         let gutter_width = if workspace.config.line_numbers { px(52.0) } else { px(0.0) };
         let sidebar_width = if workspace.sidebar_visible { px(240.0) } else { px(0.0) };
         let char_width = px(font_size * 0.6);
-        let tab_size = workspace.config.tab_size as usize;
+        let tab_size = workspace.config.tab_size;
         let word_wrap = workspace.config.word_wrap;
 
         let tab_bar_height = px(36.0);
@@ -1540,7 +1535,7 @@ impl EntityInputHandler for EditorView {
         }
 
         let word_wrap = workspace.config.word_wrap;
-        let tab_size = workspace.config.tab_size as usize;
+        let tab_size = workspace.config.tab_size;
         let (visual_row, visual_x) = if !word_wrap {
             let vr = line - editor.scroll_row;
             let vc = (col as i32) - (editor.scroll_col as i32);
@@ -1706,7 +1701,7 @@ impl Render for EditorView {
             .child(
                 canvas(
                     move |_bounds, _window, _cx| {
-                        ()
+                        
                     },
                     move |bounds, (), window, cx| {
                         if focus_handle.is_focused(window) {
@@ -1783,7 +1778,7 @@ impl EditorView {
         let line_count = editor.line_count();
         let scroll_row = editor.scroll_row;
         let word_wrap = workspace.config.word_wrap;
-        let tab_size = workspace.config.tab_size as usize;
+        let tab_size = workspace.config.tab_size;
 
         let mut rows = Vec::new();
         let max_visual_rows = 100;
@@ -1852,7 +1847,7 @@ impl EditorView {
 
         let editor_bg = led_color_to_gpui(theme.editor.background);
         let bg: Rgba = if is_cursor_line {
-            theme.editor.current_line.map(|c| led_color_to_gpui(c)).unwrap_or(editor_bg)
+            theme.editor.current_line.map(led_color_to_gpui).unwrap_or(editor_bg)
         } else {
             editor_bg
         };
@@ -1926,6 +1921,7 @@ impl EditorView {
             )
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn render_visual_line_content(
         &self,
         line_idx: usize,
@@ -2054,8 +2050,8 @@ impl EditorView {
             let chunk_chars: Vec<char> = text.chars().collect();
             let chunk_len = chunk_chars.len();
 
-            if is_cursor_on_vrow && !cursor_rendered {
-                if cursor_vcol >= chunk_start_char && cursor_vcol <= chunk_start_char + chunk_len {
+            if is_cursor_on_vrow && !cursor_rendered
+                && cursor_vcol >= chunk_start_char && cursor_vcol <= chunk_start_char + chunk_len {
                     let split_idx = cursor_vcol - chunk_start_char;
                     let part1 = chunk_chars[..split_idx].iter().collect::<String>();
                     let part2 = chunk_chars[split_idx..].iter().collect::<String>();
@@ -2066,7 +2062,6 @@ impl EditorView {
                     self.render_chunk_internal(&part2, chunk_start_char + split_idx, token_color, v_selection.clone(), theme, line_height, elements);
                     return;
                 }
-            }
 
             self.render_chunk_internal(text, chunk_start_char, token_color, v_selection.clone(), theme, line_height, elements);
         };
@@ -2122,6 +2117,7 @@ impl EditorView {
             .into_any_element()
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn render_chunk_internal(
         &self,
         text: &str,
@@ -2141,8 +2137,8 @@ impl EditorView {
         let chunk_len = chunk_chars.len();
 
         if let Some(ref sel) = selection {
-            let sel_start = if sel.start > start_char { sel.start - start_char } else { 0 };
-            let sel_end = if sel.end > start_char { sel.end - start_char } else { 0 };
+            let sel_start = sel.start.saturating_sub(start_char);
+            let sel_end = sel.end.saturating_sub(start_char);
 
             if sel_start < chunk_len && sel_end > 0 {
                 let highlight_start = sel_start;

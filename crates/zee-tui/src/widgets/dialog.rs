@@ -138,7 +138,7 @@ impl FileBrowser {
         self.entries.clear();
         
         // Add parent dir if not at root
-        if let Some(_) = self.current_dir.parent() {
+        if self.current_dir.parent().is_some() {
             self.entries.push(FileEntry {
                 name: "..".to_string(),
                 is_dir: true,
@@ -285,7 +285,7 @@ impl FileBrowser {
                         if self.is_save_mode && !name.contains('.') {
                             name.push_str(self.default_ext);
                         }
-                        return Some(self.current_dir.join(&name));
+                        Some(self.current_dir.join(&name))
                     }
                 } else {
                     None
@@ -973,7 +973,7 @@ impl Dialog for MessageDialog {
         let mut cur_lx = lx;
         for c in self.message.chars() {
             let cw = c.width().unwrap_or(0) as u16;
-            if cur_lx + cw <= x + w - 1 {
+            if cur_lx + cw < x + w {
                 renderer.set_cell(cur_lx, ly, Cell { ch: c, bg: dialog_bg, fg: dialog_fg, width: cw as u8, ..Default::default() });
             }
             cur_lx += cw;
@@ -1078,8 +1078,8 @@ impl Dialog for AboutDialog {
         let dialog_fg = to_ct_color(theme.ui.panel_fg, theme);
 
         let content = [
-            format!("zee v0.1.0"),
-            format!("{}: v0.1.0", self.i18n_version),
+            format!("zee v{}", env!("CARGO_PKG_VERSION")),
+            format!("{}: v{}", self.i18n_version, env!("CARGO_PKG_VERSION")),
             "A lightweight, modern TUI editor.".to_string(),
             "".to_string(),
             format!("{}: MIT", self.i18n_license),
@@ -1092,7 +1092,7 @@ impl Dialog for AboutDialog {
             let mut cur_lx = lx;
             for c in line.chars() {
                 let cw = c.width().unwrap_or(0) as u16;
-                if cur_lx + cw <= x + w - 1 {
+                if cur_lx + cw < x + w {
                     renderer.set_cell(cur_lx, ly, Cell { ch: c, bg: dialog_bg, fg: dialog_fg, width: cw as u8, ..Default::default() });
                 }
                 cur_lx += cw;
@@ -1316,7 +1316,7 @@ impl Dialog for UpdateDialog {
             let mut cur_lx = lx;
             for c in line.chars() {
                 let cw = c.width().unwrap_or(0) as u16;
-                if cur_lx + cw <= x + w - 1 {
+                if cur_lx + cw < x + w {
                     renderer.set_cell(cur_lx, ly, Cell { ch: c, bg: dialog_bg, fg: dialog_fg, width: cw as u8, ..Default::default() });
                 }
                 cur_lx += cw;
@@ -1513,7 +1513,7 @@ impl Dialog for ReopenConfirmationDialog {
         let mut cur_lx = lx;
         for c in self.i18n_message.chars() {
             let cw = c.width().unwrap_or(0) as u16;
-            if cur_lx + cw <= x + w - 1 {
+            if cur_lx + cw < x + w {
                 renderer.set_cell(cur_lx, ly, Cell { ch: c, bg: dialog_bg, fg: dialog_fg, width: cw as u8, ..Default::default() });
             }
             cur_lx += cw;
@@ -1638,7 +1638,7 @@ impl Dialog for GoToLineDialog {
 
     fn handle_key(&mut self, key: KeyEvent) -> DialogResult<Action> {
         match key.code {
-            KeyCode::Char(c) if c.is_digit(10) => {
+            KeyCode::Char(c) if c.is_ascii_digit() => {
                 self.input_text.push(c);
                 DialogResult::Pending
             }

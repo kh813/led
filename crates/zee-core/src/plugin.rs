@@ -117,139 +117,93 @@ impl WasmPlugin {
         let parse_fn = self
             .parse_outline_fn
             .ok_or_else(|| anyhow::anyhow!("Plugin does not export zee_parse_outline"))?;
-        let alloc_fn = self
-            .alloc_fn
-            .ok_or_else(|| anyhow::anyhow!("Plugin does not export zee_alloc"))?;
 
-        let bytes = content.as_bytes();
-        let in_len = bytes.len() as i32;
-        let in_ptr = alloc_fn.call(&mut self.store, in_len)?;
+        let input = self.write_bytes(content.as_bytes())?;
+        let packed = parse_fn.call(&mut self.store, input);
+        self.dealloc(input);
 
-        self.memory.write(&mut self.store, in_ptr as usize, bytes)?;
-
-        let packed_result = parse_fn.call(&mut self.store, (in_ptr, in_len))?;
-
-        let out_ptr = ((packed_result >> 32) & 0xFFFF_FFFF) as i32;
-        let out_len = (packed_result & 0xFFFF_FFFF) as i32;
-
-        if out_len <= 0 || out_ptr == 0 {
-            if let Some(dealloc) = self.dealloc_fn {
-                let _ = dealloc.call(&mut self.store, (in_ptr, in_len));
-            }
-            return Ok(Vec::new());
+        match self.take_output(packed?)? {
+            Some(bytes) => serde_json::from_slice(&bytes)
+                .context("Failed to deserialize OutlineNode list from WASM plugin"),
+            None => Ok(Vec::new()),
         }
-
-        let mut out_bytes = vec![0u8; out_len as usize];
-        self.memory.read(&self.store, out_ptr as usize, &mut out_bytes)?;
-
-        let nodes: Vec<OutlineNode> = serde_json::from_slice(&out_bytes)
-            .context("Failed to deserialize OutlineNode list from WASM plugin")?;
-
-        if let Some(dealloc) = self.dealloc_fn {
-            let _ = dealloc.call(&mut self.store, (in_ptr, in_len));
-            let _ = dealloc.call(&mut self.store, (out_ptr, out_len));
-        }
-
-        Ok(nodes)
     }
 
     pub fn execute_command(&mut self, command: &str, args: &str) -> Result<String> {
-        let exec_fn = self
+        let f = self
             .exec_command_fn
             .ok_or_else(|| anyhow::anyhow!("Plugin does not export zee_execute_command"))?;
-        let alloc_fn = self
-            .alloc_fn
-            .ok_or_else(|| anyhow::anyhow!("Plugin does not export zee_alloc"))?;
-
-        let cmd_bytes = command.as_bytes();
-        let args_bytes = args.as_bytes();
-
-        let cmd_ptr = alloc_fn.call(&mut self.store, cmd_bytes.len() as i32)?;
-        self.memory.write(&mut self.store, cmd_ptr as usize, cmd_bytes)?;
-
-        let args_ptr = alloc_fn.call(&mut self.store, args_bytes.len() as i32)?;
-        self.memory.write(&mut self.store, args_ptr as usize, args_bytes)?;
-
-        let packed_result = exec_fn.call(
-            &mut self.store,
-            (
-                cmd_ptr,
-                cmd_bytes.len() as i32,
-                args_ptr,
-                args_bytes.len() as i32,
-            ),
-        )?;
-
-        let out_ptr = ((packed_result >> 32) & 0xFFFF_FFFF) as i32;
-        let out_len = (packed_result & 0xFFFF_FFFF) as i32;
-
-        let result_str = if out_len > 0 && out_ptr != 0 {
-            let mut out_bytes = vec![0u8; out_len as usize];
-            self.memory.read(&self.store, out_ptr as usize, &mut out_bytes)?;
-            String::from_utf8_lossy(&out_bytes).to_string()
-        } else {
-            String::new()
-        };
-
-        if let Some(dealloc) = self.dealloc_fn {
-            let _ = dealloc.call(&mut self.store, (cmd_ptr, cmd_bytes.len() as i32));
-            let _ = dealloc.call(&mut self.store, (args_ptr, args_bytes.len() as i32));
-            if out_len > 0 && out_ptr != 0 {
-                let _ = dealloc.call(&mut self.store, (out_ptr, out_len));
-            }
-        }
-
-        Ok(result_str)
+        self.call_string_fn(f, command, args)
     }
 
     pub fn transform_text(&mut self, command: &str, text: &str) -> Result<String> {
-        let transform_fn = self
+        let f = self
             .transform_text_fn
             .or(self.exec_command_fn)
             .ok_or_else(|| anyhow::anyhow!("Plugin does not export zee_transform_text or zee_execute_command"))?;
+        self.call_string_fn(f, command, text)
+    }
+
+    /// Calls a `(cmd_ptr, cmd_len, arg_ptr, arg_len) -> packed` export and decodes the UTF-8 result.
+    fn call_string_fn(
+        &mut self,
+        f: TypedFunc<(i32, i32, i32, i32), i64>,
+        command: &str,
+        arg: &str,
+    ) -> Result<String> {
+        let cmd = self.write_bytes(command.as_bytes())?;
+        let arg = match self.write_bytes(arg.as_bytes()) {
+            Ok(a) => a,
+            Err(e) => {
+                self.dealloc(cmd);
+                return Err(e);
+            }
+        };
+        let packed = f.call(&mut self.store, (cmd.0, cmd.1, arg.0, arg.1));
+        self.dealloc(cmd);
+        self.dealloc(arg);
+
+        Ok(self
+            .take_output(packed?)?
+            .map(|b| String::from_utf8_lossy(&b).into_owned())
+            .unwrap_or_default())
+    }
+
+    /// Allocates guest memory and copies `bytes` into it. Returns `(ptr, len)`.
+    fn write_bytes(&mut self, bytes: &[u8]) -> Result<(i32, i32)> {
         let alloc_fn = self
             .alloc_fn
             .ok_or_else(|| anyhow::anyhow!("Plugin does not export zee_alloc"))?;
+        let len = i32::try_from(bytes.len()).context("Input too large for WASM plugin")?;
+        let ptr = alloc_fn.call(&mut self.store, len)?;
+        if let Err(e) = self.memory.write(&mut self.store, ptr as usize, bytes) {
+            self.dealloc((ptr, len));
+            return Err(e.into());
+        }
+        Ok((ptr, len))
+    }
 
-        let cmd_bytes = command.as_bytes();
-        let text_bytes = text.as_bytes();
+    /// Decodes a packed `(ptr << 32) | len` result, copies it out and frees the guest buffer.
+    fn take_output(&mut self, packed: i64) -> Result<Option<Vec<u8>>> {
+        let packed = packed as u64;
+        let ptr = (packed >> 32) as i32;
+        let len = (packed & 0xFFFF_FFFF) as i32;
+        if len <= 0 || ptr == 0 {
+            return Ok(None);
+        }
+        let mut out = vec![0u8; len as usize];
+        let read = self.memory.read(&self.store, ptr as usize, &mut out);
+        self.dealloc((ptr, len));
+        read?;
+        Ok(Some(out))
+    }
 
-        let cmd_ptr = alloc_fn.call(&mut self.store, cmd_bytes.len() as i32)?;
-        self.memory.write(&mut self.store, cmd_ptr as usize, cmd_bytes)?;
-
-        let text_ptr = alloc_fn.call(&mut self.store, text_bytes.len() as i32)?;
-        self.memory.write(&mut self.store, text_ptr as usize, text_bytes)?;
-
-        let packed_result = transform_fn.call(
-            &mut self.store,
-            (
-                cmd_ptr,
-                cmd_bytes.len() as i32,
-                text_ptr,
-                text_bytes.len() as i32,
-            ),
-        )?;
-
-        let out_ptr = ((packed_result >> 32) & 0xFFFF_FFFF) as i32;
-        let out_len = (packed_result & 0xFFFF_FFFF) as i32;
-
-        let result_str = if out_len > 0 && out_ptr != 0 {
-            let mut out_bytes = vec![0u8; out_len as usize];
-            self.memory.read(&self.store, out_ptr as usize, &mut out_bytes)?;
-            String::from_utf8_lossy(&out_bytes).to_string()
-        } else {
-            String::new()
-        };
-
+    fn dealloc(&mut self, (ptr, len): (i32, i32)) {
         if let Some(dealloc) = self.dealloc_fn {
-            let _ = dealloc.call(&mut self.store, (cmd_ptr, cmd_bytes.len() as i32));
-            let _ = dealloc.call(&mut self.store, (text_ptr, text_bytes.len() as i32));
-            if out_len > 0 && out_ptr != 0 {
-                let _ = dealloc.call(&mut self.store, (out_ptr, out_len));
+            if ptr != 0 && len > 0 {
+                let _ = dealloc.call(&mut self.store, (ptr, len));
             }
         }
-
-        Ok(result_str)
     }
 }
 

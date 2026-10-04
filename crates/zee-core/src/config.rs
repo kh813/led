@@ -180,9 +180,9 @@ mod tests {
         let config = Config::deserialize_from_value(&value).unwrap();
         assert_eq!(config.language, "ja");
         assert_eq!(config.theme, "catppuccin-mocha");
-        assert_eq!(config.line_numbers, false);
+        assert!(!config.line_numbers);
         assert_eq!(config.tab_size, 2);
-        assert_eq!(config.expand_tab, false);
+        assert!(!config.expand_tab);
         assert_eq!(config.font_family, Some("Fira Code".to_string()));
         assert_eq!(config.font_size, 16.0);
         assert_eq!(config.line_height, 24.0);

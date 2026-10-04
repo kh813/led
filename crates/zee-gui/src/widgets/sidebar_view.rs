@@ -158,6 +158,7 @@ impl Render for SidebarView {
 }
 
 impl SidebarView {
+    #[allow(clippy::too_many_arguments)]
     fn render_files(
         &self,
         items: Vec<FlatFileItem>,
@@ -177,7 +178,7 @@ impl SidebarView {
                 items.into_iter().map(|item| {
                     let path = item.path.clone();
                     let is_dir = item.is_dir;
-                    let is_current = active_path.map_or(false, |p| *p == item.path);
+                    let is_current = active_path.is_some_and(|p| *p == item.path);
                     let depth_px = px((item.depth as f32) * 14.0 + 8.0);
 
                     let item_fg = if is_current {

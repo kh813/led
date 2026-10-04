@@ -175,7 +175,7 @@ impl SyntaxHighlighter {
                                 }
                                 if esc_count % 2 != 0 {
                                     // Escaped
-                                    search_offset = search_offset + m.end();
+                                    search_offset += m.end();
                                     continue;
                                 }
                             }
@@ -252,7 +252,7 @@ impl SyntaxHighlighter {
                                     if c == esc { esc_count += 1; } else { break; }
                                 }
                                 if esc_count % 2 != 0 {
-                                    search_offset = search_offset + m.end();
+                                    search_offset += m.end();
                                     continue;
                                 }
                             }

@@ -190,11 +190,10 @@ impl FindPanel {
                     self.handle_search_next(window, cx);
                 }
             }
-            "tab" => {
-                if self.is_replace_mode {
+            "tab"
+                if self.is_replace_mode => {
                     self.replace_focus.focus(window, cx);
                 }
-            }
             "escape" => self.hide(cx),
             "backspace" => {
                 self.find_text.pop();
@@ -460,16 +459,10 @@ impl Render for FindPanel {
                                     div().text_size(px(12.0)).child(self.replace_text.clone())
                                 }
                             )
-                            .children(if let Some(ref status) = self.replace_status {
-                                Some(
-                                    div()
+                            .children(self.replace_status.as_ref().map(|status| div()
                                         .text_size(px(10.5))
                                         .text_color(with_alpha(fg, 0.7))
-                                        .child(status.clone())
-                                )
-                            } else {
-                                None
-                            })
+                                        .child(status.clone())))
                     )
                     .child(
                         div()

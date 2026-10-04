@@ -253,16 +253,14 @@ impl App {
         let cur_le = buffer.map(|b| b.line_ending).unwrap_or(LineEnding::Lf);
         let cur_syntax = buffer.and_then(|b| b.syntax_highlighter.as_ref().map(|h| h.def.meta.name.clone())).unwrap_or_else(|| "Plain Text".to_string());
 
-        let encodings = vec![
-            (Encoding::Utf8, "UTF-8"),
+        let encodings = [(Encoding::Utf8, "UTF-8"),
             (Encoding::Utf8Bom, "UTF-8 with BOM"),
             (Encoding::Utf16Le, "UTF-16 LE"),
             (Encoding::Utf16Be, "UTF-16 BE"),
             (Encoding::ShiftJis, "Shift-JIS"),
             (Encoding::EucJp, "EUC-JP"),
             (Encoding::Iso2022Jp, "ISO-2022-JP"),
-            (Encoding::Latin1, "Latin-1 (ISO-8859-1)"),
-        ];
+            (Encoding::Latin1, "Latin-1 (ISO-8859-1)")];
 
         let reopen_items = encodings.iter().map(|(enc, label)| {
             MenuItem::Action { label: label.to_string(), action: Action::ReopenWithEncoding(*enc), shortcut: None }
@@ -746,8 +744,8 @@ impl App {
         };
 
         // Handle Ctrl+V / KeyCode::Char('v') with CONTROL modifier for Visual Block mode
-        if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('v') {
-            if buffer.vi_mode != zee_core::ViMode::Insert {
+        if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('v')
+            && buffer.vi_mode != zee_core::ViMode::Insert {
                 if buffer.vi_mode == zee_core::ViMode::VisualBlock {
                     buffer.vi_mode = zee_core::ViMode::Normal;
                     buffer.selection = None;
@@ -759,7 +757,6 @@ impl App {
                 self.ensure_cursor_visible();
                 return;
             }
-        }
 
         match buffer.vi_mode {
             zee_core::ViMode::Normal => self.handle_vi_normal_key(key),
@@ -1569,14 +1566,13 @@ impl App {
             }
             KeyCode::Home => buffer.move_cursor_home(extend_selection),
             KeyCode::End => buffer.move_cursor_end(extend_selection),
-            KeyCode::Char(c) => {
-                if key.modifiers == KeyModifiers::NONE || key.modifiers == KeyModifiers::SHIFT {
+            KeyCode::Char(c)
+                if (key.modifiers == KeyModifiers::NONE || key.modifiers == KeyModifiers::SHIFT) => {
                     if let Some(selection) = buffer.selection.take() {
                         buffer.delete(selection);
                     }
                     buffer.insert(buffer.cursor, &c.to_string());
                 }
-            }
             KeyCode::Backspace => {
                 if let Some(selection) = buffer.selection.take() {
                     buffer.delete(selection);
@@ -1617,7 +1613,7 @@ impl App {
         };
 
         let (line, col) = buffer.char_to_line_col(buffer.cursor);
-        let tab_size = self.config.tab_size as usize;
+        let tab_size = self.config.tab_size;
         
         if self.config.word_wrap {
             // Find visual line of cursor
@@ -1685,7 +1681,7 @@ impl App {
             for (i, c) in line_content.chars().enumerate() {
                 if i >= cursor_in_line { break; }
                 if c == '\t' {
-                    let tab_size = self.config.tab_size as usize;
+                    let tab_size = self.config.tab_size;
                     visual_col += tab_size - (visual_col % tab_size);
                 } else {
                     visual_col += c.width().unwrap_or(0);
@@ -2218,7 +2214,7 @@ impl App {
 
     fn move_cursor_vup(&mut self, extend_selection: bool) {
         let (_ex, _ey, ew, _eh) = self.layout.editor_bounds();
-        let tab_size = self.config.tab_size as usize;
+        let tab_size = self.config.tab_size;
         let buffer = &mut self.buffers[self.active_buffer];
         let (line, col) = buffer.char_to_line_col(buffer.cursor);
         let wraps = buffer.wrap_line(line, ew as usize, tab_size);
@@ -2252,7 +2248,7 @@ impl App {
 
     fn move_cursor_vdown(&mut self, extend_selection: bool) {
         let (_ex, _ey, ew, _eh) = self.layout.editor_bounds();
-        let tab_size = self.config.tab_size as usize;
+        let tab_size = self.config.tab_size;
         let buffer = &mut self.buffers[self.active_buffer];
         let (line, col) = buffer.char_to_line_col(buffer.cursor);
         let wraps = buffer.wrap_line(line, ew as usize, tab_size);
@@ -2590,7 +2586,7 @@ impl App {
         }
 
         let buffer = &self.buffers[self.active_buffer];
-        let tab_size = self.config.tab_size as usize;
+        let tab_size = self.config.tab_size;
 
         if self.config.word_wrap {
             let mut current_row = 0;
@@ -2613,7 +2609,7 @@ impl App {
                 logical_line_idx += 1;
                 vrow_offset = 0;
             }
-            return Some(buffer.rope.len_chars());
+            Some(buffer.rope.len_chars())
         } else {
             let line_idx = buffer.scroll_row + (y - ey) as usize;
             if line_idx >= buffer.line_count() {
@@ -2923,7 +2919,7 @@ impl App {
                 if line >= buffer.scroll_row {
                     let mut visual_x = 0;
                     let line_slice = buffer.rope.line(line);
-                    let tab_size = self.config.tab_size as usize;
+                    let tab_size = self.config.tab_size;
                     for (i, c) in line_slice.chars().enumerate() {
                         if i >= col { break; }
                         if c == '\t' {
@@ -3530,7 +3526,7 @@ impl App {
         let (_gx, _gy, gw, gh) = self.layout.gutter_bounds();
         let active_buffer_idx = self.active_buffer;
         let word_wrap = self.config.word_wrap;
-        let tab_size = self.config.tab_size as usize;
+        let tab_size = self.config.tab_size;
 
         let editor_bg = self.to_ct_color(self.theme.editor.background);
         let editor_fg = self.to_ct_color(self.theme.editor.foreground);
@@ -3737,12 +3733,11 @@ impl App {
 
                 let tokens = buffer.highlight_line(line_idx);
                 let line = buffer.line(line_idx);
-                let mut char_idx = buffer.rope.line_to_char(line_idx);
                 let mut visual_x = 0;
                 let mut current_token_idx = 0;
                 let mut byte_offset = 0;
                 
-                for c in line.chars() {
+                for (char_idx, c) in (buffer.rope.line_to_char(line_idx)..).zip(line.chars()) {
                     let char_len = c.len_utf8();
                     let char_w = if c == '\t' {
                         let tab_size = tab_size as u16;
@@ -3823,19 +3818,17 @@ impl App {
                         }
                     }
                     visual_x += char_w;
-                    char_idx += 1;
                     byte_offset += char_len;
                 }
                 // Last line end cursor
                 if line_idx == buffer.line_count() - 1 {
                      let last_char_idx = buffer.rope.line_to_char(line_idx) + line.len_chars();
                      let ends_with_newline = line.len_chars() > 0 && (line.char(line.len_chars()-1) == '\n' || line.char(line.len_chars()-1) == '\r');
-                     if !ends_with_newline && buffer.cursor == last_char_idx {
-                         if visual_x >= buffer.scroll_col as u16 && visual_x < buffer.scroll_col as u16 + ew {
+                     if !ends_with_newline && buffer.cursor == last_char_idx
+                         && visual_x >= buffer.scroll_col as u16 && visual_x < buffer.scroll_col as u16 + ew {
                              renderer.set_cell(ex + (visual_x - buffer.scroll_col as u16), ey + dy, Cell { ch: ' ', bg: cursor_bg, fg: editor_bg, ..Default::default() });
                              visual_x += 1;
                          }
-                     }
                 }
                 for dx in (visual_x.saturating_sub(buffer.scroll_col as u16))..ew {
                     renderer.set_cell(ex + dx, ey + dy, Cell { ch: ' ', bg: line_bg, fg: editor_fg, ..Default::default() });
@@ -3869,7 +3862,7 @@ impl App {
         let mut visual_col = col + 1;
         if self.config.word_wrap {
             let (_ex, _ey, ew, _eh) = self.layout.editor_bounds();
-            let wraps = buffer.wrap_line(line, ew as usize, self.config.tab_size as usize);
+            let wraps = buffer.wrap_line(line, ew as usize, self.config.tab_size);
             let char_in_line = col;
             for wrap in wraps {
                 if char_in_line >= wrap.start && char_in_line <= wrap.end {
@@ -3878,7 +3871,7 @@ impl App {
                     for (i, c) in line_slice.chars().enumerate().skip(wrap.start) {
                         if i >= char_in_line { break; }
                         if c == '\t' {
-                            let ts = self.config.tab_size as usize;
+                            let ts = self.config.tab_size;
                             w += ts - (w % ts);
                         } else {
                             w += c.width().unwrap_or(0);
@@ -3894,7 +3887,7 @@ impl App {
             for (i, c) in line_slice.chars().enumerate() {
                 if i >= col { break; }
                 if c == '\t' {
-                    let ts = self.config.tab_size as usize;
+                    let ts = self.config.tab_size;
                     w += ts - (w % ts);
                 } else {
                     w += c.width().unwrap_or(0);
@@ -4072,7 +4065,7 @@ mod tests {
 
         // Select "DontSave" -> Discard changes & exit
         app.handle_dialog_result(DialogResult::Ok(dialog::Action::DontSave));
-        assert_eq!(app.running, false);
+        assert!(!app.running);
     }
 
     #[test]

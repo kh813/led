@@ -406,7 +406,7 @@ impl Sidebar {
                     }
                     let item = &items[item_idx];
                     let is_selected = item_idx == self.selected_file_idx;
-                    let is_current_file = active_buffer_path.map_or(false, |p| p == item.path);
+                    let is_current_file = active_buffer_path.is_some_and(|p| p == item.path);
 
                     let item_bg = if is_selected { sel_bg } else { bg };
                     let item_fg = if is_current_file {
@@ -474,11 +474,7 @@ impl Sidebar {
                 if items.is_empty() {
                     let empty_msg = " (No headings)";
                     let y = by + 1;
-                    let mut cur_x = bx;
-                    for ch in empty_msg.chars() {
-                        if cur_x >= bx + content_w as u16 {
-                            break;
-                        }
+                    for (cur_x, ch) in (bx..bx + content_w as u16).zip(empty_msg.chars()) {
                         renderer.set_cell(
                             cur_x,
                             y,
@@ -491,7 +487,6 @@ impl Sidebar {
                                 width: 1,
                             },
                         );
-                        cur_x += 1;
                     }
                 } else {
                     for row_idx in 0..content_h {

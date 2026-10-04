@@ -93,7 +93,7 @@ pub fn check_latest(app_type: AppType) -> Result<ReleaseInfo> {
 }
 
 /// Find matching release asset for the current OS, CPU architecture, and application type.
-pub fn find_matching_asset<'a>(assets: &'a [ReleaseAsset], app_type: AppType) -> Option<&'a ReleaseAsset> {
+pub fn find_matching_asset(assets: &[ReleaseAsset], app_type: AppType) -> Option<&ReleaseAsset> {
     find_matching_asset_for_platform(assets, app_type, std::env::consts::OS, std::env::consts::ARCH)
 }
 
@@ -104,63 +104,33 @@ pub fn find_matching_asset_for_platform<'a>(
     os: &str,
     arch: &str,
 ) -> Option<&'a ReleaseAsset> {
+    let matches_app_type = |name: &str| match app_type {
+        AppType::Gui => name.starts_with("zeeg-"),
+        AppType::Cli => name.starts_with("zee-") && !name.starts_with("zeeg-"),
+    };
+
+    let is_arm64 = arch == "aarch64" || arch == "arm64";
+    let matches_arch = |name: &str| {
+        if is_arm64 {
+            name.contains("arm64") || name.contains("aarch64")
+        } else {
+            name.contains("x64") || name.contains("x86_64")
+        }
+    };
+
     for asset in assets {
         let name = asset.name.to_lowercase();
+        let is_archive = name.ends_with(".zip") || name.ends_with(".tar.gz");
 
-        // macOS
-        if os == "macos" {
-            let is_arm64 = arch == "aarch64" || arch == "arm64";
-            if is_arm64 && name.contains("macos") && (name.contains("arm64") || name.contains("aarch64")) {
-                if app_type == AppType::Gui && name.starts_with("zeeg-") && (name.ends_with(".zip") || name.ends_with(".tar.gz")) {
-                    return Some(asset);
-                } else if app_type == AppType::Cli && name.starts_with("zee-") && !name.starts_with("zeeg-") && (name.ends_with(".zip") || name.ends_with(".tar.gz")) {
-                    return Some(asset);
-                }
-            }
-            // x86_64 fallback if ever released
-            if !is_arm64 && name.contains("macos") && (name.contains("x64") || name.contains("x86_64")) {
-                if app_type == AppType::Gui && name.starts_with("zeeg-") && (name.ends_with(".zip") || name.ends_with(".tar.gz")) {
-                    return Some(asset);
-                } else if app_type == AppType::Cli && name.starts_with("zee-") && !name.starts_with("zeeg-") && (name.ends_with(".zip") || name.ends_with(".tar.gz")) {
-                    return Some(asset);
-                }
-            }
+        if !matches_app_type(&name) || !is_archive || !matches_arch(&name) {
+            continue;
         }
 
-        // Linux
-        if os == "linux" {
-            let is_arm64 = arch == "aarch64" || arch == "arm64";
-            let matches_arch = if is_arm64 {
-                name.contains("arm64") || name.contains("aarch64")
-            } else {
-                name.contains("x64") || name.contains("x86_64")
-            };
-
-            if name.contains("linux") && matches_arch {
-                if app_type == AppType::Gui && name.starts_with("zeeg-") && (name.ends_with(".zip") || name.ends_with(".tar.gz")) {
-                    return Some(asset);
-                } else if app_type == AppType::Cli && name.starts_with("zee-") && !name.starts_with("zeeg-") && (name.ends_with(".zip") || name.ends_with(".tar.gz")) {
-                    return Some(asset);
-                }
-            }
-        }
-
-        // Windows
-        if os == "windows" {
-            let is_arm64 = arch == "aarch64" || arch == "arm64";
-            let matches_arch = if is_arm64 {
-                name.contains("arm64") || name.contains("aarch64")
-            } else {
-                name.contains("x64") || name.contains("x86_64")
-            };
-
-            if name.contains("windows") && matches_arch && (name.ends_with(".zip") || name.ends_with(".tar.gz")) {
-                if app_type == AppType::Gui && name.starts_with("zeeg-") {
-                    return Some(asset);
-                } else if app_type == AppType::Cli && name.starts_with("zee-") && !name.starts_with("zeeg-") {
-                    return Some(asset);
-                }
-            }
+        if (os == "macos" && name.contains("macos"))
+            || (os == "linux" && name.contains("linux"))
+            || (os == "windows" && name.contains("windows"))
+        {
+            return Some(asset);
         }
     }
 
